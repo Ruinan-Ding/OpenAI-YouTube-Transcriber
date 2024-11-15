@@ -13,7 +13,7 @@
 import os
 import whisper
 from langdetect import detect
-from pytube import YouTube
+from pytubefix import YouTube
 
 
 #Function to open a file
