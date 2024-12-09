@@ -77,23 +77,44 @@ print(f"Audio downloaded to {output_path}/{filename}")
 transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() != 'n'
 
 if transcribe_audio:
-    # Load model and transcribe the audio
-    print("Transcribing the audio...")
+    # Prompt for model selection
+    model_choice = input("Select Whisper model:\n"
+                         "1. Tiny\n"
+                         "2. Base\n"
+                         "3. Small\n"
+                         "4. Medium\n"
+                         "5. Large-v1\n"
+                         "6. Large-v2\n"
+                         "7. Large-v3\n"
+                         "Enter your choice (1-7 or model name, default Base): ").lower()
 
-    #Uncomment any of the following line and comment out the selected model to use a different model. The larger the better quality but slower processing time. May require stronger PC for larger models.
-    #model = whisper.load_model("tiny")
-    model = whisper.load_model("base")
-    #model = whisper.load_model("small")
-    #model = whisper.load_model("medium")
-    #model = whisper.load_model("large-v1")
-    #model = whisper.load_model("large-v2")
-    #model = whisper.load_model("large-v3")
+    # Set model based on user input (default to "base") using match statement
+    match model_choice:
+        case '1' | 'tiny':
+            model_name = "tiny"
+        case '2' | 'base':
+            model_name = "base"
+        case '3' | 'small':
+            model_name = "small"
+        case '4' | 'medium':
+            model_name = "medium"
+        case '5' | 'large-v1':
+            model_name = "large-v1"
+        case '6' | 'large-v2':
+            model_name = "large-v2"
+        case '7' | 'large-v3':
+            model_name = "large-v3"
+        case _:  # Default case
+            model_name = "base"
 
-    #These are the English models. Uncomment the following lines and comment out the selected model to use the English models. They preform better for English audio but may not work as well for other languages.
-    #model = whisper.load_model("tiny.en")
-    #model = whisper.load_model("base.en")
-    #model = whisper.load_model("small.en")
-    #model = whisper.load_model("medium.en")
+    # Ask if they want the .en model (only if model is tiny, base, small, or medium)
+    if model_name in ("tiny", "base", "small", "medium"):
+        use_en_model = input("Use English-specific model? (y/N): ").lower() == 'y'
+        if use_en_model:
+            model_name += ".en"
+
+    # Load the selected model
+    model = whisper.load_model(model_name)
 
     result = model.transcribe("Audio/" + filename_base + ".mp3")
     transcribed_text = result["text"]
