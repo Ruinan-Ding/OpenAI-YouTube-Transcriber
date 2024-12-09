@@ -1,10 +1,10 @@
-# OpenAI Whisper YouTube Transcriber
+# OpenAI Whisper YouTube Multi-Tool
 
-A powerful and intuitive automation tool that extracts audio from YouTube videos, transcribes it into text, detects the language, and saves the transcription as a `.txt` file. Streamline your transcription workflow with cutting-edge technology, saving you valuable time and effort.
+A powerful and intuitive automation multi-tool, primarily designed to extract audio from YouTube videos, transcribe it into text, detect the language, and save the transcription as a `.txt` file. This core feature is complemented by many other functionalities, making it an essential tool for streamlining your workflow with cutting-edge technology.
 
 ## Table of Contents
 
-- [Project Overview](#openai-whisper-youtube-transcriber)
+- [Project Overview](#openai-whisper-youtube-multi-tool)
   - [Description](#description)
   - [Key Features](#key-features)
   - [Prerequisites](#prerequisites)
@@ -80,10 +80,10 @@ This script automates the transcription of YouTube videos into text format, elim
 
 ## Usage
 
-1. Run the script by executing `OpenAIWhisperYouTubeTranscriber.py`:
+1. Run the script by executing `OpenAIWhisperYouTubeMultiTool.py`:
 
    ```bash
-   python OpenAIWhisperYouTubeTranscriber.py
+   python OpenAIWhisperYouTubeMultiTool.py
    ```
 
 2. Input the YouTube video URL when prompted:
@@ -148,6 +148,7 @@ Here is the text below:
 
 <insert generated text>
 ```
+As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
 - If words are misinterpreted, prompt ChatGPT to correct them:
 
@@ -172,6 +173,7 @@ Here is the text below:
 
 <insert generated text>
 ```
+As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
 - **Using YouTube's Transcript**: If the video has an auto-generated transcript on YouTube, you can copy it and prompt ChatGPT to improve it. [Learn more about obtaining YouTube transcripts](https://www.descript.com/blog/article/transcript-of-youtube-videos). Use this prompt to ensure that the transcript remains verbatim while improving its quality:
 
@@ -209,7 +211,7 @@ Here is the text below:
 
 <insert generated text>
 ```
-As of GPT-3.5, long YouTube transcripts might be summarized. If this happens, break the transcript into parts and ask ChatGPT to process each section separately.
+As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
 - **Refining the Transcript**: If you'd like to improve the transcript, you can prompt ChatGPT with the following:
 
@@ -245,6 +247,7 @@ Here is the text below:
 
 <insert generated text>
 ```
+As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
 - **Summarizing the Transcript**: You can also ask ChatGPT to summarize the transcript into key takeaways:
 
@@ -299,10 +302,11 @@ Here is the text below:
 
 <insert generated text>
 ```
+As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
 ## Contributing
 
-We welcome contributions to this project! To get involved, you can submit a pull request or report any issues. We're open to suggestions for new features or improvements.
+We welcome contributions to this project! To get involved, participate in [Discussions](https://github.com/Ruinan-Ding/OpenAI-Whisper-YouTube-Multi-Tool/discussions), submit a pull request, or report any issues. We're open to suggestions for new features or improvements.
 
 ### Pull Requests
 
@@ -313,7 +317,7 @@ We welcome contributions to this project! To get involved, you can submit a pull
 
 ### Issues
 
-1. Before opening a new issue, check if a similar one already exists in the [Issues](https://github.com/Ruinan-Ding/OpenAI-Whisper-YouTube-Transcriber/issues) section.
+1. Before opening a new issue, check if a similar one already exists in the [Issues](https://github.com/Ruinan-Ding/OpenAI-Whisper-YouTube-Multi-Tool/issues) section.
 2. If not, create a new issue with a detailed description of the problem or proposed enhancement.
 
 ---
