@@ -99,21 +99,22 @@ if transcribe_audio:
     transcribed_text = result["text"]
     print(transcribed_text)
 
-    # Ask the user if they want to delete the audio file (default yes)
-    delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+    # Detect the language
+    language = detect(transcribed_text)
+    print(f"Detected language: {language}")
 
-    if delete_audio:
-        # Delete the audio file
-        os.remove(f"{output_path}/{filename}")
-        print("Audio file deleted.")
-    else:
-        print("Audio file kept.")
+    # Create and open a txt file with the text
+    create_and_open_txt(transcribed_text, f"Transcript_{language}.txt")
 else:
     print("Skipping transcription.")
+    transcribed_text = ""  # Assign an empty string
 
-#Detect the language
-language = detect(transcribed_text)
-print(f"Detected language: {language}")
+# Ask the user if they want to delete the audio file (default yes)
+delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
 
-#Create and open a txt file with the text
-create_and_open_txt(transcribed_text, f"Transcript_{language}.txt")
+if delete_audio:
+    # Delete the audio file
+    os.remove(f"{output_path}/{filename}")
+    print("Audio file deleted.")
+else:
+    print("Audio file kept.")
