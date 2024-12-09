@@ -5,7 +5,7 @@
 
 #Description
 #To run this script, open this script with Python or use the following command in a command line terminal where this file is:
-#python OpenAIWhisperYouTubeMultiTool.py
+#python OpenAI-Whisper-YouTube-Transcriber-Multitool.py
 #Input the YouTube video URL when prompted, and it will download the audio or video streams from the URL along with the transcription of the audio.
 
 
@@ -73,37 +73,43 @@ audio_stream.download(output_path=output_path, filename=filename)
 print(f"Audio downloaded to {output_path}/{filename}")
 
 
-#Load model and transcribe the audio
-print("Transcribing the audio...")
+# Ask the user if they want to transcribe the audio (default yes)
+transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() != 'n'
 
-#Uncomment any of the following line and comment out the selected model to use a different model. The larger the better quality but slower processing time. May require stronger PC for larger models.
-#model = whisper.load_model("tiny")
-model = whisper.load_model("base")
-#model = whisper.load_model("small")
-#model = whisper.load_model("medium")
-#model = whisper.load_model("large-v1")
-#model = whisper.load_model("large-v2")
-#model = whisper.load_model("large-v3")
+if transcribe_audio:
+    # Load model and transcribe the audio
+    print("Transcribing the audio...")
 
-#These are the English models. Uncomment the following lines and comment out the selected model to use the English models. They preform better for English audio but may not work as well for other languages.
-#model = whisper.load_model("tiny.en")
-#model = whisper.load_model("base.en")
-#model = whisper.load_model("small.en")
-#model = whisper.load_model("medium.en")
+    #Uncomment any of the following line and comment out the selected model to use a different model. The larger the better quality but slower processing time. May require stronger PC for larger models.
+    #model = whisper.load_model("tiny")
+    model = whisper.load_model("base")
+    #model = whisper.load_model("small")
+    #model = whisper.load_model("medium")
+    #model = whisper.load_model("large-v1")
+    #model = whisper.load_model("large-v2")
+    #model = whisper.load_model("large-v3")
 
-result = model.transcribe("Audio/" + filename_base + ".mp3")
-transcribed_text = result["text"]
-print(transcribed_text)
+    #These are the English models. Uncomment the following lines and comment out the selected model to use the English models. They preform better for English audio but may not work as well for other languages.
+    #model = whisper.load_model("tiny.en")
+    #model = whisper.load_model("base.en")
+    #model = whisper.load_model("small.en")
+    #model = whisper.load_model("medium.en")
 
-# Ask the user if they want to delete the audio file (default yes)
-delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+    result = model.transcribe("Audio/" + filename_base + ".mp3")
+    transcribed_text = result["text"]
+    print(transcribed_text)
 
-if delete_audio:
-    # Delete the audio file
-    os.remove(f"{output_path}/{filename}")
-    print("Audio file deleted.")
+    # Ask the user if they want to delete the audio file (default yes)
+    delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+
+    if delete_audio:
+        # Delete the audio file
+        os.remove(f"{output_path}/{filename}")
+        print("Audio file deleted.")
+    else:
+        print("Audio file kept.")
 else:
-    print("Audio file kept.")
+    print("Skipping transcription.")
 
 #Detect the language
 language = detect(transcribed_text)
