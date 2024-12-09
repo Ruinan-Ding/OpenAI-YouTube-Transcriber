@@ -35,37 +35,41 @@ url = input("Enter the YouTube video URL: ")
 #Create a YouTube object from the URL
 yt = YouTube(url)
 
-#Uncomment the following block to download the video stream of the highest resolution with audio
-'''
-#Get the video stream in .mp4 format
-print("Downloading the video stream of the highest resolution with audio...")
-video_audio_stream = yt.streams.filter().get_highest_resolution()
-#Download the video stream
-output_path = "VideoWithAudio"
-filename = "VideoWithAudio.mp4"
-video_audio_stream.download(output_path = output_path, filename = filename)
-print(f"Video with audio downloaded to {output_path}/{filename}")
-'''
+# Ask user if they want to download the video stream (default no)
+download_video = input("Download video stream? (y/N): ").lower() == 'y'
 
-#Uncomment the following block to download the video stream
-'''
-#Get the video stream in .mp4 format
-print("Downloading the video stream...")
-video_stream = yt.streams.filter(only_video = True).first()
-#Download the video stream
-output_path = "Video"
-filename = "Video.mp4"
-video_stream.download(output_path = output_path, filename = filename)
-print(f"Video downloaded to {output_path}/{filename}")
-'''
+video_title = yt.title
+filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ") 
 
-#Get the audio stream in .mp3 format
+if download_video:
+    # Ask if they want audio with the video (default yes)
+    include_audio = input("Include audio stream with video stream? (Y/n): ").lower() != 'n'
+
+    if include_audio:
+        # Get the highest resolution video with audio
+        print("Downloading the video stream of the highest resolution with audio...")
+        stream = yt.streams.filter().get_highest_resolution()
+        output_path = "VideoWithAudio"
+        filename = filename_base + ".mp4"
+    else:
+        # Get the video stream without audio
+        print("Downloading the video stream...")
+        stream = yt.streams.filter(only_video=True).first()
+        output_path = "Video"
+        filename = filename_base + ".mp4"
+
+    # Download the selected stream
+    stream.download(output_path=output_path, filename=filename)
+    print(f"Video downloaded to {output_path}/{filename}")
+
+
+# Get the audio stream in .mp3 format
 print("Downloading the audio stream...")
 audio_stream = yt.streams.filter().get_audio_only()
-#Download the audio stream
+# Download the audio stream
 output_path = "Audio"
-filename = "Audio.mp3"
-audio_stream.download(output_path = output_path, filename = filename)
+filename = filename_base + ".mp3"  # Use the video title for audio filename
+audio_stream.download(output_path=output_path, filename=filename)
 print(f"Audio downloaded to {output_path}/{filename}")
 
 
@@ -87,12 +91,19 @@ model = whisper.load_model("base")
 #model = whisper.load_model("small.en")
 #model = whisper.load_model("medium.en")
 
-result = model.transcribe("Audio/Audio.mp3")
+result = model.transcribe("Audio/" + filename_base + ".mp3")
 transcribed_text = result["text"]
 print(transcribed_text)
 
-#Delete the audio file. Comment out the following line to keep the audio file
-os.remove(f"{output_path}/{filename}")
+# Ask the user if they want to delete the audio file (default yes)
+delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+
+if delete_audio:
+    # Delete the audio file
+    os.remove(f"{output_path}/{filename}")
+    print("Audio file deleted.")
+else:
+    print("Audio file kept.")
 
 #Detect the language
 language = detect(transcribed_text)
