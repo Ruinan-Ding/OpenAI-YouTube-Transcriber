@@ -5,7 +5,7 @@
 
 #Description
 #To run this script, open this script with Python or use the following command in a command line terminal where this file is:
-#python OpenAI-Whisper-YouTube-Transcriber-Multitool.py
+#python OpenAI-Whisper-YouTube-Downloader-Translator-Transcriber-Multitool.py
 #Input the YouTube video URL when prompted, and it will download the audio or video streams from the URL along with the transcription of the audio.
 
 
@@ -107,16 +107,22 @@ if transcribe_audio:
         case _:  # Default case
             model_name = "base"
 
-    # Ask if they want the .en model (only if model is tiny, base, small, or medium)
-    if model_name in ("tiny", "base", "small", "medium"):
-        use_en_model = input("Use English-specific model? (y/N): ").lower() == 'y'
+    # Prompt for the desired transcription language
+    target_language = input("Enter the target language for transcription (e.g., 'es' or 'spanish', default 'en'. "
+                        "See supported languages at https://github.com/openai/whisper#supported-languages): ").lower()
+    if not target_language:
+        target_language = 'en'  # Default to English
+
+    # Ask if they want the .en model (only if model is tiny, base, small, or medium AND target_language is 'en')
+    if model_name in ("tiny", "base", "small", "medium") and target_language == 'en':
+        use_en_model = input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ").lower() == 'y'
         if use_en_model:
             model_name += ".en"
 
     # Load the selected model
     model = whisper.load_model(model_name)
 
-    result = model.transcribe("Audio/" + filename_base + ".mp3")
+    result = model.transcribe("Audio/" + filename_base + ".mp3", language=target_language)
     transcribed_text = result["text"]
     print(transcribed_text)
 
@@ -125,7 +131,10 @@ if transcribe_audio:
     print(f"Detected language: {language}")
 
     # Create and open a txt file with the text
-    create_and_open_txt(transcribed_text, f"Transcript_{language}.txt")
+    if language == 'en':
+        create_and_open_txt(transcribed_text, f"{filename_base}.txt")
+    else:
+        create_and_open_txt(transcribed_text, f"{filename_base} [{language}].txt")
 else:
     print("Skipping transcription.")
     transcribed_text = ""  # Assign an empty string
