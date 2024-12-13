@@ -9,41 +9,56 @@
 #Input the YouTube video URL when prompted, and it will download the audio or video streams from the URL along with the transcription of the audio.
 
 
-#import required modules
+# import required modules
 import os
 import whisper
 from langdetect import detect
 from pytubefix import YouTube
+from dotenv import load_dotenv
 
-
-#Function to open a file
+# Function to open a file
 def startfile(fn):
     os.system('open %s' % fn)
 
-
-#Function to create and open a txt file
+# Function to create and open a txt file
 def create_and_open_txt(text, filename):
-    #Create and write the text to a txt file
+    # Create and write the text to a txt file
     with open(filename, "w") as file:
         file.write(text)
     startfile(filename)
 
+# Check if .env file exists
+if os.path.exists(".env"):
+    load_env = input("Load parameters from .env file? (Y/n): ").lower() != 'n'
+    if load_env:  # Load only if the user selects yes
+        load_dotenv()
 
-#Ask user for the YouTube video URL
-url = input("Enter the YouTube video URL: ")
+# Get parameters from environment variables or user input
+url = os.getenv("YOUTUBE_URL")
+if not (load_env and url):  # Prompt if not loading from .env OR if YOUTUBE_URL is not set
+    url = input("Enter the YouTube video URL: ")
 
-#Create a YouTube object from the URL
+# Create a YouTube object from the URL
 yt = YouTube(url)
 
-# Ask user if they want to download the video stream (default no)
-download_video = input("Download video stream? (y/N): ").lower() == 'y'
-
+# Extract the filename base from the video title  <--- Moved outside the if block
 video_title = yt.title
-filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ") 
+filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
 
-if download_video:
-    # Ask if they want audio with the video (default yes)
-    include_audio = input("Include audio stream with video stream? (Y/n): ").lower() != 'n'
+download_video_str = os.getenv("DOWNLOAD_VIDEO")
+if load_env and download_video_str:  # Check load_env first
+    download_video = download_video_str.lower() == 'y'
+else:
+    download_video = input("Download video stream? (y/N): ").lower() == 'y'
+
+include_audio_str = os.getenv("INCLUDE_AUDIO")
+if load_env and include_audio_str:
+    include_audio = include_audio_str.lower() == 'y'
+else:
+    if download_video:
+        include_audio = input("Include audio stream with video stream? (Y/n): ").lower() != 'n'
+    else:
+        include_audio = input("Include audio stream? (y/N): ").lower() == 'y'  # Prompt for audio even if not downloading video
 
     if include_audio:
         # Get the highest resolution video with audio
@@ -62,22 +77,21 @@ if download_video:
     stream.download(output_path=output_path, filename=filename)
     print(f"Video downloaded to {output_path}/{filename}")
 
-
 # Get the audio stream in .mp3 format
 print("Downloading the audio stream...")
 audio_stream = yt.streams.filter().get_audio_only()
-# Download the audio stream
+
+# Set output_path and filename for the audio file
 output_path = "Audio"
-filename = filename_base + ".mp3"  # Use the video title for audio filename
+filename = filename_base + ".mp3"
+
+# Download the audio stream
 audio_stream.download(output_path=output_path, filename=filename)
 print(f"Audio downloaded to {output_path}/{filename}")
 
 
-# Ask the user if they want to transcribe the audio (default yes)
-transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() != 'n'
-
-if transcribe_audio:
-    # Prompt for model selection
+model_choice = os.getenv("MODEL_CHOICE")
+if not (load_env and model_choice):  # Prompt if not loading from .env OR if MODEL_CHOICE is not set in .env
     model_choice = input("Select Whisper model:\n"
                          "1. Tiny\n"
                          "2. Base\n"
@@ -88,36 +102,52 @@ if transcribe_audio:
                          "7. Large-v3\n"
                          "Enter your choice (1-7 or model name, default Base): ").lower()
 
-    # Set model based on user input (default to "base") using match statement
-    match model_choice:
-        case '1' | 'tiny':
-            model_name = "tiny"
-        case '2' | 'base':
-            model_name = "base"
-        case '3' | 'small':
-            model_name = "small"
-        case '4' | 'medium':
-            model_name = "medium"
-        case '5' | 'large-v1':
-            model_name = "large-v1"
-        case '6' | 'large-v2':
-            model_name = "large-v2"
-        case '7' | 'large-v3':
-            model_name = "large-v3"
-        case _:  # Default case
-            model_name = "base"
+# Set model based on user input (default to "base") using match statement
+match model_choice:
+    case '1' | 'tiny':
+        model_name = "tiny"
+    case '2' | 'base':
+        model_name = "base"
+    case '3' | 'small':
+        model_name = "small"
+    case '4' | 'medium':
+        model_name = "medium"
+    case '5' | 'large-v1':
+        model_name = "large-v1"
+    case '6' | 'large-v2':
+        model_name = "large-v2"
+    case '7' | 'large-v3':
+        model_name = "large-v3"
+    case _:  # Default case
+        model_name = "base"
 
-    # Prompt for the desired transcription language
-    target_language = input("Enter the target language for transcription (e.g., 'es' or 'spanish', default 'en'. "
-                        "See supported languages at https://github.com/openai/whisper#supported-languages): ").lower()
-    if not target_language:
-        target_language = 'en'  # Default to English
+transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
+if load_env and transcribe_audio_str:
+    transcribe_audio = transcribe_audio_str.lower() == 'y'
+else:
+    transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() != 'n'
 
-    # Ask if they want the .en model (only if model is tiny, base, small, or medium AND target_language is 'en')
-    if model_name in ("tiny", "base", "small", "medium") and target_language == 'en':
+if transcribe_audio:
+    target_language = os.getenv("TARGET_LANGUAGE")
+    if load_env and target_language:
+        # Use target_language from .env
+        pass  # Add your logic here to use the target_language from .env
+    else:
+        target_language = input("Enter the target language for transcription (e.g., 'es' or 'spanish', default 'en'. "
+                                "See supported languages at https://github.com/openai/whisper#supported-languages): ").lower()
+        if not target_language:
+            target_language = 'en'  # Default to English
+
+    use_en_model_str = os.getenv("USE_EN_MODEL")
+    if load_env and use_en_model_str:
+        use_en_model = use_en_model_str.lower() == 'y'
+    elif model_name in ("tiny", "base", "small", "medium") and target_language == 'en':
         use_en_model = input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ").lower() == 'y'
-        if use_en_model:
-            model_name += ".en"
+    else:
+        use_en_model = False  # Default to False if not in .env and not English
+
+    if use_en_model:
+        model_name += ".en"
 
     # Load the selected model
     model = whisper.load_model(model_name)
@@ -140,7 +170,11 @@ else:
     transcribed_text = ""  # Assign an empty string
 
 # Ask the user if they want to delete the audio file (default yes)
-delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+delete_audio_str = os.getenv("DELETE_AUDIO")
+if load_env and delete_audio_str:
+    delete_audio = delete_audio_str.lower() == 'y'  # Use value from .env
+else:
+    delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
 
 if delete_audio:
     # Delete the audio file
