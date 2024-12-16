@@ -31,9 +31,14 @@ load_env = False
 
 # Check if .env file exists
 if os.path.exists(".env"):
-    load_env = input("Load parameters from .env file? (Y/n): ").lower() != 'n'
-    if load_env:
+    auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in .env
+    if auto_load_env_str and auto_load_env_str.lower() == 'y':
+        load_env = True
         load_dotenv()
+    else:
+        load_env = input("Load parameters from .env file? (Y/n): ").lower() != 'n'
+        if load_env:
+            load_dotenv()
 else:
     print(".env file not found. Using default/interactive mode.")
 
