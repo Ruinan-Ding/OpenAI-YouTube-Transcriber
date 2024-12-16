@@ -35,6 +35,9 @@ if os.path.exists(".env"):
     if auto_load_env_str and auto_load_env_str.lower() == 'y':
         load_env = True
         load_dotenv()
+    elif auto_load_env_str and auto_load_env_str.lower() == 'n':
+        print("Using default/interactive mode.")
+        load_env = False
     else:
         load_env = input("Load parameters from .env file? (Y/n): ").lower() != 'n'
         if load_env:
