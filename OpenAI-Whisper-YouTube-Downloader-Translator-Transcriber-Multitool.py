@@ -198,7 +198,7 @@ else:
         else:
             download_audio = False
 
-    if transcribe_audio:
+    if transcribe_audio or download_audio:
         delete_audio_str = os.getenv("DELETE_AUDIO")
         if delete_audio_str:
             delete_audio = delete_audio_str.lower() == 'y'
@@ -276,5 +276,5 @@ if delete_audio:
     # Delete the audio file
     os.remove(f"{output_path}/{filename}")
     print("Audio file deleted.")
-else:
+elif transcribe_audio or download_audio:
     print("Audio file kept.")
