@@ -33,34 +33,34 @@ load_env = False
 if os.path.exists("config.env"):
     load_dotenv(dotenv_path="config.env")  # Load config.env first
     auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in config.env
-    if auto_load_env_str and auto_load_env_str.lower() == 'y':
+    if auto_load_env_str and auto_load_env_str.lower() in ('y', 'yes', 'true', 't', '1'):
         load_env = True
-    elif auto_load_env_str and auto_load_env_str.lower() == 'n':
+    elif auto_load_env_str and auto_load_env_str.lower() in ('n', 'no', 'false', 'f', '0'):
         print("Using default/interactive mode.")
         load_env = False
     else:
-        load_env = input("Load parameters from .env file? (Y/n): ").lower() != 'n'
+        load_env = input("Load parameters from .env file? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
 else:
     print("config.env file not found. Using default/interactive mode.")
 
 # --- Get ALL parameters from user first if not loading from .env ---
 if not load_env:
     url = input("Enter the YouTube video URL: ")
-    download_video = input("Download video stream? (y/N): ").lower() == 'y'
+    download_video = input("Download video stream? (y/N): ").lower() in ('y', 'yes', 'true', 't', '1')
 
     include_audio = False
 
     if download_video:
-        include_audio = input("Include audio stream with video stream? (Y/n): ").lower() != 'n'
+        include_audio = input("Include audio stream with video stream? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
     else:
         # ... (No need to ask about including audio here)
         pass  # You can remove this 'pass' if there's no other code in the else block
     
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if load_env and transcribe_audio_str:
-        transcribe_audio = transcribe_audio_str.lower() == 'y'
+        transcribe_audio = transcribe_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
     else:
-        transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() != 'n'
+        transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
 
     if transcribe_audio:  # Only ask model and language options if transcribing
         model_choice = input("Select Whisper model:\n"
@@ -107,10 +107,10 @@ if not load_env:
     # --- Download audio only if not transcribing ---
     download_audio = False
     if not transcribe_audio:
-        download_audio = input("Download audio only? (y/N): ").lower() == 'y'
+        download_audio = input("Download audio only? (y/N): ").lower() in ('y', 'yes', 'true', 't', '1')
 
     if transcribe_audio:  # Only ask to delete audio if transcribing
-        delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+        delete_audio = input("Delete the audio file? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
     else:
         delete_audio = False  # Don't delete audio if not transcribing
         
@@ -122,24 +122,24 @@ else:
 
     download_video_str = os.getenv("DOWNLOAD_VIDEO")
     if download_video_str:
-        download_video = download_video_str.lower() == 'y'
+        download_video = download_video_str.lower() in ('y', 'yes', 'true', 't', '1')
     else:
-        download_video = input("Download video stream? (y/N): ").lower() == 'y'
+        download_video = input("Download video stream? (y/N): ").lower() in ('y', 'yes', 'true', 't', '1')
 
     include_audio_str = os.getenv("INCLUDE_AUDIO")
     if include_audio_str:
-        include_audio = include_audio_str.lower() == 'y'
+        include_audio = include_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
     else:
         if download_video:
-            include_audio = input("Include audio stream with video stream? (Y/n): ").lower() != 'n'
+            include_audio = input("Include audio stream with video stream? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
         else:
             include_audio = False  # Or prompt the user if you prefer
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
-        transcribe_audio = transcribe_audio_str.lower() == 'y'
+        transcribe_audio = transcribe_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
     else:
-        transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() != 'n'
+        transcribe_audio = input("Transcribe the audio? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
 
     if transcribe_audio:
         model_choice = os.getenv("MODEL_CHOICE")
@@ -185,9 +185,9 @@ else:
 
         use_en_model_str = os.getenv("USE_EN_MODEL")
         if use_en_model_str:
-            use_en_model = use_en_model_str.lower() == 'y'
+            use_en_model = use_en_model_str.lower() in ('y', 'yes', 'true', 't', '1')
         elif model_name in ("tiny", "base", "small", "medium") and target_language == 'en':
-            use_en_model = input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ").lower() == 'y'
+            use_en_model = input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ").lower() in ('y', 'yes', 'true', 't', '1')
         else:
             use_en_model = False  # Default to False if not in .env and not English
     else:
@@ -197,19 +197,19 @@ else:
 
     download_audio_str = os.getenv("DOWNLOAD_AUDIO")
     if download_audio_str:
-        download_audio = download_audio_str.lower() == 'y'
+        download_audio = download_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
     else:
         if not transcribe_audio:
-            download_audio = input("Download audio only? (y/N): ").lower() == 'y'
+            download_audio = input("Download audio only? (y/N): ").lower() in ('y', 'yes', 'true', 't', '1')
         else:
             download_audio = False
 
     if transcribe_audio or download_audio:
         delete_audio_str = os.getenv("DELETE_AUDIO")
         if delete_audio_str:
-            delete_audio = delete_audio_str.lower() == 'y'
+            delete_audio = delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
         else:
-            delete_audio = input("Delete the audio file? (Y/n): ").lower() != 'n'
+            delete_audio = input("Delete the audio file? (Y/n): ").lower() not in ('n', 'no', 'false', 'f', '0')
     else:
         delete_audio = False
 
