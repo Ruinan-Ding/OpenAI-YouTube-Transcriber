@@ -4,7 +4,7 @@
 
 # Description
 # To run this script, open this script with Python or use the following command in a command line terminal where this file is:
-# python OpenAI-Whisper-YouTube-Downloader-Translator-Transcriber-Multitool.py
+# python WhisperYouTubeMultitool.py
 # Input the YouTube video URL when prompted, and it will download the audio or video streams
 # from the URL along with the transcription of the audio.
 
@@ -30,20 +30,18 @@ def create_and_open_txt(text, filename):
 load_env = False
 
 # Check if .env file exists
-if os.path.exists(".env"):
-    auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in .env
+if os.path.exists("config.env"):
+    load_dotenv(dotenv_path="config.env")  # Load config.env first
+    auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in config.env
     if auto_load_env_str and auto_load_env_str.lower() == 'y':
         load_env = True
-        load_dotenv()
     elif auto_load_env_str and auto_load_env_str.lower() == 'n':
         print("Using default/interactive mode.")
         load_env = False
     else:
         load_env = input("Load parameters from .env file? (Y/n): ").lower() != 'n'
-        if load_env:
-            load_dotenv()
 else:
-    print(".env file not found. Using default/interactive mode.")
+    print("config.env file not found. Using default/interactive mode.")
 
 # --- Get ALL parameters from user first if not loading from .env ---
 if not load_env:

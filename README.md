@@ -80,10 +80,10 @@ This script automates the transcription of YouTube videos into text format, elim
 
 ## Usage
 
-1. Run the script by executing `OpenAI-Whisper-YouTube-Downloader-Translator-Transcriber-Multitool.py`:
+1. Run the script by executing `WhisperYouTubeMultitool.py`:
 
    ```bash
-   python OpenAI-Whisper-YouTube-Downloader-Translator-Transcriber-Multitool.py
+   python WhisperYouTubeMultitool.py
    ```
 
 2. Input the YouTube video URL when prompted:
