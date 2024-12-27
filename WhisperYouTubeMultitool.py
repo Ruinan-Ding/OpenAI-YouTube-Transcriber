@@ -115,12 +115,12 @@ if not load_env:
             break  # Exit loop if the URL is valid
         except RegexMatchError:
             print("Incorrect value for YOUTUBE_URL. Please enter a valid YouTube video URL.")
-    download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')  # Use the validation function
+    download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
 
-    include_audio = False
+    no_audio_in_video = False
 
     if download_video:
-        include_audio = get_yes_no_input("Include audio stream with video stream? (Y/n): ")  # Use the validation function
+        no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
     else:
         # ... (No need to ask about including audio here)
         pass  # You can remove this 'pass' if there's no other code in the else block
@@ -210,25 +210,25 @@ else:
         download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
 
     if download_video:
-        include_audio_str = os.getenv("INCLUDE_AUDIO")
-        if include_audio_str:
-            if include_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                include_audio = True
-                print(f"Loaded INCLUDE_AUDIO: {include_audio_str} (from config.env)")
-            elif include_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                include_audio = False
-                print(f"Loaded INCLUDE_AUDIO: {include_audio_str} (from config.env)")
+        no_audio_in_video_str = os.getenv("NO_AUDIO_IN_VIDEO")
+        if no_audio_in_video_str:
+            if no_audio_in_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                no_audio_in_video = True
+                print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+            elif no_audio_in_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                no_audio_in_video = False
+                print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
             elif download_video:
-                print(f"Invalid value for INCLUDE_AUDIO in .env: {include_audio_str}")
+                print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
                 if download_video:
-                    include_audio = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
+                    no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
                 else:
-                    include_audio = False
+                    no_audio_in_video = False
     else:
         if download_video:
-            include_audio = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
+            include_audio = get_yes_no_input("... without the audio in the video? (y/N): ", "n")
         else:
-            include_audio = False
+            no_audio_in_video = False
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -347,17 +347,17 @@ filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
 print(f"Created YouTube object for {video_title}")  # Indicate step
 
 if download_video:
-    if include_audio:
+    if not no_audio_in_video:
         # Get the highest resolution video with audio
         print("Downloading the video stream of the highest resolution with audio...")
         stream = yt.streams.filter().get_highest_resolution()
-        output_path = "VideoWithAudio"
+        output_path = "Video"
         filename = filename_base + ".mp4"
     else:
         # Get the video stream without audio
         print("Downloading the video stream with no audio...")
         stream = yt.streams.filter(only_video=True).first()
-        output_path = "Video"
+        output_path = "VideoWithoutAudio"
         filename = filename_base + ".mp4"
 
     # Download the selected stream
