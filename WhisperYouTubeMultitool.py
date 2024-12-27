@@ -317,7 +317,7 @@ else:
                 print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
                 download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
-    if transcribe_audio or download_audio:
+    if transcribe_audio:
         delete_audio_str = os.getenv("DELETE_AUDIO")
         if delete_audio_str:
             if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
