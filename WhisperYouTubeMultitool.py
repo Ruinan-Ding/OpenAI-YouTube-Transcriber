@@ -22,10 +22,17 @@ def startfile(fn):
 
 # Function to create and open a txt file
 def create_and_open_txt(text, filename):
+    # Create a directory for the transcript if it doesn't exist
+    output_dir = "Transcript"  # Or your preferred directory name
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create the full path for the transcript file
+    file_path = os.path.join(output_dir, filename)
+
     # Create and write the text to a txt file
-    with open(filename, "w") as file:
+    with open(file_path, "w") as file:
         file.write(text)
-    startfile(filename)
+    startfile(file_path)
 
 # Function to get a yes/no input with validation and default option
 def get_yes_no_input(prompt_text, default="y"):
@@ -411,11 +418,11 @@ if transcribe_audio:
     # Create and open a txt file with the text
     if language == 'en':
         create_and_open_txt(transcribed_text, f"{filename_base}.txt")
-        file_path = os.path.abspath(f"{filename_base}" + ".txt")
+        file_path = os.path.abspath("Transcript/" + f"{filename_base}" + ".txt")
         print(f"Saved transcript to {file_path}")  # Indicate location
     else:
         create_and_open_txt(transcribed_text, f"{filename_base} [{language}].txt")
-        file_path = os.path.abspath(f"{filename_base}" + f" [{language}].txt")
+        file_path = os.path.abspath("Transcript/" + f"{filename_base}" + f" [{language}].txt")
         print(f"Saved transcript to {file_path}")  # Indicate location
 else:
     print("Skipping transcription.")
