@@ -377,7 +377,7 @@ else:
     
 if transcribe_audio or download_audio:  # Download audio if needed for video or audio-only
     print("Downloading the audio stream...")
-    audio_stream = yt.streams.filter().get_audio_only()
+    audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first() #highest quality audio
 
     # Set output_path and filename for the audio file
     output_path = "Audio"
