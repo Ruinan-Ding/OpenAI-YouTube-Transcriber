@@ -356,7 +356,7 @@ print(f"Created YouTube object for {video_title}")  # Indicate step
 if download_video:
     if not no_audio_in_video:
         # Get the highest resolution video with audio
-        print("Downloading the video stream of the highest resolution with audio...")
+        print("Downloading the video stream (highest resolution with audio)...")
         stream = yt.streams.filter().get_highest_resolution()
         output_path = "Video"
         filename = filename_base + ".mp4"
@@ -376,7 +376,7 @@ else:
     print("Skipping video download...")  # Indicate that video download is skipped
     
 if transcribe_audio or download_audio:  # Download audio if needed for video or audio-only
-    print("Downloading the audio stream...")
+    print("Downloading the audio stream (highest quality)...")
     audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first() #highest quality audio
 
     # Set output_path and filename for the audio file
