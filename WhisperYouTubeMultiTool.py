@@ -100,6 +100,7 @@ if os.path.exists("config.env"):
     print(f"config.env detected on {file_path}")
     load_dotenv(dotenv_path="config.env")  # Load config.env first
     auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in config.env
+    print(f"Loaded AUTO_LOAD_ENV: {auto_load_env_str} (from config.env)")
     if auto_load_env_str and auto_load_env_str.lower() in ('y', 'yes', 'true', 't', '1'):
         load_env = True
     elif auto_load_env_str and auto_load_env_str.lower() in ('n', 'no', 'false', 'f', '0'):
