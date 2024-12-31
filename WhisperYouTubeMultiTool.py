@@ -126,12 +126,32 @@ if not load_env:
     download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
 
     no_audio_in_video = False
+    no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
 
     if download_video:
-        no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
-    else:
-        # ... (No need to ask about including audio here)
-        pass  # You can remove this 'pass' if there's no other code in the else block
+        while True:
+            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default highest): ")
+            if not resolution:
+                resolution = "highest"  # Default to highest if input is empty
+                break
+            resolution = resolution.lower()  # Convert to lowercase after checking for empty input
+            if resolution in ("highest", "lowest"):
+                break
+            elif resolution.isdigit():
+                if int(resolution) > 0:  # Check if it's a non-zero number
+                    resolution += "p"  # Add "p" if it's a number
+                    break
+                else:
+                    print("Invalid resolution. Please enter a non-zero number.")
+            elif resolution.endswith("p") and resolution[:-1].isdigit():
+                if int(resolution[:-1]) > 0:  # Check if it's a non-zero number ending with "p"
+                    # The "p" should NOT be removed here
+                    break
+                else:
+                    print("Invalid resolution. Please enter a non-zero number.")
+            else:
+                print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
+        print(f"Using resolution: {resolution}")  # Indicate selected resolution
     
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if load_env and transcribe_audio_str:
@@ -232,11 +252,41 @@ else:
                     no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
                 else:
                     no_audio_in_video = False
-    else:
-        if download_video:
-            include_audio = get_yes_no_input("... without the audio in the video? (y/N): ", "n")
+            
+        resolution = os.getenv("RESOLUTION")
+        if resolution:
+            resolution = resolution.lower()  # Convert to lowercase for easier comparison
+            if resolution not in ("highest", "lowest"):
+                if resolution.isdigit():
+                    if int(resolution) > 0:
+                        resolution += "p"  # Add "p" if it's a number
+                    else:
+                        print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                        resolution = None  # Set to None to trigger the prompt
+                elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
+                    print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                    resolution = None  # Set to None to trigger the prompt
+            if resolution:  # Only print if resolution is valid
+                print(f"Loaded RESOLUTION: {resolution} (from config.env)")
         else:
-            no_audio_in_video = False
+            resolution = None  # Set to None to trigger the prompt
+            
+    if resolution is None:  # Prompt if resolution is not set or invalid
+        while True:
+            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default highest): ").lower()
+            if not resolution:
+                resolution = "highest"  # Default to highest if input is empty
+                break
+            if resolution in ("highest", "lowest"):
+                break
+            elif resolution.isdigit() and int(resolution) > 0:
+                resolution += "p"  # Add "p" if it's a valid number
+                break
+            elif resolution.endswith("p") and resolution[:-1].isdigit() and int(resolution[:-1]) > 0:
+                break
+            else:
+                print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
+        print(f"Using resolution: {resolution}")  # Indicate selected resolution
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -355,18 +405,53 @@ filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
 print(f"Created YouTube object for {video_title}")  # Indicate step
 
 if download_video:
-    if not no_audio_in_video:
-        # Get the highest resolution video with audio
-        print("Downloading the video stream (highest resolution with audio)...")
-        stream = yt.streams.filter().get_highest_resolution()
-        output_path = "Video"
-        filename = filename_base + ".mp4"
-    else:
-        # Get the video stream without audio
-        print("Downloading the video stream with no audio...")
-        stream = yt.streams.filter(only_video=True).first()
-        output_path = "VideoWithoutAudio"
-        filename = filename_base + ".mp4"
+    if resolution == "highest":
+        if no_audio_in_video:
+            streams = yt.streams.filter(only_video=True).order_by('resolution').desc()
+            if streams:
+                highest_res = streams.first().resolution
+                stream = yt.streams.filter(only_video=True, resolution=highest_res).first()
+            else:
+                stream = None
+            if stream is None:
+                print("Error: No suitable stream found for the highest resolution. Exiting...")
+                exit()
+            output_path = "VideoWithoutAudio"  # Define output_path here
+        else:
+            # Get the highest resolution video with audio
+            print("Downloading the video stream (highest resolution with audio)...")
+            stream = yt.streams.filter().get_highest_resolution()
+            output_path = "Video"
+    elif resolution == "lowest":
+        if no_audio_in_video:
+            streams = yt.streams.filter(only_video=True).order_by('resolution').desc()
+            if streams:
+                lowest_res = streams.last().resolution  # Get the lowest resolution from the ordered list
+                stream = yt.streams.filter(only_video=True, resolution=lowest_res).first()
+            else:
+                stream = None
+            if stream is None:
+                print("Error: No suitable stream found for the lowest resolution. Exiting...")
+                exit()
+            output_path = "VideoWithoutAudio"
+        else:
+            # Get the lowest resolution video with audio
+            print("Downloading the video stream (lowest resolution with audio)...")
+            stream = yt.streams.filter().get_lowest_resolution()
+            output_path = "Video"
+    else:  # Specific resolution provided
+        if no_audio_in_video:
+            # Get the specified resolution video without audio
+            print(f"Downloading the video stream ({resolution}, no audio)...")
+            stream = yt.streams.filter(only_video=True, resolution=resolution).first()
+            output_path = "VideoWithoutAudio"
+        else:
+            # Get the specified resolution video with audio
+            print(f"Downloading the video stream ({resolution} with audio)...")
+            stream = yt.streams.filter(resolution=resolution).first()
+            output_path = "Video"
+
+    filename = filename_base + ".mp4"
 
     # Download the selected stream
     print("Downloading video stream...")
