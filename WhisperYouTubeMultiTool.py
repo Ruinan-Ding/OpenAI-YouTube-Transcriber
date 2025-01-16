@@ -130,9 +130,9 @@ if not load_env:
 
     if download_video:
         while True:
-            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default highest): ")
+            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
             if not resolution:
-                resolution = "highest"  # Default to highest if input is empty
+                resolution = "0"  # Default to highest if input is empty
                 break
             resolution = resolution.lower()  # Convert to lowercase after checking for empty input
             if resolution in ("highest", "lowest"):
@@ -269,24 +269,8 @@ else:
             if resolution:  # Only print if resolution is valid
                 print(f"Loaded RESOLUTION: {resolution} (from config.env)")
         else:
-            resolution = None  # Set to None to trigger the prompt
-            
-    if resolution is None:  # Prompt if resolution is not set or invalid
-        while True:
-            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default highest): ").lower()
-            if not resolution:
-                resolution = "highest"  # Default to highest if input is empty
-                break
-            if resolution in ("highest", "lowest"):
-                break
-            elif resolution.isdigit() and int(resolution) > 0:
-                resolution += "p"  # Add "p" if it's a valid number
-                break
-            elif resolution.endswith("p") and resolution[:-1].isdigit() and int(resolution[:-1]) > 0:
-                break
-            else:
-                print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
-        print(f"Using resolution: {resolution}")  # Indicate selected resolution
+            print(f"Loaded RESOLUTION: null (from config.env)")
+            resolution = "0"
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -407,54 +391,96 @@ print(f"Created YouTube object for {video_title}")  # Indicate step
 if download_video:
     if resolution == "highest":
         if no_audio_in_video:
-            streams = yt.streams.filter(only_video=True).order_by('resolution').desc()
-            if streams:
-                highest_res = streams.first().resolution
-                stream = yt.streams.filter(only_video=True, resolution=highest_res).first()
-            else:
-                stream = None
-            if stream is None:
-                print("Error: No suitable stream found for the highest resolution. Exiting...")
-                exit()
-            output_path = "VideoWithoutAudio"  # Define output_path here
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
         else:
-            # Get the highest resolution video with audio
-            print("Downloading the video stream (highest resolution with audio)...")
-            stream = yt.streams.filter().get_highest_resolution()
-            output_path = "Video"
+            streams = yt.streams.filter(progressive=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        if streams:
+            stream = streams[0]  # Highest resolution is first in descending order
+        else:
+            stream = None
+
     elif resolution == "lowest":
         if no_audio_in_video:
-            streams = yt.streams.filter(only_video=True).order_by('resolution').desc()
-            if streams:
-                lowest_res = streams.last().resolution  # Get the lowest resolution from the ordered list
-                stream = yt.streams.filter(only_video=True, resolution=lowest_res).first()
-            else:
-                stream = None
-            if stream is None:
-                print("Error: No suitable stream found for the lowest resolution. Exiting...")
-                exit()
-            output_path = "VideoWithoutAudio"
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
         else:
-            # Get the lowest resolution video with audio
-            print("Downloading the video stream (lowest resolution with audio)...")
-            stream = yt.streams.filter().get_lowest_resolution()
-            output_path = "Video"
+            streams = yt.streams.filter(progressive=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        if streams:
+            stream = streams[-1]  # Lowest resolution is last in descending order
+        else:
+            stream = None
+
     else:  # Specific resolution provided
         if no_audio_in_video:
-            # Get the specified resolution video without audio
-            print(f"Downloading the video stream ({resolution}, no audio)...")
-            stream = yt.streams.filter(only_video=True, resolution=resolution).first()
-            output_path = "VideoWithoutAudio"
+            streams = yt.streams.filter(only_video=True, resolution=resolution)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
         else:
-            # Get the specified resolution video with audio
-            print(f"Downloading the video stream ({resolution} with audio)...")
-            stream = yt.streams.filter(resolution=resolution).first()
-            output_path = "Video"
+            streams = yt.streams.filter(progressive=True, resolution=resolution)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        if streams:
+            stream = streams[0]  # If specific resolution exists, take the first
+        else:
+            stream = None
+
+    # If the requested resolution is not found, prompt the user
+    if stream is None:
+        print("Requested resolution not found or left null.")
+        if no_audio_in_video:
+            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+        else:
+            available_streams = yt.streams.filter(progressive=True)  # Define available_streams here
+
+        # Order streams by resolution numerically
+        available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        # Use a set to get unique resolutions and then order them
+        available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
+        available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+
+        if not available_resolutions:
+            print("No video streams found. Exiting...")
+            exit()
+
+        print("Available resolutions:")
+        for i, res in enumerate(available_resolutions):
+            print(f"{i+1}. {res}")
+
+        while True:
+            user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+            if not user_input:
+                selected_res = available_resolutions[0]  # Default to highest
+                break
+            elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
+                selected_res = available_resolutions[int(user_input) - 1]
+                break
+            elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+                selected_res = user_input if user_input in available_resolutions else user_input + "p"
+                break
+            else:
+                print("Invalid input. Please enter a valid number or resolution.")
+
+        if no_audio_in_video:
+            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
+        else:
+            stream = yt.streams.filter(progressive=True, resolution=selected_res).first()
+
+        if stream is None:
+            print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
+            exit()
+
+    # Set output path based on audio preference
+    output_path = "VideoWithoutAudio" if no_audio_in_video else "Video"
 
     filename = filename_base + ".mp4"
 
     # Download the selected stream
-    print("Downloading video stream...")
+    print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
     stream.download(output_path=output_path, filename=filename)
     file_path = os.path.abspath(output_path + "/" + filename)
     print(f"Video downloaded to {file_path}")
@@ -463,7 +489,14 @@ else:
     
 if transcribe_audio or download_audio:  # Download audio if needed for video or audio-only
     print("Downloading the audio stream (highest quality)...")
-    audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first() #highest quality audio
+
+    audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
+
+    # Order audio streams by bitrate numerically, but keep it as a stream query
+    audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+
+    audio_stream = audio_streams[0]  # Select the first stream from the sorted list
+
 
     # Set output_path and filename for the audio file
     output_path = "Audio"
