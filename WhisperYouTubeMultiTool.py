@@ -394,7 +394,7 @@ if download_video:
             streams = yt.streams.filter(only_video=True)
             streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
         else:
-            streams = yt.streams.filter(progressive=True)
+            streams = yt.streams.filter(only_video=True)
             streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
         if streams:
@@ -407,7 +407,7 @@ if download_video:
             streams = yt.streams.filter(only_video=True)
             streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
         else:
-            streams = yt.streams.filter(progressive=True)
+            streams = yt.streams.filter(only_video=True)
             streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
         if streams:
@@ -420,7 +420,7 @@ if download_video:
             streams = yt.streams.filter(only_video=True, resolution=resolution)
             streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
         else:
-            streams = yt.streams.filter(progressive=True, resolution=resolution)
+            streams = yt.streams.filter(only_video=True, resolution=resolution)
             streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
         if streams:
@@ -434,7 +434,7 @@ if download_video:
         if no_audio_in_video:
             available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
         else:
-            available_streams = yt.streams.filter(progressive=True)  # Define available_streams here
+            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
 
         # Order streams by resolution numerically
         available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
@@ -468,22 +468,62 @@ if download_video:
         if no_audio_in_video:
             stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
         else:
-            stream = yt.streams.filter(progressive=True, resolution=selected_res).first()
+            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
         if stream is None:
             print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
             exit()
 
     # Set output path based on audio preference
-    output_path = "VideoWithoutAudio" if no_audio_in_video else "Video"
+    if no_audio_in_video:
+        filename = filename_base + ".mp4"
+        output_path = "VideoWithoutAudio"
 
-    filename = filename_base + ".mp4"
+        # Download the selected stream
+        print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
+        stream.download(output_path=output_path, filename=filename)
+        file_path = os.path.abspath(output_path + "/" + filename)
+        print(f"Video downloaded to {file_path}")
+    else:
+        video_filename = filename_base + "_video.mp4"
+        output_path = "Video"
 
-    # Download the selected stream
-    print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
-    stream.download(output_path=output_path, filename=filename)
-    file_path = os.path.abspath(output_path + "/" + filename)
-    print(f"Video downloaded to {file_path}")
+        audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
+
+        # Order audio streams by bitrate numerically, but keep it as a stream query
+        audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+
+        audio_stream = audio_streams[0]  # Select the first stream from the sorted list
+
+        # Set output_path and filename for the audio file
+        audio_filename = filename_base + "_audio.mp3"
+
+        # Download the audio stream
+        audio_stream.download(output_path=output_path, filename=audio_filename)
+        file_path = os.path.abspath(output_path + "/" + audio_filename)
+        print(f"Audio downloaded to {file_path}")
+
+        # Download the selected stream
+        print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
+        stream.download(output_path=output_path, filename=video_filename)
+        file_path = os.path.abspath(output_path + "/" + video_filename)
+        print(f"Video downloaded to {file_path}")
+        
+        # Mux with ffmpeg
+        video_path = os.path.join(output_path, f"{video_filename}")
+        audio_path = os.path.join(output_path, f"{audio_filename}")
+        output_path_combined = os.path.join(output_path, f"{filename_base}.mp4")  # Use original filename
+
+        command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
+        os.system(command)
+
+        # Delete temporary files
+        os.remove(video_path)
+        os.remove(audio_path)
+
+        print(f"Combined video saved to {output_path_combined}")
+
+
 else:
     print("Skipping video download...")  # Indicate that video download is skipped
     
