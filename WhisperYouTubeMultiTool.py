@@ -4,7 +4,7 @@
 
 # Description
 # To run this script, open this script with Python or use the following command in a command line terminal where this file is:
-# python WhisperYouTubeMultitool.py
+# python WhisperYouTubeMultiTool.py
 # Input the YouTube video URL when prompted, and it will download the audio or video streams
 # from the URL along with the transcription of the audio.
 
@@ -22,10 +22,17 @@ def startfile(fn):
 
 # Function to create and open a txt file
 def create_and_open_txt(text, filename):
+    # Create a directory for the transcript if it doesn't exist
+    output_dir = "Transcript"  # Or your preferred directory name
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create the full path for the transcript file
+    file_path = os.path.join(output_dir, filename)
+
     # Create and write the text to a txt file
-    with open(filename, "w") as file:
+    with open(file_path, "w") as file:
         file.write(text)
-    startfile(filename)
+    startfile(file_path)
 
 # Function to get a yes/no input with validation and default option
 def get_yes_no_input(prompt_text, default="y"):
@@ -93,6 +100,7 @@ if os.path.exists("config.env"):
     print(f"config.env detected on {file_path}")
     load_dotenv(dotenv_path="config.env")  # Load config.env first
     auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in config.env
+    print(f"Loaded AUTO_LOAD_ENV: {auto_load_env_str} (from config.env)")
     if auto_load_env_str and auto_load_env_str.lower() in ('y', 'yes', 'true', 't', '1'):
         load_env = True
     elif auto_load_env_str and auto_load_env_str.lower() in ('n', 'no', 'false', 'f', '0'):
@@ -115,15 +123,35 @@ if not load_env:
             break  # Exit loop if the URL is valid
         except RegexMatchError:
             print("Incorrect value for YOUTUBE_URL. Please enter a valid YouTube video URL.")
-    download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')  # Use the validation function
+    download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
 
-    include_audio = False
+    no_audio_in_video = False
+    no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
 
     if download_video:
-        include_audio = get_yes_no_input("Include audio stream with video stream? (Y/n): ")  # Use the validation function
-    else:
-        # ... (No need to ask about including audio here)
-        pass  # You can remove this 'pass' if there's no other code in the else block
+        while True:
+            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
+            if not resolution:
+                resolution = "0"  # Default to highest if input is empty
+                break
+            resolution = resolution.lower()  # Convert to lowercase after checking for empty input
+            if resolution in ("highest", "lowest"):
+                break
+            elif resolution.isdigit():
+                if int(resolution) > 0:  # Check if it's a non-zero number
+                    resolution += "p"  # Add "p" if it's a number
+                    break
+                else:
+                    print("Invalid resolution. Please enter a non-zero number.")
+            elif resolution.endswith("p") and resolution[:-1].isdigit():
+                if int(resolution[:-1]) > 0:  # Check if it's a non-zero number ending with "p"
+                    # The "p" should NOT be removed here
+                    break
+                else:
+                    print("Invalid resolution. Please enter a non-zero number.")
+            else:
+                print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
+        print(f"Using resolution: {resolution}")  # Indicate selected resolution
     
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if load_env and transcribe_audio_str:
@@ -210,25 +238,39 @@ else:
         download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
 
     if download_video:
-        include_audio_str = os.getenv("INCLUDE_AUDIO")
-        if include_audio_str:
-            if include_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                include_audio = True
-                print(f"Loaded INCLUDE_AUDIO: {include_audio_str} (from config.env)")
-            elif include_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                include_audio = False
-                print(f"Loaded INCLUDE_AUDIO: {include_audio_str} (from config.env)")
+        no_audio_in_video_str = os.getenv("NO_AUDIO_IN_VIDEO")
+        if no_audio_in_video_str:
+            if no_audio_in_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                no_audio_in_video = True
+                print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+            elif no_audio_in_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                no_audio_in_video = False
+                print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
             elif download_video:
-                print(f"Invalid value for INCLUDE_AUDIO in .env: {include_audio_str}")
+                print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
                 if download_video:
-                    include_audio = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
+                    no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
                 else:
-                    include_audio = False
-    else:
-        if download_video:
-            include_audio = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
+                    no_audio_in_video = False
+            
+        resolution = os.getenv("RESOLUTION")
+        if resolution:
+            resolution = resolution.lower()  # Convert to lowercase for easier comparison
+            if resolution not in ("highest", "lowest"):
+                if resolution.isdigit():
+                    if int(resolution) > 0:
+                        resolution += "p"  # Add "p" if it's a number
+                    else:
+                        print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                        resolution = None  # Set to None to trigger the prompt
+                elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
+                    print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                    resolution = None  # Set to None to trigger the prompt
+            if resolution:  # Only print if resolution is valid
+                print(f"Loaded RESOLUTION: {resolution} (from config.env)")
         else:
-            include_audio = False
+            print(f"Loaded RESOLUTION: null (from config.env)")
+            resolution = "0"
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -317,7 +359,7 @@ else:
                 print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
                 download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
-    if transcribe_audio or download_audio:
+    if transcribe_audio:
         delete_audio_str = os.getenv("DELETE_AUDIO")
         if delete_audio_str:
             if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
@@ -347,30 +389,154 @@ filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
 print(f"Created YouTube object for {video_title}")  # Indicate step
 
 if download_video:
-    if include_audio:
-        # Get the highest resolution video with audio
-        print("Downloading the video stream of the highest resolution with audio...")
-        stream = yt.streams.filter().get_highest_resolution()
-        output_path = "VideoWithAudio"
-        filename = filename_base + ".mp4"
-    else:
-        # Get the video stream without audio
-        print("Downloading the video stream with no audio...")
-        stream = yt.streams.filter(only_video=True).first()
-        output_path = "Video"
-        filename = filename_base + ".mp4"
+    if resolution == "highest":
+        if no_audio_in_video:
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        else:
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
-    # Download the selected stream
-    print("Downloading video stream...")
-    stream.download(output_path=output_path, filename=filename)
-    file_path = os.path.abspath(output_path + "/" + filename)
-    print(f"Video downloaded to {file_path}")
+        if streams:
+            stream = streams[0]  # Highest resolution is first in descending order
+        else:
+            stream = None
+
+    elif resolution == "lowest":
+        if no_audio_in_video:
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        else:
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        if streams:
+            stream = streams[-1]  # Lowest resolution is last in descending order
+        else:
+            stream = None
+
+    else:  # Specific resolution provided
+        if no_audio_in_video:
+            streams = yt.streams.filter(only_video=True, resolution=resolution)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        else:
+            streams = yt.streams.filter(only_video=True, resolution=resolution)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        if streams:
+            stream = streams[0]  # If specific resolution exists, take the first
+        else:
+            stream = None
+
+    # If the requested resolution is not found, prompt the user
+    if stream is None:
+        print("Requested resolution not found or left null.")
+        if no_audio_in_video:
+            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+        else:
+            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+
+        # Order streams by resolution numerically
+        available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+        # Use a set to get unique resolutions and then order them
+        available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
+        available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+
+        if not available_resolutions:
+            print("No video streams found. Exiting...")
+            exit()
+
+        print("Available resolutions:")
+        for i, res in enumerate(available_resolutions):
+            print(f"{i+1}. {res}")
+
+        while True:
+            user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+            if not user_input:
+                selected_res = available_resolutions[0]  # Default to highest
+                break
+            elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
+                selected_res = available_resolutions[int(user_input) - 1]
+                break
+            elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+                selected_res = user_input if user_input in available_resolutions else user_input + "p"
+                break
+            else:
+                print("Invalid input. Please enter a valid number or resolution.")
+
+        if no_audio_in_video:
+            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
+        else:
+            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
+
+        if stream is None:
+            print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
+            exit()
+
+    # Set output path based on audio preference
+    if no_audio_in_video:
+        filename = filename_base + ".mp4"
+        output_path = "VideoWithoutAudio"
+
+        # Download the selected stream
+        print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
+        stream.download(output_path=output_path, filename=filename)
+        file_path = os.path.abspath(output_path + "/" + filename)
+        print(f"Video downloaded to {file_path}")
+    else:
+        video_filename = filename_base + "_video.mp4"
+        output_path = "Video"
+
+        audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
+
+        # Order audio streams by bitrate numerically, but keep it as a stream query
+        audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+
+        audio_stream = audio_streams[0]  # Select the first stream from the sorted list
+
+        # Set output_path and filename for the audio file
+        audio_filename = filename_base + "_audio.mp3"
+
+        # Download the audio stream
+        audio_stream.download(output_path=output_path, filename=audio_filename)
+        file_path = os.path.abspath(output_path + "/" + audio_filename)
+        print(f"Audio downloaded to {file_path}")
+
+        # Download the selected stream
+        print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
+        stream.download(output_path=output_path, filename=video_filename)
+        file_path = os.path.abspath(output_path + "/" + video_filename)
+        print(f"Video downloaded to {file_path}")
+        
+        # Mux with ffmpeg
+        video_path = os.path.join(output_path, f"{video_filename}")
+        audio_path = os.path.join(output_path, f"{audio_filename}")
+        output_path_combined = os.path.join(output_path, f"{filename_base}.mp4")  # Use original filename
+
+        command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
+        os.system(command)
+
+        # Delete temporary files
+        os.remove(video_path)
+        os.remove(audio_path)
+
+        print(f"Combined video saved to {output_path_combined}")
+
+
 else:
     print("Skipping video download...")  # Indicate that video download is skipped
     
 if transcribe_audio or download_audio:  # Download audio if needed for video or audio-only
-    print("Downloading the audio stream...")
-    audio_stream = yt.streams.filter().get_audio_only()
+    print("Downloading the audio stream (highest quality)...")
+
+    audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
+
+    # Order audio streams by bitrate numerically, but keep it as a stream query
+    audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+
+    audio_stream = audio_streams[0]  # Select the first stream from the sorted list
+
 
     # Set output_path and filename for the audio file
     output_path = "Audio"
@@ -411,11 +577,11 @@ if transcribe_audio:
     # Create and open a txt file with the text
     if language == 'en':
         create_and_open_txt(transcribed_text, f"{filename_base}.txt")
-        file_path = os.path.abspath(f"{filename_base}" + ".txt")
+        file_path = os.path.abspath("Transcript/" + f"{filename_base}" + ".txt")
         print(f"Saved transcript to {file_path}")  # Indicate location
     else:
         create_and_open_txt(transcribed_text, f"{filename_base} [{language}].txt")
-        file_path = os.path.abspath(f"{filename_base}" + f" [{language}].txt")
+        file_path = os.path.abspath("Transcript/" + f"{filename_base}" + f" [{language}].txt")
         print(f"Saved transcript to {file_path}")  # Indicate location
 else:
     print("Skipping transcription.")
