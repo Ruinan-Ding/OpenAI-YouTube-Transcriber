@@ -204,7 +204,7 @@ if not load_env:
 # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
 
 else:
-    url = os.getenv("YOUTUBE_URL")
+    url = os.getenv("URL")
     if url:
         try:
             # Attempt to create a YouTube object
@@ -390,12 +390,8 @@ print(f"Created YouTube object for {video_title}")  # Indicate step
 
 if download_video:
     if resolution == "highest":
-        if no_audio_in_video:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-        else:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        streams = yt.streams.filter(only_video=True)
+        streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
         if streams:
             stream = streams[0]  # Highest resolution is first in descending order
@@ -403,12 +399,8 @@ if download_video:
             stream = None
 
     elif resolution == "lowest":
-        if no_audio_in_video:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-        else:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        streams = yt.streams.filter(only_video=True)
+        streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
         if streams:
             stream = streams[-1]  # Lowest resolution is last in descending order
@@ -416,12 +408,8 @@ if download_video:
             stream = None
 
     else:  # Specific resolution provided
-        if no_audio_in_video:
-            streams = yt.streams.filter(only_video=True, resolution=resolution)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-        else:
-            streams = yt.streams.filter(only_video=True, resolution=resolution)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        streams = yt.streams.filter(only_video=True, resolution=resolution)
+        streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
         if streams:
             stream = streams[0]  # If specific resolution exists, take the first
@@ -431,10 +419,7 @@ if download_video:
     # If the requested resolution is not found, prompt the user
     if stream is None:
         print("Requested resolution not found or left null.")
-        if no_audio_in_video:
-            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
-        else:
-            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+        available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
 
         # Order streams by resolution numerically
         available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
@@ -465,10 +450,7 @@ if download_video:
             else:
                 print("Invalid input. Please enter a valid number or resolution.")
 
-        if no_audio_in_video:
-            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
-        else:
-            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
+        stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
         if stream is None:
             print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
