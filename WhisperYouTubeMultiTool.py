@@ -15,6 +15,8 @@ from langdetect import detect
 from pytubefix import YouTube
 from pytubefix.exceptions import RegexMatchError  # Import RegexMatchError
 from dotenv import load_dotenv
+from moviepy.editor import VideoFileClip  # Import moviepy for audio extraction
+#pip install moviepy==1.0.3 numpy>=1.18.1 imageio>=2.5.0 decorator>=4.3.0 tqdm>=4.0.0 Pillow>=7.0.0 scipy>=1.3.0 pydub>=0.23.0 audiofile>=0.0.0 opencv-python>=4.5
 
 # Function to open a file
 def startfile(fn):
@@ -115,43 +117,51 @@ else:
 # --- Get ALL parameters from user first if not loading from .env ---
 
 if not load_env:
-    while True:  # Loop until a valid URL is provided
-        url = input("Enter the YouTube video URL: ")
+    is_local_file = False  # Initialize the flag here
+    while True:
+        url = input("Enter the YouTube video URL or local file path: ")
         try:
-            # Attempt to create a YouTube object
             yt = YouTube(url)
-            break  # Exit loop if the URL is valid
+            break
         except RegexMatchError:
-            print("Incorrect value for YOUTUBE_URL. Please enter a valid YouTube video URL.")
-    download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
-
-    no_audio_in_video = False
-    no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
-
-    if download_video:
-        while True:
-            resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
-            if not resolution:
-                resolution = "0"  # Default to highest if input is empty
+            if url.endswith((".mp3", ".mp4")) and os.path.exists(url):
+                is_local_file = True
                 break
-            resolution = resolution.lower()  # Convert to lowercase after checking for empty input
-            if resolution in ("highest", "lowest"):
-                break
-            elif resolution.isdigit():
-                if int(resolution) > 0:  # Check if it's a non-zero number
-                    resolution += "p"  # Add "p" if it's a number
-                    break
-                else:
-                    print("Invalid resolution. Please enter a non-zero number.")
-            elif resolution.endswith("p") and resolution[:-1].isdigit():
-                if int(resolution[:-1]) > 0:  # Check if it's a non-zero number ending with "p"
-                    # The "p" should NOT be removed here
-                    break
-                else:
-                    print("Invalid resolution. Please enter a non-zero number.")
             else:
-                print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
-        print(f"Using resolution: {resolution}")  # Indicate selected resolution
+                print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
+
+    download_video = False
+
+    if not is_local_file:
+        download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
+
+        no_audio_in_video = False
+        no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
+
+        if download_video:
+            while True:
+                resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
+                if not resolution:
+                    resolution = "0"  # Default to highest if input is empty
+                    break
+                resolution = resolution.lower()  # Convert to lowercase after checking for empty input
+                if resolution in ("highest", "lowest"):
+                    break
+                elif resolution.isdigit():
+                    if int(resolution) > 0:  # Check if it's a non-zero number
+                        resolution += "p"  # Add "p" if it's a number
+                        break
+                    else:
+                        print("Invalid resolution. Please enter a non-zero number.")
+                elif resolution.endswith("p") and resolution[:-1].isdigit():
+                    if int(resolution[:-1]) > 0:  # Check if it's a non-zero number ending with "p"
+                        # The "p" should NOT be removed here
+                        break
+                    else:
+                        print("Invalid resolution. Please enter a non-zero number.")
+                else:
+                    print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
+            print(f"Using resolution: {resolution}")  # Indicate selected resolution
     
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if load_env and transcribe_audio_str:
@@ -191,86 +201,102 @@ if not load_env:
         model_name = "base"  # Set a default model name
         use_en_model = False
 
-    # --- Download audio only if not transcribing ---
-    download_audio = False
-    if not transcribe_audio:
-        download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
+    delete_audio = False
 
-    if transcribe_audio:  # Only ask to delete audio if transcribing
-        delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
-    else:
-        delete_audio = False  # Don't delete audio if not transcribing
+    if not is_local_file:
+        # --- Download audio only if not transcribing ---
+        download_audio = False
+        if not transcribe_audio:
+            download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
+
+        if transcribe_audio:  # Only ask to delete audio if transcribing
+            delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
+        else:
+            delete_audio = False  # Don't delete audio if not transcribing
         
 # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
 
 else:
+    is_local_file = False
     url = os.getenv("URL")
     if url:
         try:
-            # Attempt to create a YouTube object
             yt = YouTube(url)
             print(f"Loaded YOUTUBE_URL: {url} (from config.env)")
         except RegexMatchError:
-            print("Incorrect value for YOUTUBE_URL in config.env. Please enter a valid YouTube video URL: ")
-            url = input()
+            if url.endswith((".mp3", ".mp4")) and os.path.exists(url):
+                is_local_file = True
+                # ... (Call the handle_local_file function here) ... 
+            else:
+                print("Incorrect value for YOUTUBE_URL in config.env. "
+                      "Please enter a valid YouTube video URL or local file path: ")
+                url = input()
     else:
-        while True:  # Loop until a valid URL is provided
-            url = input("Enter the YouTube video URL: ")
+        while True:
+            url = input("Enter the YouTube video URL or local file path: ")
             try:
-                # Attempt to create a YouTube object
                 yt = YouTube(url)
-                break  # Exit loop if the URL is valid
+                break
             except RegexMatchError:
-                print("Incorrect value for YOUTUBE_URL. Please enter a valid YouTube video URL.")
-
-    download_video_str = os.getenv("DOWNLOAD_VIDEO")
-    if download_video_str:
-        if download_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
-            download_video = True
-            print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
-        elif download_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
-            download_video = False
-            print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
-        else:
-            print(f"Invalid value for DOWNLOAD_VIDEO in .env: {download_video_str}")
-            download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
-    else:
-        download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
-
-    if download_video:
-        no_audio_in_video_str = os.getenv("NO_AUDIO_IN_VIDEO")
-        if no_audio_in_video_str:
-            if no_audio_in_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                no_audio_in_video = True
-                print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
-            elif no_audio_in_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                no_audio_in_video = False
-                print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
-            elif download_video:
-                print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
-                if download_video:
-                    no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
+                if url.endswith((".mp3", ".mp4")) and os.path.exists(url):
+                    is_local_file = True
+                    # ... (Call the handle_local_file function here) ...
+                    break
                 else:
+                    print("Incorrect value for YOUTUBE_URL. "
+                          "Please enter a valid YouTube video URL or local file path.")
+
+    download_video = False
+
+    if not is_local_file:
+        download_video_str = os.getenv("DOWNLOAD_VIDEO")
+        if download_video_str:
+            if download_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                download_video = True
+                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
+            elif download_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                download_video = False
+                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
+            else:
+                print(f"Invalid value for DOWNLOAD_VIDEO in .env: {download_video_str}")
+                download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
+        else:
+            download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
+
+        if download_video:
+            no_audio_in_video_str = os.getenv("NO_AUDIO_IN_VIDEO")
+            if no_audio_in_video_str:
+                if no_audio_in_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                    no_audio_in_video = True
+                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+                elif no_audio_in_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     no_audio_in_video = False
-            
-        resolution = os.getenv("RESOLUTION")
-        if resolution:
-            resolution = resolution.lower()  # Convert to lowercase for easier comparison
-            if resolution not in ("highest", "lowest"):
-                if resolution.isdigit():
-                    if int(resolution) > 0:
-                        resolution += "p"  # Add "p" if it's a number
+                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+                elif download_video:
+                    print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
+                    if download_video:
+                        no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
                     else:
+                        no_audio_in_video = False
+                
+            resolution = os.getenv("RESOLUTION")
+            if resolution:
+                resolution = resolution.lower()  # Convert to lowercase for easier comparison
+                if resolution not in ("highest", "lowest"):
+                    if resolution.isdigit():
+                        if int(resolution) > 0:
+                            resolution += "p"  # Add "p" if it's a number
+                        else:
+                            print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                            resolution = None  # Set to None to trigger the prompt
+                    elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
                         print(f"Invalid value for RESOLUTION in .env: {resolution}")
                         resolution = None  # Set to None to trigger the prompt
-                elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
-                    print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                    resolution = None  # Set to None to trigger the prompt
-            if resolution:  # Only print if resolution is valid
-                print(f"Loaded RESOLUTION: {resolution} (from config.env)")
-        else:
-            print(f"Loaded RESOLUTION: null (from config.env)")
-            resolution = "0"
+                if resolution:  # Only print if resolution is valid
+                    print(f"Loaded RESOLUTION: {resolution} (from config.env)")
+            else:
+                print(f"Loaded RESOLUTION: null (from config.env)")
+                resolution = "0"
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -345,50 +371,57 @@ else:
                 else:
                     use_en_model = False
 
-    download_audio = False
-    if not transcribe_audio:
-        download_audio_str = os.getenv("DOWNLOAD_AUDIO")
-        if download_audio_str:
-            if download_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                download_audio = True
-                print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
-            elif download_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                download_audio = False
-                print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
-            elif not transcribe_audio:
-                print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
-                download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
+    delete_audio = False
 
-    if transcribe_audio:
-        delete_audio_str = os.getenv("DELETE_AUDIO")
-        if delete_audio_str:
-            if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                delete_audio = True
-                print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
-            elif delete_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                delete_audio = False
-                print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+    if not is_local_file:
+        download_audio = False
+        if not transcribe_audio:
+            download_audio_str = os.getenv("DOWNLOAD_AUDIO")
+            if download_audio_str:
+                if download_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                    download_audio = True
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
+                elif download_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                    download_audio = False
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
+                elif not transcribe_audio:
+                    print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
+                    download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
+
+        if transcribe_audio:
+            delete_audio_str = os.getenv("DELETE_AUDIO")
+            if delete_audio_str:
+                if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                    delete_audio = True
+                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+                elif delete_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                    delete_audio = False
+                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+                else:
+                    print(f"Invalid value for DELETE_AUDIO in .env: {delete_audio_str}")
+                    delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
             else:
-                print(f"Invalid value for DELETE_AUDIO in .env: {delete_audio_str}")
                 delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
         else:
-            delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
-    else:
-        delete_audio = False
+            delete_audio = False
 
 # --- Now, proceed with the rest of the script using the gathered parameters ---
 
 print("\nProcessing...")  # Indicate step
 
-# Create a YouTube object from the URL
-yt = YouTube(url)
+# Create a YouTube object from the URL ONLY if it's NOT a local file
+if not is_local_file:
+    yt = YouTube(url)
 
-# Extract the filename base from the video title
-video_title = yt.title
+    # Extract the filename base from the video title
+    video_title = yt.title
+else:  # If it's a local file, extract the filename base from the URL
+    video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
+
 filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
-print(f"Created YouTube object for {video_title}")  # Indicate step
+print(f"Processing: {video_title}")  # Indicate step
 
-if download_video:
+if download_video and not is_local_file:
     if resolution == "highest":
         streams = yt.streams.filter(only_video=True)
         streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
@@ -509,7 +542,7 @@ if download_video:
 else:
     print("Skipping video download...")  # Indicate that video download is skipped
     
-if transcribe_audio or download_audio:  # Download audio if needed for video or audio-only
+if (transcribe_audio or download_audio) and not is_local_file:  # Download audio if needed for video or audio-only
     print("Downloading the audio stream (highest quality)...")
 
     audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
@@ -530,22 +563,31 @@ if transcribe_audio or download_audio:  # Download audio if needed for video or 
     print(f"Audio downloaded to {file_path}")
 
 if transcribe_audio:
-    if use_en_model:
-        model_name += ".en"
-        print(f"Loading English-only Whisper model \"{model_name}\"...")  # Indicate English model
-    else:
-        print(f"Loading Whisper model \"{model_name}\"...")
+    if is_local_file:  # Check if it's a local file
+        if url.endswith(".mp3"):  # Check if it's an MP3 file
+            audio_file = url  # Use the URL directly as the audio file
+        else:  # If it's not an MP3 file, assume it's an MP4
+            video = VideoFileClip(url)  # Create a VideoFileClip object from the URL
+            audio_file = f"{filename_base}.mp3"  # Create a filename for the extracted audio
+            video.audio.write_audiofile(audio_file)  # Extract the audio from the video
+    else:  # If it's not a local file, it's a YouTube video
+        audio_file = "Audio/" + filename_base + ".mp3"  # Use the downloaded audio file
 
     # Load the selected model
     model = whisper.load_model(model_name)
 
-    target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)  # Get full name or use code if not found
-    target_language_full = target_language_full.capitalize()  # Capitalize the first letter
-    file_path = os.path.abspath("Audio/" + f"{filename_base}" + ".mp3")
-    print(f"Transcribing audio from {file_path} into {target_language_full}...")  # Indicate target language
-    result = model.transcribe("Audio/" + filename_base + ".mp3", language=target_language)
+    target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)
+    target_language_full = target_language_full.capitalize()
+
+    if is_local_file:  # Use the user-provided path for local files
+        file_path = os.path.abspath(url)
+    else:  # Use the default "Audio/" path for YouTube downloads
+        file_path = os.path.abspath("Audio/" + f"{filename_base}" + ".mp3")
+
+    print(f"Transcribing audio from {file_path} into {target_language_full}...")
+    result = model.transcribe(file_path, language=target_language)  # Use file_path here
     transcribed_text = result["text"]
-    print("\nTranscription:\n" + transcribed_text +"\n")
+    print("\nTranscription:\n" + transcribed_text + "\n")
 
     # Detect the language
     language = detect(transcribed_text)
@@ -569,7 +611,7 @@ else:
     print("Skipping transcription.")
     transcribed_text = ""  # Assign an empty string
 
-if delete_audio:
+if delete_audio and not is_local_file:
     output_path = "Audio"  # Set output_path here, before os.remove()
     filename = filename_base + ".mp3"
     # Delete the audio file
