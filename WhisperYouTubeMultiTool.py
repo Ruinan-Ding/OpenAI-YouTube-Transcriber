@@ -17,6 +17,7 @@ from pytubefix.exceptions import RegexMatchError  # Import RegexMatchError
 from dotenv import load_dotenv
 from moviepy.editor import VideoFileClip  # Import moviepy for audio extraction
 #pip install moviepy==1.0.3 numpy>=1.18.1 imageio>=2.5.0 decorator>=4.3.0 tqdm>=4.0.0 Pillow>=7.0.0 scipy>=1.3.0 pydub>=0.23.0 audiofile>=0.0.0 opencv-python>=4.5
+import subprocess
 
 # Function to open a file
 def startfile(fn):
@@ -93,6 +94,16 @@ def get_target_language_input():
         else:
             print("Invalid language code or name. Please refer to the supported languages list and try again.")
 
+def get_file_format(file_path):
+    """Returns the format of the input file using ffprobe."""
+    try:
+        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=format_name', 
+                                 '-of', 'default=noprint_wrappers=1:nokey=1', file_path],
+                                capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
 # Initialize load_env to False
 load_env = False
 
@@ -124,7 +135,9 @@ if not load_env:
             yt = YouTube(url)
             break
         except RegexMatchError:
-            if url.endswith((".mp3", ".mp4")) and os.path.exists(url):
+            # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
+            file_format = get_file_format(url)
+            if file_format:
                 is_local_file = True
                 break
             else:
@@ -224,7 +237,9 @@ else:
             yt = YouTube(url)
             print(f"Loaded YOUTUBE_URL: {url} (from config.env)")
         except RegexMatchError:
-            if url.endswith((".mp3", ".mp4")) and os.path.exists(url):
+            # Use ffprobe to determine if it's a valid audio/video file
+            file_format = get_file_format(url)
+            if file_format:
                 is_local_file = True
                 # ... (Call the handle_local_file function here) ... 
             else:
@@ -238,7 +253,9 @@ else:
                 yt = YouTube(url)
                 break
             except RegexMatchError:
-                if url.endswith((".mp3", ".mp4")) and os.path.exists(url):
+                # Use ffprobe to determine if it's a valid audio/video file
+                file_format = get_file_format(url)
+                if file_format:
                     is_local_file = True
                     # ... (Call the handle_local_file function here) ...
                     break
