@@ -108,19 +108,19 @@ def get_file_format(file_path):
 load_env = False
 
 # Check if .env file exists
-if os.path.exists("config.env"):
-    file_path = os.path.abspath("config.env")  # Get absolute path
+if os.path.exists("Profile/config.env"):
+    file_path = os.path.abspath("Profile/config.env")  # Get absolute path
     print(f"config.env detected on {file_path}")
-    load_dotenv(dotenv_path="config.env")  # Load config.env first
-    auto_load_env_str = os.getenv("AUTO_LOAD_ENV")  # Check for AUTO_LOAD_ENV in config.env
-    print(f"Loaded AUTO_LOAD_ENV: {auto_load_env_str} (from config.env)")
-    if auto_load_env_str and auto_load_env_str.lower() in ('y', 'yes', 'true', 't', '1'):
+    load_dotenv(dotenv_path="Profile/config.env")  # Load config.env first
+    load_profile_str = os.getenv("LOAD_PROFILE")  # Check for LOAD_PROFILE in config.env
+    print(f"Loaded LOAD_PROFILE: {load_profile_str} (from config.env)")
+    if load_profile_str and load_profile_str.lower() in ('y', 'yes', 'true', 't', '1'):
         load_env = True
-    elif auto_load_env_str and auto_load_env_str.lower() in ('n', 'no', 'false', 'f', '0'):
+    elif load_profile_str and load_profile_str.lower() in ('n', 'no', 'false', 'f', '0'):
         print("Using default/interactive mode.")
         load_env = False
     else:
-        print(f"Invalid value for AUTO_LOAD_ENV in .env: {auto_load_env_str}")  # Print invalid value message
+        print(f"Invalid value for LOAD_PROFILE in .env: {load_profile_str}")  # Print invalid value message
         load_env = get_yes_no_input("Load parameters from .env file? (Y/n): ")  # Use the validation function
 else:
     print("config.env file not found. Using default/interactive mode.")
