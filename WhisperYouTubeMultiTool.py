@@ -10,6 +10,7 @@
 
 # import required modules
 import os
+import re
 import whisper
 from langdetect import detect
 from pytubefix import YouTube
@@ -104,30 +105,83 @@ def get_file_format(file_path):
     except subprocess.CalledProcessError:
         return None
 
-# Initialize load_env to False
-load_env = False
+# Initialize load_profile to False
+load_profile = False
+interactive_mode = False
 
-# Check if .env file exists
+# Check if config.env file exists
 if os.path.exists("Profile/config.env"):
     file_path = os.path.abspath("Profile/config.env")  # Get absolute path
     print(f"config.env detected on {file_path}")
     load_dotenv(dotenv_path="Profile/config.env")  # Load config.env first
     load_profile_str = os.getenv("LOAD_PROFILE")  # Check for LOAD_PROFILE in config.env
-    print(f"Loaded LOAD_PROFILE: {load_profile_str} (from config.env)")
-    if load_profile_str and load_profile_str.lower() in ('y', 'yes', 'true', 't', '1'):
-        load_env = True
-    elif load_profile_str and load_profile_str.lower() in ('n', 'no', 'false', 'f', '0'):
+    print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
+
+    if load_profile_str and load_profile_str.lower() in ('y', 'yes', 'true', 't', '1', ''):
+        load_profile = True
+    elif load_profile_str and load_profile_str.lower() in ('n', 'no', 'false', 'f', '0', 'skip', 's'):
         print("Using default/interactive mode.")
-        load_env = False
+        load_profile = False
+        interactive_mode = True
     else:
-        print(f"Invalid value for LOAD_PROFILE in .env: {load_profile_str}")  # Print invalid value message
-        load_env = get_yes_no_input("Load parameters from .env file? (Y/n): ")  # Use the validation function
-else:
-    print("config.env file not found. Using default/interactive mode.")
+        # Check if LOAD_PROFILE specifies a profile name
+        profile_path = os.path.join("Profile", load_profile_str)  # Directly use the provided name
+
+        if re.match(r"^profile\d+\.env$", load_profile_str, re.IGNORECASE):
+            if os.path.exists(profile_path):
+                load_profile = True
+                profile_name = os.path.basename(profile_path)
+                print(f"Loading profile: {profile_name}")
+            else:
+                print(f"Profile not found: {load_profile_str}. "
+                      f"Make sure the profile file exists in the 'Profile' directory "
+                      f"relative to the script.")
+        else:
+            print(f"Invalid profile name format: {load_profile_str}. "
+                  f"Profile names must match the format 'profile<number>.env' "
+                  f"and be located in the 'Profile' directory relative to the script.")
+
+    if interactive_mode is False:
+        # List available profiles (only if not found or invalid format)
+        profiles = [f for f in os.listdir("Profile") if re.match(r"^profile\d+\.env$", f, re.IGNORECASE)]
+        if profiles:
+            print("Available profiles:")
+            for i, profile in enumerate(profiles):
+                print(f"{i+1}. {profile}")
+
+            while True:
+                profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
+                                      f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
+                if profile_input == '' or profile_input == '1':
+                    profile_name = profiles[0]
+                    load_profile = True
+                    break
+                elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
+                    profile_name = profiles[int(profile_input) - 1]
+                    load_profile = True
+                    break
+                elif profile_input in profiles:
+                    profile_name = profile_input
+                    load_profile = True
+                    break
+                elif profile_input in ('n', 'no', 'f', 'false', '0', 'skip', 's'):
+                    load_profile = False
+                    break
+                else:
+                    print("Invalid profile selection.")
+        else:
+            print("No profiles found. Switching to default/interactive mode.")
+            load_profile = False
+
+    if load_profile:
+        # Load the selected profile
+        profile_path = os.path.join("Profile", profile_name)
+        load_dotenv(dotenv_path=profile_path)
+        print(f"Loaded profile: {profile_name}")
 
 # --- Get ALL parameters from user first if not loading from .env ---
 
-if not load_env:
+if not load_profile:
     is_local_file = False  # Initialize the flag here
     while True:
         url = input("Enter the YouTube video URL or local file path: ")
@@ -177,7 +231,7 @@ if not load_env:
             print(f"Using resolution: {resolution}")  # Indicate selected resolution
     
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
-    if load_env and transcribe_audio_str:
+    if load_profile and transcribe_audio_str:
         transcribe_audio = transcribe_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
     else:
         transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
