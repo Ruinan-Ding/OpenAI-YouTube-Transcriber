@@ -107,17 +107,25 @@ def get_file_format(file_path):
 
 # Initialize load_profile to False
 load_profile = False
+loaded_profile = False
 interactive_mode = False
 
-# Check if config.env file exists
-if os.path.exists("Profile/config.env"):
-    file_path = os.path.abspath("Profile/config.env")  # Get absolute path
-    print(f"config.env detected on {file_path}")
-    load_dotenv(dotenv_path="Profile/config.env")  # Load config.env first
-    load_profile_str = os.getenv("LOAD_PROFILE")  # Check for LOAD_PROFILE in config.env
+# Check if config.env exists
+config_env_path = "Profile/config.env"
+if not os.path.exists(config_env_path):
+    print("config.env not found in the /Profile directory. Switching to default/interactive mode.")
+    load_profile = False
+    interactive_mode = True
+else:
+    print(f"config.env detected in the /Profile directory.")
+    load_dotenv(dotenv_path=config_env_path)
+    load_profile_str = os.getenv("LOAD_PROFILE")
     print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
 
-    if load_profile_str and load_profile_str.lower() in ('y', 'yes', 'true', 't', '1', ''):
+    if load_profile_str is None:
+        load_profile = True
+
+    elif load_profile_str and load_profile_str.lower() in ('y', 'yes', 'true', 't', '1', ''):
         load_profile = True
     elif load_profile_str and load_profile_str.lower() in ('n', 'no', 'false', 'f', '0', 'skip', 's'):
         print("Using default/interactive mode.")
@@ -127,9 +135,10 @@ if os.path.exists("Profile/config.env"):
         # Check if LOAD_PROFILE specifies a profile name
         profile_path = os.path.join("Profile", load_profile_str)  # Directly use the provided name
 
-        if re.match(r"^profile\d+\.env$", load_profile_str, re.IGNORECASE):
+        if re.match(r"^profile\d*\.env$", load_profile_str, re.IGNORECASE):
             if os.path.exists(profile_path):
                 load_profile = True
+                loaded_profile = True
                 profile_name = os.path.basename(profile_path)
                 print(f"Loading profile: {profile_name}")
             else:
@@ -141,9 +150,9 @@ if os.path.exists("Profile/config.env"):
                   f"Profile names must match the format 'profile<number>.env' "
                   f"and be located in the 'Profile' directory relative to the script.")
 
-    if interactive_mode is False:
+    if interactive_mode is False and loaded_profile is False:
         # List available profiles (only if not found or invalid format)
-        profiles = [f for f in os.listdir("Profile") if re.match(r"^profile\d+\.env$", f, re.IGNORECASE)]
+        profiles = [f for f in os.listdir("Profile") if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
         if profiles:
             print("Available profiles:")
             for i, profile in enumerate(profiles):
