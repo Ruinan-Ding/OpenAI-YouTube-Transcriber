@@ -104,6 +104,61 @@ def get_file_format(file_path):
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return None
+    
+def create_profile(used_fields):
+    """
+    Creates a new profile file and config.env (if it doesn't exist).
+    Prints about config.env first, then the profile file.
+    Does not modify existing files.
+    Includes all fields in the profile file, even if they are empty.
+    """
+    profile_dir = "Profile"
+    os.makedirs(profile_dir, exist_ok=True)  # Create Profile directory if it doesn't exist
+
+    # Check and create config.env if it doesn't exist
+    config_path = os.path.join(profile_dir, "config.env")
+    if not os.path.exists(config_path):
+        with open(config_path, "w") as config_file:
+            config_file.write("LOAD_PROFILE=profile.env\n")  # Default to profile.env
+        print(f"Created config.env: {os.path.abspath(config_path)}")
+    else:
+        print(f"config.env already exists: {os.path.abspath(config_path)}. No changes were made to it.")
+
+    # Find all existing profiles
+    existing_profiles = [f for f in os.listdir(profile_dir) if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
+    existing_numbers = [int(re.search(r"\d+", f).group()) for f in existing_profiles if re.search(r"\d+", f)]
+
+    # Determine the next available profile name
+    if not existing_profiles:
+        profile_name = "profile.env"
+    else:
+        # Find the next available number
+        next_number = 0
+        while next_number in existing_numbers:
+            next_number += 1
+        profile_name = f"profile{next_number}.env"
+
+    profile_path = os.path.join(profile_dir, profile_name)
+
+    # Write all fields to the profile file, even if they are empty
+    with open(profile_path, "w") as profile_file:
+        content = "\n".join([f"{key}={used_fields.get(key, '')}" for key in used_fields])
+        profile_file.write(content)
+
+    print(f"Created profile: {os.path.abspath(profile_path)}")
+
+used_fields = {
+    "URL": "",
+    "DOWNLOAD_VIDEO": "",
+    "NO_AUDIO_IN_VIDEO": "",
+    "RESOLUTION": "",
+    "TRANSCRIBE_AUDIO": "",
+    "MODEL_CHOICE": "",
+    "TARGET_LANGUAGE": "",
+    "USE_EN_MODEL": "",
+    "DELETE_AUDIO": "",
+    "DOWNLOAD_AUDIO": "",
+}
 
 # Initialize load_profile to False
 load_profile = False
@@ -194,6 +249,7 @@ if not load_profile:
     is_local_file = False  # Initialize the flag here
     while True:
         url = input("Enter the YouTube video URL or local file path: ")
+        used_fields["URL"] = url
         try:
             yt = YouTube(url)
             break
@@ -210,13 +266,16 @@ if not load_profile:
 
     if not is_local_file:
         download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
+        used_fields["DOWNLOAD_VIDEO"] = "y" if download_video else "n"
 
         no_audio_in_video = False
         no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
+        used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
 
         if download_video:
             while True:
                 resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
+                used_fields["RESOLUTION"] = resolution
                 if not resolution:
                     resolution = "0"  # Default to highest if input is empty
                     break
@@ -238,12 +297,9 @@ if not load_profile:
                 else:
                     print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
             print(f"Using resolution: {resolution}")  # Indicate selected resolution
-    
-    transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
-    if load_profile and transcribe_audio_str:
-        transcribe_audio = transcribe_audio_str.lower() in ('y', 'yes', 'true', 't', '1')
-    else:
-        transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
+
+    transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
+    used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
 
     if transcribe_audio:
         model_choice = get_model_choice_input()  # Use the validation function
@@ -266,11 +322,15 @@ if not load_profile:
                 model_name = "large-v3"
             case _:  # Default case (empty input)
                 model_name = "base"
+        
+        used_fields["MODEL_CHOICE"] = model_name
 
         target_language = get_target_language_input()  # Use the validation function
+        used_fields["TARGET_LANGUAGE"] = target_language
 
         if model_name in ("tiny", "base", "small", "medium") and target_language == 'en':  # Corrected condition
             use_en_model = get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
+            used_fields["USE_EN_MODEL"] = "y" if use_en_model else "n"
         else:
             use_en_model = False
     else:  # If not transcribing, skip model and language options
@@ -284,9 +344,11 @@ if not load_profile:
         download_audio = False
         if not transcribe_audio:
             download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
+            used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
 
-        if transcribe_audio:  # Only ask to delete audio if transcribing
+        if transcribe_audio or download_audio:
             delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
+            used_fields["DELETE_AUDIO"] = "y" if delete_audio else "n"
         else:
             delete_audio = False  # Don't delete audio if not transcribing
         
@@ -468,7 +530,7 @@ else:
                     print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
                     download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
-        if transcribe_audio:
+        if transcribe_audio or download_audio:
             delete_audio_str = os.getenv("DELETE_AUDIO")
             if delete_audio_str:
                 if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
@@ -562,6 +624,9 @@ if download_video and not is_local_file:
                 break
             else:
                 print("Invalid input. Please enter a valid number or resolution.")
+
+        if not load_profile:
+            used_fields["RESOLUTION"] = resolution
 
         stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
@@ -702,3 +767,8 @@ elif not transcribe_audio and not download_audio:
     print("Skipping transcription and audio download...")
 
 print("Tasks complete.")
+
+if not load_profile:
+    create_profile_prompt = get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
+    if create_profile_prompt:
+        create_profile(used_fields)
