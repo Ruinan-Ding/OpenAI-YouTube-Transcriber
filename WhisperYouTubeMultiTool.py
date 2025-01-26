@@ -22,7 +22,11 @@ import subprocess
 
 # Function to open a file
 def startfile(fn):
-    os.system('open %s' % fn)
+    if os.name == 'nt':  # Windows
+        os.startfile(fn)
+    elif os.name == 'posix':  # macOS or Linux
+        opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
+        subprocess.run([opener, fn])
 
 # Function to create and open a txt file
 def create_and_open_txt(text, filename):
@@ -271,7 +275,7 @@ if not load_profile:
         if download_video:
             no_audio_in_video = False
             no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
-            used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
+            used_fields["NO_AUDIO_IN_VIDEgit O"] = "y" if no_audio_in_video else "n"
 
         if download_video:
             while True:
