@@ -268,9 +268,10 @@ if not load_profile:
         download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
         used_fields["DOWNLOAD_VIDEO"] = "y" if download_video else "n"
 
-        no_audio_in_video = False
-        no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
-        used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
+        if download_video:
+            no_audio_in_video = False
+            no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
+            used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
 
         if download_video:
             while True:
