@@ -9,8 +9,13 @@
 # from the URL along with the transcription of the audio.
 
 # import required modules
+import sys
 import os
 import re
+from urllib.parse import urlparse
+import requests
+import urllib.request
+from py_mini_racer import MiniRacer
 import whisper
 from langdetect import detect
 from pytubefix import YouTube
@@ -41,6 +46,23 @@ def create_and_open_txt(text, filename):
     with open(file_path, "w") as file:
         file.write(text)
     startfile(file_path)
+
+    
+def is_web_url(input_str):
+    """Check if input is a valid web URL format without network calls."""
+    try:
+        result = urlparse(input_str)
+        return all([result.scheme in ['http', 'https'], result.netloc])
+    except:
+        return False
+
+def is_youtube_url(url):
+    """Check if URL is YouTube using pytubefix's internal regex."""
+    return YouTube.regex_pattern.match(url) is not None
+
+def is_valid_media_file(path):
+    """Check if path is an existing local media file."""
+    return os.path.exists(path) and get_file_format(path) is not None
 
 # Function to get a yes/no input with validation and default option
 def get_yes_no_input(prompt_text, default="y"):
@@ -116,7 +138,7 @@ def create_profile(used_fields):
     Does not modify existing files.
     Includes all fields in the profile file, even if they are empty.
     """
-    profile_dir = "Profile"
+    profile_dir = "Resources"
     os.makedirs(profile_dir, exist_ok=True)  # Create Profile directory if it doesn't exist
 
     # Check and create config.env if it doesn't exist
@@ -153,6 +175,7 @@ def create_profile(used_fields):
 
 used_fields = {
     "URL": "",
+    "BYPASS_BOT_DETECTION": "",
     "DOWNLOAD_VIDEO": "",
     "NO_AUDIO_IN_VIDEO": "",
     "RESOLUTION": "",
@@ -161,8 +184,62 @@ used_fields = {
     "TARGET_LANGUAGE": "",
     "USE_EN_MODEL": "",
     "DELETE_AUDIO": "",
-    "DOWNLOAD_AUDIO": "",
-}
+    "DOWNLOAD_AUDIO": ""}
+
+def fetch_visitor_data():
+    """
+    Fetches the visitorData from YouTube.
+    """
+    url = "https://www.youtube.com"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise Exception("Failed to fetch visitorData from YouTube")
+
+    # Extract visitorData from the response cookies
+    cookies = response.cookies
+    visitor_data = cookies.get("VISITOR_INFO1_LIVE")
+    if not visitor_data:
+        raise Exception("Could not find visitorData in the response")
+
+    return visitor_data
+
+def generate_po_token(visitor_data):
+    """
+    Generates the poToken using JavaScript logic.
+    """
+    js_code = """
+        const { generate } = require('youtube-po-token-generator');
+
+        // Generate the visitorData and poToken
+        generate()
+        .then((result) => {
+            console.log("Generated Tokens:", result);
+        })
+        .catch((error) => {
+            console.error("Error generating tokens:", error);
+        });
+    """
+
+    # Create a MiniRacer context
+    context = MiniRacer()
+
+    try:
+        po_token = context.eval(js_code)
+        return po_token
+    except Exception as e:
+        print(f"Error generating poToken: {e}")
+        exit()
+
+def generate_tokens():
+    """
+    Generates the { visitorData, poToken } pair.
+    """
+    visitor_data = fetch_visitor_data()
+    po_token = generate_po_token(visitor_data)
+    return { "visitorData": visitor_data, "poToken": po_token }
 
 # Initialize load_profile to False
 load_profile = False
@@ -170,13 +247,13 @@ loaded_profile = False
 interactive_mode = False
 
 # Check if config.env exists
-config_env_path = "Profile/config.env"
+config_env_path = "Resources/config.env"
 if not os.path.exists(config_env_path):
-    print("config.env not found in the /Profile directory. Switching to default/interactive mode.")
+    print("config.env not found in the /Resources directory. Switching to default/interactive mode.")
     load_profile = False
     interactive_mode = True
 else:
-    print(f"config.env detected in the /Profile directory.")
+    print(f"config.env detected in the /Resources directory.")
     load_dotenv(dotenv_path=config_env_path)
     load_profile_str = os.getenv("LOAD_PROFILE")
     print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
@@ -192,7 +269,7 @@ else:
         interactive_mode = True
     else:
         # Check if LOAD_PROFILE specifies a profile name
-        profile_path = os.path.join("Profile", load_profile_str)  # Directly use the provided name
+        profile_path = os.path.join("Resources", load_profile_str)  # Directly use the provided name
 
         if re.match(r"^profile\d*\.env$", load_profile_str, re.IGNORECASE):
             if os.path.exists(profile_path):
@@ -202,16 +279,16 @@ else:
                 print(f"Loading profile: {profile_name}")
             else:
                 print(f"Profile not found: {load_profile_str}. "
-                      f"Make sure the profile file exists in the 'Profile' directory "
+                      f"Make sure the profile file exists in the 'Resources' directory "
                       f"relative to the script.")
         else:
             print(f"Invalid profile name format: {load_profile_str}. "
                   f"Profile names must match the format 'profile<number>.env' "
-                  f"and be located in the 'Profile' directory relative to the script.")
+                  f"and be located in the 'Resources' directory relative to the script.")
 
     if interactive_mode is False and loaded_profile is False:
         # List available profiles (only if not found or invalid format)
-        profiles = [f for f in os.listdir("Profile") if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
+        profiles = [f for f in os.listdir("Resources") if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
         if profiles:
             print("Available profiles:")
             for i, profile in enumerate(profiles):
@@ -243,7 +320,7 @@ else:
 
     if load_profile:
         # Load the selected profile
-        profile_path = os.path.join("Profile", profile_name)
+        profile_path = os.path.join("Resources", profile_name)
         load_dotenv(dotenv_path=profile_path)
         print(f"Loaded profile: {profile_name}")
 
@@ -252,19 +329,36 @@ else:
 if not load_profile:
     is_local_file = False  # Initialize the flag here
     while True:
-        url = input("Enter the YouTube video URL or local file path: ")
-        used_fields["URL"] = url
-        try:
-            yt = YouTube(url)
-            break
-        except RegexMatchError:
-            # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
-            file_format = get_file_format(url)
-            if file_format:
-                is_local_file = True
-                break
+        url = input("Enter the YouTube video URL or local file path: ").strip()
+        
+        # --- Validation Steps ---
+        if is_web_url(url):
+            if is_youtube_url(url):
+                is_local_file = False
+                bypass_bot_detection = os.getenv("BYPASS_BOT_DETECTION", "n").lower() in ('y', 'yes', 'true', 't', '1')
+                if not bypass_bot_detection:
+                    bypass_bot_detection = get_yes_no_input("Generate poToken to avoid being flagged as a bot? (y/N): ", default='n')
+                
+                used_fields["BYPASS_BOT_DETECTION"] = "y" if bypass_bot_detection else "n"
+
+                if bypass_bot_detection:
+                    bypass_script_path = os.path.join("Resources", "BypassBotDetection.js")
+                    if os.path.exists(bypass_script_path):
+                        # Call the JavaScript file to generate poToken
+                        po_token = subprocess.check_output(['node', bypass_script_path]).decode('utf-8').strip()
+                        print(f"Generated poToken: {po_token}")
+                    else:
+                        print("BypassBotDetection.js not found in the Resources directory. Skipping poToken generation.")
+                break  # Exit loop after successful YouTube validation
             else:
-                print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
+                print("Error: Only YouTube URLs supported for web inputs")
+                continue
+        elif is_valid_media_file(url):
+            is_local_file = True
+            break
+        else:
+            print("Invalid input. Please enter valid YouTube URL or local file path")
+            continue
 
     download_video = False
 
@@ -275,7 +369,7 @@ if not load_profile:
         if download_video:
             no_audio_in_video = False
             no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
-            used_fields["NO_AUDIO_IN_VIDEgit O"] = "y" if no_audio_in_video else "n"
+            used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
 
         if download_video:
             while True:
@@ -364,7 +458,14 @@ else:
     url = os.getenv("URL")
     if url:
         try:
-            yt = YouTube(url)
+            # Create YouTube object
+            yt = YouTube(
+                url,
+                use_oauth=False,
+                allow_oauth_cache=True,
+                use_po_token=True,  # Add this line
+                client="WEB"        # Add this line (optional, try with or without)
+            )
             print(f"Loaded YOUTUBE_URL: {url} (from config.env)")
         except RegexMatchError:
             # Use ffprobe to determine if it's a valid audio/video file
@@ -380,7 +481,14 @@ else:
         while True:
             url = input("Enter the YouTube video URL or local file path: ")
             try:
-                yt = YouTube(url)
+                # Create YouTube object
+                yt = YouTube(
+                    url,
+                    use_oauth=False,
+                    allow_oauth_cache=True,
+                    use_po_token=True,  # Add this line
+                    client="WEB"        # Add this line (optional, try with or without)
+                )
                 break
             except RegexMatchError:
                 # Use ffprobe to determine if it's a valid audio/video file
@@ -392,6 +500,18 @@ else:
                 else:
                     print("Incorrect value for YOUTUBE_URL. "
                           "Please enter a valid YouTube video URL or local file path.")
+
+    # Check if BYPASS_BOT_DETECTION is set in the environment variables
+    bypass_bot_detection = os.getenv("BYPASS_BOT_DETECTION", "n").lower() in ('y', 'yes', 'true', 't', '1')
+
+    if bypass_bot_detection and not is_local_file:
+        bypass_script_path = os.path.join("Resources", "BypassBotDetection.js")
+        if os.path.exists(bypass_script_path):
+            # Call the JavaScript file to generate poToken
+            po_token = subprocess.check_output(['node', bypass_script_path]).decode('utf-8').strip()
+            print(f"Generated poToken: {po_token}")
+        else:
+            print("BypassBotDetection.js not found in the Resources directory. Skipping poToken generation.")
 
     download_video = False
 
@@ -558,7 +678,23 @@ print("\nProcessing...")  # Indicate step
 
 # Create a YouTube object from the URL ONLY if it's NOT a local file
 if not is_local_file:
-    yt = YouTube(url)
+        
+    try:
+        # Create YouTube object
+        yt = YouTube(
+            url,
+            use_oauth=False,
+            allow_oauth_cache=True,
+            use_po_token=True,  # Add this line
+            client="WEB"        # Add this line (optional, try with or without)
+        )
+    except RegexMatchError:
+        # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
+        file_format = get_file_format(url)
+        if file_format:
+            is_local_file = True
+        else:
+            print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
 
     # Extract the filename base from the video title
     video_title = yt.title
@@ -714,7 +850,7 @@ if (transcribe_audio or download_audio) and not is_local_file:  # Download audio
 
 if transcribe_audio:
     if is_local_file:  # Check if it's a local file
-        if url.endswith(".mp3"):  # Check if it's an MP3 file
+        if is_valid_media_file(url):  # Check if it's a valid media file
             audio_file = url  # Use the URL directly as the audio file
         else:  # If it's not an MP3 file, assume it's an MP4
             video = VideoFileClip(url)  # Create a VideoFileClip object from the URL
