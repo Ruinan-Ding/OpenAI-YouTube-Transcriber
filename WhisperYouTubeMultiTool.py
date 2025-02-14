@@ -186,61 +186,6 @@ used_fields = {
     "DELETE_AUDIO": "",
     "DOWNLOAD_AUDIO": ""}
 
-def fetch_visitor_data():
-    """
-    Fetches the visitorData from YouTube.
-    """
-    url = "https://www.youtube.com"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        raise Exception("Failed to fetch visitorData from YouTube")
-
-    # Extract visitorData from the response cookies
-    cookies = response.cookies
-    visitor_data = cookies.get("VISITOR_INFO1_LIVE")
-    if not visitor_data:
-        raise Exception("Could not find visitorData in the response")
-
-    return visitor_data
-
-def generate_po_token(visitor_data):
-    """
-    Generates the poToken using JavaScript logic.
-    """
-    js_code = """
-        const { generate } = require('youtube-po-token-generator');
-
-        // Generate the visitorData and poToken
-        generate()
-        .then((result) => {
-            console.log("Generated Tokens:", result);
-        })
-        .catch((error) => {
-            console.error("Error generating tokens:", error);
-        });
-    """
-
-    # Create a MiniRacer context
-    context = MiniRacer()
-
-    try:
-        po_token = context.eval(js_code)
-        return po_token
-    except Exception as e:
-        print(f"Error generating poToken: {e}")
-        exit()
-
-def generate_tokens():
-    """
-    Generates the { visitorData, poToken } pair.
-    """
-    visitor_data = fetch_visitor_data()
-    po_token = generate_po_token(visitor_data)
-    return { "visitorData": visitor_data, "poToken": po_token }
-
 # Initialize load_profile to False
 load_profile = False
 loaded_profile = False
