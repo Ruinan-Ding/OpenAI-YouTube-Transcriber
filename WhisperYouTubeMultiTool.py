@@ -319,6 +319,9 @@ else:
             load_profile = False
 
     if load_profile:
+        # Ensure profile_name is set – default to "profile.env" if not already assigned
+        if 'profile_name' not in globals():
+            profile_name = "profile.env"
         # Load the selected profile
         profile_path = os.path.join("Resources", profile_name)
         load_dotenv(dotenv_path=profile_path)
@@ -458,7 +461,7 @@ else:
     url = os.getenv("URL")
     if url:
         try:
-            # Create YouTube object
+            # Check if the URL is a valid YouTube URL
             yt = YouTube(
                 url,
                 use_oauth=False,
@@ -466,13 +469,13 @@ else:
                 use_po_token=True,  # Add this line
                 client="WEB"        # Add this line (optional, try with or without)
             )
-            print(f"Loaded YOUTUBE_URL: {url} (from config.env)")
+            print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
         except RegexMatchError:
             # Use ffprobe to determine if it's a valid audio/video file
             file_format = get_file_format(url)
             if file_format:
                 is_local_file = True
-                # ... (Call the handle_local_file function here) ... 
+                print(f"Loaded local file: {url} (from {profile_name})")
             else:
                 print("Incorrect value for YOUTUBE_URL in config.env. "
                       "Please enter a valid YouTube video URL or local file path: ")
@@ -481,7 +484,7 @@ else:
         while True:
             url = input("Enter the YouTube video URL or local file path: ")
             try:
-                # Create YouTube object
+                # Check if the URL is a valid YouTube URL
                 yt = YouTube(
                     url,
                     use_oauth=False,
@@ -495,7 +498,7 @@ else:
                 file_format = get_file_format(url)
                 if file_format:
                     is_local_file = True
-                    # ... (Call the handle_local_file function here) ...
+                    print(f"Loaded local file: {url}")
                     break
                 else:
                     print("Incorrect value for YOUTUBE_URL. "
@@ -520,10 +523,10 @@ else:
         if download_video_str:
             if download_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
                 download_video = True
-                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
+                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
             elif download_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
                 download_video = False
-                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
+                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
             else:
                 print(f"Invalid value for DOWNLOAD_VIDEO in .env: {download_video_str}")
                 download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
@@ -535,10 +538,10 @@ else:
             if no_audio_in_video_str:
                 if no_audio_in_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
                     no_audio_in_video = True
-                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
                 elif no_audio_in_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     no_audio_in_video = False
-                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
                 elif download_video:
                     print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
                     if download_video:
@@ -560,19 +563,19 @@ else:
                         print(f"Invalid value for RESOLUTION in .env: {resolution}")
                         resolution = None  # Set to None to trigger the prompt
                 if resolution:  # Only print if resolution is valid
-                    print(f"Loaded RESOLUTION: {resolution} (from config.env)")
+                    print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
             else:
-                print(f"Loaded RESOLUTION: null (from config.env)")
+                print(f"Loaded RESOLUTION: null (from {profile_name})")
                 resolution = "0"
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
         if transcribe_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
             transcribe_audio = True
-            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from config.env)")
+            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
         elif transcribe_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
             transcribe_audio = False
-            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from config.env)")
+            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
         else:
             print(f"Invalid value for TRANSCRIBE_AUDIO in .env: {transcribe_audio_str}")
             transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
@@ -586,7 +589,7 @@ else:
             print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
             model_choice = get_model_choice_input()  # Prompt for valid input
         else:
-            print(f"Loaded MODEL_CHOICE: {model_choice} (from config.env)")  # Indicate successful load from config.env
+            print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")  # Indicate successful load from config.env
     elif transcribe_audio:
         model_choice = get_model_choice_input()  # Use the validation function
 
@@ -617,7 +620,7 @@ else:
                 print(f"Invalid value for TARGET_LANGUAGE in .env: {target_language}")
                 target_language = get_target_language_input()
             else:
-                print(f"Loaded TARGET_LANGUAGE: {target_language} (from config.env)")  # Indicate successful load from config.env
+                print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")  # Indicate successful load from config.env
         else:
             target_language = get_target_language_input()
             if not target_language:
@@ -627,10 +630,10 @@ else:
         if use_en_model_str and transcribe_audio:
             if use_en_model_str.lower() in ('y', 'yes', 'true', 't', '1'):
                 use_en_model = True
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from config.env)")
+                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
             elif use_en_model_str.lower() in ('n', 'no', 'false', 'f', '0'):
                 use_en_model = False
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from config.env)")
+                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
             elif transcribe_audio:
                 print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
                 if model_name in ("tiny", "base", "small", "medium") and target_language == 'en':
@@ -647,10 +650,10 @@ else:
             if download_audio_str:
                 if download_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
                     download_audio = True
-                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
                 elif download_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     download_audio = False
-                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
                 elif not transcribe_audio:
                     print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
                     download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
@@ -660,10 +663,10 @@ else:
             if delete_audio_str:
                 if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
                     delete_audio = True
-                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from {profile_name})")
                 elif delete_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     delete_audio = False
-                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from {profile_name})")
                 else:
                     print(f"Invalid value for DELETE_AUDIO in .env: {delete_audio_str}")
                     delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
