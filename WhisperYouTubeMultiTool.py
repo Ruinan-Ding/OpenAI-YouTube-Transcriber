@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from moviepy.editor import VideoFileClip  # Import moviepy for audio extraction
 #pip install moviepy==1.0.3 numpy>=1.18.1 imageio>=2.5.0 decorator>=4.3.0 tqdm>=4.0.0 Pillow>=7.0.0 scipy>=1.3.0 pydub>=0.23.0 audiofile>=0.0.0 opencv-python>=4.5
 import subprocess
+import json
 
 # Function to open a file
 def startfile(fn):
@@ -59,7 +60,7 @@ def is_web_url(input_str):
 def is_youtube_url(url):
     """Check if URL is YouTube using pytubefix's internal regex."""
     try:
-        YouTube(url)
+        YouTube(url,"WEB")
         return True
     except RegexMatchError:
         return False
@@ -179,7 +180,6 @@ def create_profile(used_fields):
 
 used_fields = {
     "URL": "",
-    "BYPASS_BOT_DETECTION": "",
     "DOWNLOAD_VIDEO": "",
     "NO_AUDIO_IN_VIDEO": "",
     "RESOLUTION": "",
@@ -218,6 +218,8 @@ else:
         interactive_mode = True
     else:
         # Check if LOAD_PROFILE specifies a profile name
+        if load_profile_str and not load_profile_str.endswith(".env"):
+            load_profile_str += ".env"
         profile_path = os.path.join("Resources", load_profile_str)  # Directly use the provided name
 
         if re.match(r"^profile\d*\.env$", load_profile_str, re.IGNORECASE):
@@ -258,6 +260,10 @@ else:
                     profile_name = profile_input
                     load_profile = True
                     break
+                elif profile_input + ".env" in profiles:
+                    profile_name = profile_input + ".env"
+                    load_profile = True
+                    break
                 elif profile_input in ('n', 'no', 'f', 'false', '0', 'skip', 's'):
                     load_profile = False
                     break
@@ -285,18 +291,6 @@ if not load_profile:
         
         # --- Validation Steps ---
         if is_web_url(url):
-            bypass_bot_detection = get_yes_no_input("Generate poToken to avoid being flagged as a bot? (y/N): ", default='n')
-            used_fields["BYPASS_BOT_DETECTION"] = "y" if bypass_bot_detection else "n"
-
-            if bypass_bot_detection:
-                bypass_script_path = os.path.join("Resources", "BypassBotDetection.js")
-                if os.path.exists(bypass_script_path):
-                    # Call the JavaScript file to generate poToken
-                    po_token = subprocess.check_output(['node', bypass_script_path]).decode('utf-8').strip()
-                    print(f"Generated poToken: {po_token}")
-                else:
-                    print("BypassBotDetection.js not found in the Resources directory. Skipping poToken generation.")
-            
             if is_youtube_url(url):
                 is_local_file = False
                 break  # Exit loop after successful YouTube validation
@@ -408,27 +402,10 @@ else:
     url = os.getenv("URL")
     if url:
         if is_web_url(url):
-            bypass_bot_detection = os.getenv("BYPASS_BOT_DETECTION", "n").lower() in ('y', 'yes', 'true', 't', '1')
-
-            if bypass_bot_detection:
-                bypass_script_path = os.path.join("Resources", "BypassBotDetection.js")
-                if os.path.exists(bypass_script_path):
-                    # Call the JavaScript file to generate poToken
-                    po_token = subprocess.check_output(['node', bypass_script_path]).decode('utf-8').strip()
-                    print(f"Generated poToken: {po_token}")
-                else:
-                    print("BypassBotDetection.js not found in the Resources directory. Skipping poToken generation.")
-            
             if is_youtube_url(url):
                 try:
-                    # Check if the URL is a valid YouTube URL
-                    yt = YouTube(
-                        url,
-                        use_oauth=False,
-                        allow_oauth_cache=True,
-                        use_po_token=True,  # Add this line
-                        client="WEB"        # Add this line (optional, try with or without)
-                    )
+                    # Create YouTube object
+                    yt = YouTube(url, "WEB")
                     print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
                 except RegexMatchError:
                     # Use ffprobe to determine if it's a valid audio/video file
@@ -446,28 +423,10 @@ else:
             while True:
                 url = input("Enter the YouTube video URL or local file path: ")
                 if is_web_url(url):
-                    bypass_bot_detection = get_yes_no_input("Generate poToken to avoid being flagged as a bot? (y/N): ", default='n')
-                    used_fields["BYPASS_BOT_DETECTION"] = "y" if bypass_bot_detection else "n"
-
-                    if bypass_bot_detection:
-                        bypass_script_path = os.path.join("Resources", "BypassBotDetection.js")
-                        if os.path.exists(bypass_script_path):
-                            # Call the JavaScript file to generate poToken
-                            po_token = subprocess.check_output(['node', bypass_script_path]).decode('utf-8').strip()
-                            print(f"Generated poToken: {po_token}")
-                        else:
-                            print("BypassBotDetection.js not found in the Resources directory. Skipping poToken generation.")
-                    
                     if is_youtube_url(url):
                         try:
                             # Check if the URL is a valid YouTube URL
-                            yt = YouTube(
-                                url,
-                                use_oauth=False,
-                                allow_oauth_cache=True,
-                                use_po_token=True,  # Add this line
-                                client="WEB"        # Add this line (optional, try with or without)
-                            )
+                            yt = YouTube(url, "WEB")
                             break
                         except RegexMatchError:
                             # Use ffprobe to determine if it's a valid audio/video file
@@ -485,18 +444,6 @@ else:
                 else:
                     print("Invalid input. Please enter valid YouTube URL or local file path")
                     continue
-
-    # Check if BYPASS_BOT_DETECTION is set in the environment variables
-    bypass_bot_detection = os.getenv("BYPASS_BOT_DETECTION", "n").lower() in ('y', 'yes', 'true', 't', '1')
-
-    if bypass_bot_detection and not is_local_file:
-        bypass_script_path = os.path.join("Resources", "BypassBotDetection.js")
-        if os.path.exists(bypass_script_path):
-            # Call the JavaScript file to generate poToken
-            po_token = subprocess.check_output(['node', bypass_script_path]).decode('utf-8').strip()
-            print(f"Generated poToken: {po_token}")
-        else:
-            print("BypassBotDetection.js not found in the Resources directory. Skipping poToken generation.")
 
     download_video = False
 
@@ -666,13 +613,7 @@ if not is_local_file:
         
     try:
         # Create YouTube object
-        yt = YouTube(
-            url,
-            use_oauth=False,
-            allow_oauth_cache=True,
-            use_po_token=True,  # Add this line
-            client="WEB"        # Add this line (optional, try with or without)
-        )
+        yt = YouTube(url, "WEB")
     except RegexMatchError:
         # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
         file_format = get_file_format(url)
