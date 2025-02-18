@@ -181,7 +181,6 @@ def create_profile(used_fields):
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
 used_fields = {
-    "URL": "",
     "DOWNLOAD_VIDEO": "",
     "NO_AUDIO_IN_VIDEO": "",
     "RESOLUTION": "",
