@@ -181,6 +181,7 @@ def create_profile(used_fields):
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
 used_fields = {
+    "URL": "<Insert_YouTube_link_or_local_path_to_audio_or_video>",
     "DOWNLOAD_VIDEO": "",
     "NO_AUDIO_IN_VIDEO": "",
     "RESOLUTION": "",
