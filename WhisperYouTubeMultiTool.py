@@ -421,9 +421,12 @@ else:
                         url = input()
             else:
                 print("Error: Only YouTube URLs supported for web inputs")
+        elif is_valid_media_file(url):
+            is_local_file = True
+            print(f"Loaded local file: {url} (from {profile_name})")
         else:
             while True:
-                url = input("Enter the YouTube video URL or local file path: ")
+                url = input("Enter the YouTube video URL or local file path: ").strip()
                 if is_web_url(url):
                     if is_youtube_url(url):
                         try:
