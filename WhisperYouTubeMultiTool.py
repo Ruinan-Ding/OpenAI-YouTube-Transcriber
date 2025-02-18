@@ -26,6 +26,9 @@ from moviepy.editor import VideoFileClip  # Import moviepy for audio extraction
 import subprocess
 import json
 
+# Define the profile directory
+profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
+
 # Function to open a file
 def startfile(fn):
     if os.name == 'nt':  # Windows
@@ -37,7 +40,7 @@ def startfile(fn):
 # Function to create and open a txt file
 def create_and_open_txt(text, filename):
     # Create a directory for the transcript if it doesn't exist
-    output_dir = "Transcript"  # Or your preferred directory name
+    output_dir = os.path.join(os.path.dirname(__file__), "Transcript")  # Or your preferred directory name
     os.makedirs(output_dir, exist_ok=True)
 
     # Create the full path for the transcript file
@@ -143,7 +146,6 @@ def create_profile(used_fields):
     Does not modify existing files.
     Includes all fields in the profile file, even if they are empty.
     """
-    profile_dir = "Resources"
     os.makedirs(profile_dir, exist_ok=True)  # Create Profile directory if it doesn't exist
 
     # Check and create config.env if it doesn't exist
@@ -196,13 +198,13 @@ loaded_profile = False
 interactive_mode = False
 
 # Check if config.env exists
-config_env_path = "Resources/config.env"
+config_env_path = os.path.join(profile_dir, "config.env")
 if not os.path.exists(config_env_path):
-    print("config.env not found in the /Resources directory. Switching to default/interactive mode.")
+    print(f"config.env not found in the {profile_dir} directory. Switching to default/interactive mode.")
     load_profile = False
     interactive_mode = True
 else:
-    print(f"config.env detected in the /Resources directory.")
+    print(f"config.env detected in the {profile_dir} directory.")
     load_dotenv(dotenv_path=config_env_path)
     load_profile_str = os.getenv("LOAD_PROFILE")
     print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
@@ -220,7 +222,7 @@ else:
         # Check if LOAD_PROFILE specifies a profile name
         if load_profile_str and not load_profile_str.endswith(".env"):
             load_profile_str += ".env"
-        profile_path = os.path.join("Resources", load_profile_str)  # Directly use the provided name
+        profile_path = os.path.join(profile_dir, load_profile_str)  # Directly use the provided name
 
         if re.match(r"^profile\d*\.env$", load_profile_str, re.IGNORECASE):
             if os.path.exists(profile_path):
@@ -230,16 +232,16 @@ else:
                 print(f"Loading profile: {profile_name}")
             else:
                 print(f"Profile not found: {load_profile_str}. "
-                      f"Make sure the profile file exists in the 'Resources' directory "
+                      f"Make sure the profile file exists in the 'Profile' directory "
                       f"relative to the script.")
         else:
             print(f"Invalid profile name format: {load_profile_str}. "
                   f"Profile names must match the format 'profile<number>.env' "
-                  f"and be located in the 'Resources' directory relative to the script.")
+                  f"and be located in the 'Profile' directory relative to the script.")
 
     if interactive_mode is False and loaded_profile is False:
         # List available profiles (only if not found or invalid format)
-        profiles = [f for f in os.listdir("Resources") if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
+        profiles = [f for f in os.listdir(profile_dir) if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
         if profiles:
             print("Available profiles:")
             for i, profile in enumerate(profiles):
@@ -278,7 +280,7 @@ else:
         if 'profile_name' not in globals():
             profile_name = "profile.env"
         # Load the selected profile
-        profile_path = os.path.join("Resources", profile_name)
+        profile_path = os.path.join(profile_dir, profile_name)
         load_dotenv(dotenv_path=profile_path)
         print(f"Loaded profile: {profile_name}")
 
