@@ -402,7 +402,7 @@ if not load_profile:
 else:
     is_local_file = False
     url = os.getenv("URL")
-    if url:
+    if url and url != "<Insert_YouTube_link_or_local_path_to_audio_or_video>":
         if is_web_url(url):
             if is_youtube_url(url):
                 try:
@@ -425,7 +425,34 @@ else:
             is_local_file = True
             print(f"Loaded local file: {url} (from {profile_name})")
         else:
+            if url != "<Insert_YouTube_link_or_local_path_to_audio_or_video>":
+                print("Invalid input. Please enter valid YouTube URL or local file path")
             while True:
+                url = input("Enter the YouTube video URL or local file path: ").strip()
+                if is_web_url(url):
+                    if is_youtube_url(url):
+                        try:
+                            # Check if the URL is a valid YouTube URL
+                            yt = YouTube(url, "WEB")
+                            break
+                        except RegexMatchError:
+                            # Use ffprobe to determine if it's a valid audio/video file
+                            file_format = get_file_format(url)
+                            if file_format:
+                                is_local_file = True
+                                print(f"Loaded local file: {url}")
+                                break
+                            else:
+                                print("Incorrect value for YOUTUBE_URL. "
+                                      "Please enter a valid YouTube video URL or local file path.")
+                elif is_valid_media_file(url):
+                    is_local_file = True
+                    break
+                else:
+                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    continue
+    else:
+        while True:
                 url = input("Enter the YouTube video URL or local file path: ").strip()
                 if is_web_url(url):
                     if is_youtube_url(url):
