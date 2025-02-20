@@ -9,8 +9,13 @@
 # from the URL along with the transcription of the audio.
 
 # import required modules
+import sys
 import os
 import re
+from urllib.parse import urlparse
+import requests
+import urllib.request
+from py_mini_racer import MiniRacer
 import whisper
 from langdetect import detect
 from pytubefix import YouTube
@@ -19,15 +24,23 @@ from dotenv import load_dotenv
 from moviepy.editor import VideoFileClip  # Import moviepy for audio extraction
 #pip install moviepy==1.0.3 numpy>=1.18.1 imageio>=2.5.0 decorator>=4.3.0 tqdm>=4.0.0 Pillow>=7.0.0 scipy>=1.3.0 pydub>=0.23.0 audiofile>=0.0.0 opencv-python>=4.5
 import subprocess
+import json
+
+# Define the profile directory
+profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
 
 # Function to open a file
 def startfile(fn):
-    os.system('open %s' % fn)
+    if os.name == 'nt':  # Windows
+        os.startfile(fn)
+    elif os.name == 'posix':  # macOS or Linux
+        opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
+        subprocess.run([opener, fn])
 
 # Function to create and open a txt file
 def create_and_open_txt(text, filename):
     # Create a directory for the transcript if it doesn't exist
-    output_dir = "Transcript"  # Or your preferred directory name
+    output_dir = os.path.join(os.path.dirname(__file__), "Transcript")  # Or your preferred directory name
     os.makedirs(output_dir, exist_ok=True)
 
     # Create the full path for the transcript file
@@ -37,6 +50,27 @@ def create_and_open_txt(text, filename):
     with open(file_path, "w") as file:
         file.write(text)
     startfile(file_path)
+
+    
+def is_web_url(input_str):
+    """Check if input is a valid web URL format without network calls."""
+    try:
+        result = urlparse(input_str)
+        return all([result.scheme in ['http', 'https'], result.netloc])
+    except:
+        return False
+
+def is_youtube_url(url):
+    """Check if URL is YouTube using pytubefix's internal regex."""
+    try:
+        YouTube(url,"WEB")
+        return True
+    except RegexMatchError:
+        return False
+
+def is_valid_media_file(path):
+    """Check if path is an existing local media file."""
+    return os.path.exists(path) and get_file_format(path) is not None
 
 # Function to get a yes/no input with validation and default option
 def get_yes_no_input(prompt_text, default="y"):
@@ -112,7 +146,6 @@ def create_profile(used_fields):
     Does not modify existing files.
     Includes all fields in the profile file, even if they are empty.
     """
-    profile_dir = "Profile"
     os.makedirs(profile_dir, exist_ok=True)  # Create Profile directory if it doesn't exist
 
     # Check and create config.env if it doesn't exist
@@ -148,7 +181,7 @@ def create_profile(used_fields):
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
 used_fields = {
-    "URL": "",
+    "URL": "<Insert_YouTube_link_or_local_path_to_audio_or_video>",
     "DOWNLOAD_VIDEO": "",
     "NO_AUDIO_IN_VIDEO": "",
     "RESOLUTION": "",
@@ -157,8 +190,7 @@ used_fields = {
     "TARGET_LANGUAGE": "",
     "USE_EN_MODEL": "",
     "DELETE_AUDIO": "",
-    "DOWNLOAD_AUDIO": "",
-}
+    "DOWNLOAD_AUDIO": ""}
 
 # Initialize load_profile to False
 load_profile = False
@@ -166,13 +198,13 @@ loaded_profile = False
 interactive_mode = False
 
 # Check if config.env exists
-config_env_path = "Profile/config.env"
+config_env_path = os.path.join(profile_dir, "config.env")
 if not os.path.exists(config_env_path):
-    print("config.env not found in the /Profile directory. Switching to default/interactive mode.")
+    print(f"config.env not found in the {profile_dir} directory. Switching to default/interactive mode.")
     load_profile = False
     interactive_mode = True
 else:
-    print(f"config.env detected in the /Profile directory.")
+    print(f"config.env detected in the {profile_dir} directory.")
     load_dotenv(dotenv_path=config_env_path)
     load_profile_str = os.getenv("LOAD_PROFILE")
     print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
@@ -188,7 +220,9 @@ else:
         interactive_mode = True
     else:
         # Check if LOAD_PROFILE specifies a profile name
-        profile_path = os.path.join("Profile", load_profile_str)  # Directly use the provided name
+        if load_profile_str and not load_profile_str.endswith(".env"):
+            load_profile_str += ".env"
+        profile_path = os.path.join(profile_dir, load_profile_str)  # Directly use the provided name
 
         if re.match(r"^profile\d*\.env$", load_profile_str, re.IGNORECASE):
             if os.path.exists(profile_path):
@@ -207,7 +241,7 @@ else:
 
     if interactive_mode is False and loaded_profile is False:
         # List available profiles (only if not found or invalid format)
-        profiles = [f for f in os.listdir("Profile") if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
+        profiles = [f for f in os.listdir(profile_dir) if re.match(r"^profile\d*\.env$", f, re.IGNORECASE)]
         if profiles:
             print("Available profiles:")
             for i, profile in enumerate(profiles):
@@ -228,6 +262,10 @@ else:
                     profile_name = profile_input
                     load_profile = True
                     break
+                elif profile_input + ".env" in profiles:
+                    profile_name = profile_input + ".env"
+                    load_profile = True
+                    break
                 elif profile_input in ('n', 'no', 'f', 'false', '0', 'skip', 's'):
                     load_profile = False
                     break
@@ -238,8 +276,11 @@ else:
             load_profile = False
 
     if load_profile:
+        # Ensure profile_name is set – default to "profile.env" if not already assigned
+        if 'profile_name' not in globals():
+            profile_name = "profile.env"
         # Load the selected profile
-        profile_path = os.path.join("Profile", profile_name)
+        profile_path = os.path.join(profile_dir, profile_name)
         load_dotenv(dotenv_path=profile_path)
         print(f"Loaded profile: {profile_name}")
 
@@ -248,19 +289,22 @@ else:
 if not load_profile:
     is_local_file = False  # Initialize the flag here
     while True:
-        url = input("Enter the YouTube video URL or local file path: ")
-        used_fields["URL"] = url
-        try:
-            yt = YouTube(url)
-            break
-        except RegexMatchError:
-            # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
-            file_format = get_file_format(url)
-            if file_format:
-                is_local_file = True
-                break
+        url = input("Enter the YouTube video URL or local file path: ").strip()
+        
+        # --- Validation Steps ---
+        if is_web_url(url):
+            if is_youtube_url(url):
+                is_local_file = False
+                break  # Exit loop after successful YouTube validation
             else:
-                print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
+                print("Error: Only YouTube URLs supported for web inputs")
+                continue
+        elif is_valid_media_file(url):
+            is_local_file = True
+            break
+        else:
+            print("Invalid input. Please enter valid YouTube URL or local file path")
+            continue
 
     download_video = False
 
@@ -275,13 +319,13 @@ if not load_profile:
 
         if download_video:
             while True:
-                resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
+                resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, (default get the highest resolutions). enter fetch or f to get a list of available: ")
                 used_fields["RESOLUTION"] = resolution
                 if not resolution:
-                    resolution = "0"  # Default to highest if input is empty
+                    resolution = "highest"  # Default to highest if input is empty
                     break
                 resolution = resolution.lower()  # Convert to lowercase after checking for empty input
-                if resolution in ("highest", "lowest"):
+                if resolution in ("highest", "lowest", "fetch", "f"):
                     break
                 elif resolution.isdigit():
                     if int(resolution) > 0:  # Check if it's a non-zero number
@@ -297,7 +341,11 @@ if not load_profile:
                         print("Invalid resolution. Please enter a non-zero number.")
                 else:
                     print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
-            print(f"Using resolution: {resolution}")  # Indicate selected resolution
+            if resolution != "fetch" and resolution != "f":
+                print(f"Using resolution: {resolution}")  # Indicate selected resolution
+            else:
+                print("vailable resolutions will be shown later.")
+
 
     transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
     used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
@@ -358,36 +406,80 @@ if not load_profile:
 else:
     is_local_file = False
     url = os.getenv("URL")
-    if url:
-        try:
-            yt = YouTube(url)
-            print(f"Loaded YOUTUBE_URL: {url} (from config.env)")
-        except RegexMatchError:
-            # Use ffprobe to determine if it's a valid audio/video file
-            file_format = get_file_format(url)
-            if file_format:
-                is_local_file = True
-                # ... (Call the handle_local_file function here) ... 
+    if url and url != "<Insert_YouTube_link_or_local_path_to_audio_or_video>":
+        if is_web_url(url):
+            if is_youtube_url(url):
+                try:
+                    # Create YouTube object
+                    yt = YouTube(url, "WEB")
+                    print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
+                except RegexMatchError:
+                    # Use ffprobe to determine if it's a valid audio/video file
+                    file_format = get_file_format(url)
+                    if file_format:
+                        is_local_file = True
+                        print(f"Loaded local file: {url} (from {profile_name})")
+                    else:
+                        print("Incorrect value for YOUTUBE_URL in config.env. "
+                              "Please enter a valid YouTube video URL or local file path: ")
+                        url = input()
             else:
-                print("Incorrect value for YOUTUBE_URL in config.env. "
-                      "Please enter a valid YouTube video URL or local file path: ")
-                url = input()
-    else:
-        while True:
-            url = input("Enter the YouTube video URL or local file path: ")
-            try:
-                yt = YouTube(url)
-                break
-            except RegexMatchError:
-                # Use ffprobe to determine if it's a valid audio/video file
-                file_format = get_file_format(url)
-                if file_format:
+                print("Error: Only YouTube URLs supported for web inputs")
+        elif is_valid_media_file(url):
+            is_local_file = True
+            print(f"Loaded local file: {url} (from {profile_name})")
+        else:
+            if url != "<Insert_YouTube_link_or_local_path_to_audio_or_video>":
+                print("Invalid input. Please enter valid YouTube URL or local file path")
+            while True:
+                url = input("Enter the YouTube video URL or local file path: ").strip()
+                if is_web_url(url):
+                    if is_youtube_url(url):
+                        try:
+                            # Check if the URL is a valid YouTube URL
+                            yt = YouTube(url, "WEB")
+                            break
+                        except RegexMatchError:
+                            # Use ffprobe to determine if it's a valid audio/video file
+                            file_format = get_file_format(url)
+                            if file_format:
+                                is_local_file = True
+                                print(f"Loaded local file: {url}")
+                                break
+                            else:
+                                print("Incorrect value for YOUTUBE_URL. "
+                                      "Please enter a valid YouTube video URL or local file path.")
+                elif is_valid_media_file(url):
                     is_local_file = True
-                    # ... (Call the handle_local_file function here) ...
                     break
                 else:
-                    print("Incorrect value for YOUTUBE_URL. "
-                          "Please enter a valid YouTube video URL or local file path.")
+                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    continue
+    else:
+        while True:
+                url = input("Enter the YouTube video URL or local file path: ").strip()
+                if is_web_url(url):
+                    if is_youtube_url(url):
+                        try:
+                            # Check if the URL is a valid YouTube URL
+                            yt = YouTube(url, "WEB")
+                            break
+                        except RegexMatchError:
+                            # Use ffprobe to determine if it's a valid audio/video file
+                            file_format = get_file_format(url)
+                            if file_format:
+                                is_local_file = True
+                                print(f"Loaded local file: {url}")
+                                break
+                            else:
+                                print("Incorrect value for YOUTUBE_URL. "
+                                      "Please enter a valid YouTube video URL or local file path.")
+                elif is_valid_media_file(url):
+                    is_local_file = True
+                    break
+                else:
+                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    continue
 
     download_video = False
 
@@ -396,10 +488,10 @@ else:
         if download_video_str:
             if download_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
                 download_video = True
-                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
+                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
             elif download_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
                 download_video = False
-                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from config.env)")
+                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
             else:
                 print(f"Invalid value for DOWNLOAD_VIDEO in .env: {download_video_str}")
                 download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
@@ -411,10 +503,10 @@ else:
             if no_audio_in_video_str:
                 if no_audio_in_video_str.lower() in ('y', 'yes', 'true', 't', '1'):
                     no_audio_in_video = True
-                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
                 elif no_audio_in_video_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     no_audio_in_video = False
-                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from config.env)")
+                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
                 elif download_video:
                     print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
                     if download_video:
@@ -425,7 +517,7 @@ else:
             resolution = os.getenv("RESOLUTION")
             if resolution:
                 resolution = resolution.lower()  # Convert to lowercase for easier comparison
-                if resolution not in ("highest", "lowest"):
+                if resolution not in ("highest", "lowest", "fetch", "f"):
                     if resolution.isdigit():
                         if int(resolution) > 0:
                             resolution += "p"  # Add "p" if it's a number
@@ -434,21 +526,21 @@ else:
                             resolution = None  # Set to None to trigger the prompt
                     elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
                         print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                        resolution = None  # Set to None to trigger the prompt
+                        resolution = "fetch"  # Set to None to trigger the prompt
                 if resolution:  # Only print if resolution is valid
-                    print(f"Loaded RESOLUTION: {resolution} (from config.env)")
+                    print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
             else:
-                print(f"Loaded RESOLUTION: null (from config.env)")
-                resolution = "0"
+                print(f"Loaded RESOLUTION: null (from {profile_name})")
+                resolution = "fetch"  # Set to "fetch" to trigger the prompt
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
         if transcribe_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
             transcribe_audio = True
-            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from config.env)")
+            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
         elif transcribe_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
             transcribe_audio = False
-            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from config.env)")
+            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
         else:
             print(f"Invalid value for TRANSCRIBE_AUDIO in .env: {transcribe_audio_str}")
             transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
@@ -462,7 +554,7 @@ else:
             print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
             model_choice = get_model_choice_input()  # Prompt for valid input
         else:
-            print(f"Loaded MODEL_CHOICE: {model_choice} (from config.env)")  # Indicate successful load from config.env
+            print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")  # Indicate successful load from config.env
     elif transcribe_audio:
         model_choice = get_model_choice_input()  # Use the validation function
 
@@ -493,7 +585,7 @@ else:
                 print(f"Invalid value for TARGET_LANGUAGE in .env: {target_language}")
                 target_language = get_target_language_input()
             else:
-                print(f"Loaded TARGET_LANGUAGE: {target_language} (from config.env)")  # Indicate successful load from config.env
+                print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")  # Indicate successful load from config.env
         else:
             target_language = get_target_language_input()
             if not target_language:
@@ -503,10 +595,10 @@ else:
         if use_en_model_str and transcribe_audio:
             if use_en_model_str.lower() in ('y', 'yes', 'true', 't', '1'):
                 use_en_model = True
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from config.env)")
+                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
             elif use_en_model_str.lower() in ('n', 'no', 'false', 'f', '0'):
                 use_en_model = False
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from config.env)")
+                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
             elif transcribe_audio:
                 print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
                 if model_name in ("tiny", "base", "small", "medium") and target_language == 'en':
@@ -523,10 +615,10 @@ else:
             if download_audio_str:
                 if download_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
                     download_audio = True
-                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
                 elif download_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     download_audio = False
-                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from config.env)")
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
                 elif not transcribe_audio:
                     print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
                     download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
@@ -536,10 +628,10 @@ else:
             if delete_audio_str:
                 if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
                     delete_audio = True
-                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from {profile_name})")
                 elif delete_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
                     delete_audio = False
-                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from config.env)")
+                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from {profile_name})")
                 else:
                     print(f"Invalid value for DELETE_AUDIO in .env: {delete_audio_str}")
                     delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
@@ -554,7 +646,17 @@ print("\nProcessing...")  # Indicate step
 
 # Create a YouTube object from the URL ONLY if it's NOT a local file
 if not is_local_file:
-    yt = YouTube(url)
+        
+    try:
+        # Create YouTube object
+        yt = YouTube(url, "WEB")
+    except RegexMatchError:
+        # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
+        file_format = get_file_format(url)
+        if file_format:
+            is_local_file = True
+        else:
+            print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
 
     # Extract the filename base from the video title
     video_title = yt.title
@@ -583,6 +685,11 @@ if download_video and not is_local_file:
         else:
             stream = None
 
+    elif resolution == "fetch" or resolution == "f":
+        stream = None
+        if not load_profile:
+            used_fields["RESOLUTION"] = "fetch"  # Update the field to "fetch" for the profile
+
     else:  # Specific resolution provided
         streams = yt.streams.filter(only_video=True, resolution=resolution)
         streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
@@ -594,7 +701,7 @@ if download_video and not is_local_file:
 
     # If the requested resolution is not found, prompt the user
     if stream is None:
-        print("Requested resolution not found or left null.")
+        print("Requested resolution not found, left null, or invalid.")
         available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
 
         # Order streams by resolution numerically
@@ -625,9 +732,6 @@ if download_video and not is_local_file:
                 break
             else:
                 print("Invalid input. Please enter a valid number or resolution.")
-
-        if not load_profile:
-            used_fields["RESOLUTION"] = resolution
 
         stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
@@ -710,7 +814,7 @@ if (transcribe_audio or download_audio) and not is_local_file:  # Download audio
 
 if transcribe_audio:
     if is_local_file:  # Check if it's a local file
-        if url.endswith(".mp3"):  # Check if it's an MP3 file
+        if is_valid_media_file(url):  # Check if it's a valid media file
             audio_file = url  # Use the URL directly as the audio file
         else:  # If it's not an MP3 file, assume it's an MP4
             video = VideoFileClip(url)  # Create a VideoFileClip object from the URL
@@ -757,7 +861,7 @@ else:
     print("Skipping transcription.")
     transcribed_text = ""  # Assign an empty string
 
-if delete_audio and not is_local_file:
+if delete_audio and not download_audio and not is_local_file:
     output_path = "Audio"  # Set output_path here, before os.remove()
     filename = filename_base + ".mp3"
     # Delete the audio file
