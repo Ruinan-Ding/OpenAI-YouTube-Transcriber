@@ -319,13 +319,13 @@ if not load_profile:
 
         if download_video:
             while True:
-                resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, default get available resolutions later): ")
+                resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, (default get the highest resolutions). enter fetch or f to get a list of available: ")
                 used_fields["RESOLUTION"] = resolution
                 if not resolution:
-                    resolution = "0"  # Default to highest if input is empty
+                    resolution = "highest"  # Default to highest if input is empty
                     break
                 resolution = resolution.lower()  # Convert to lowercase after checking for empty input
-                if resolution in ("highest", "lowest"):
+                if resolution in ("highest", "lowest", "fetch", "f"):
                     break
                 elif resolution.isdigit():
                     if int(resolution) > 0:  # Check if it's a non-zero number
@@ -341,7 +341,11 @@ if not load_profile:
                         print("Invalid resolution. Please enter a non-zero number.")
                 else:
                     print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
-            print(f"Using resolution: {resolution}")  # Indicate selected resolution
+            if resolution != "fetch" and resolution != "f":
+                print(f"Using resolution: {resolution}")  # Indicate selected resolution
+            else:
+                print("vailable resolutions will be shown later.")
+
 
     transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
     used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
@@ -513,7 +517,7 @@ else:
             resolution = os.getenv("RESOLUTION")
             if resolution:
                 resolution = resolution.lower()  # Convert to lowercase for easier comparison
-                if resolution not in ("highest", "lowest"):
+                if resolution not in ("highest", "lowest", "fetch", "f"):
                     if resolution.isdigit():
                         if int(resolution) > 0:
                             resolution += "p"  # Add "p" if it's a number
@@ -522,12 +526,12 @@ else:
                             resolution = None  # Set to None to trigger the prompt
                     elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
                         print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                        resolution = None  # Set to None to trigger the prompt
+                        resolution = "fetch"  # Set to None to trigger the prompt
                 if resolution:  # Only print if resolution is valid
                     print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
             else:
                 print(f"Loaded RESOLUTION: null (from {profile_name})")
-                resolution = "0"
+                resolution = "fetch"  # Set to "fetch" to trigger the prompt
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -681,6 +685,11 @@ if download_video and not is_local_file:
         else:
             stream = None
 
+    elif resolution == "fetch" or resolution == "f":
+        stream = None
+        if not load_profile:
+            used_fields["RESOLUTION"] = "fetch"  # Update the field to "fetch" for the profile
+
     else:  # Specific resolution provided
         streams = yt.streams.filter(only_video=True, resolution=resolution)
         streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
@@ -692,7 +701,7 @@ if download_video and not is_local_file:
 
     # If the requested resolution is not found, prompt the user
     if stream is None:
-        print("Requested resolution not found or left null.")
+        print("Requested resolution not found, left null, or invalid.")
         available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
 
         # Order streams by resolution numerically
@@ -723,9 +732,6 @@ if download_video and not is_local_file:
                 break
             else:
                 print("Invalid input. Please enter a valid number or resolution.")
-
-        if not load_profile:
-            used_fields["RESOLUTION"] = resolution
 
         stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
