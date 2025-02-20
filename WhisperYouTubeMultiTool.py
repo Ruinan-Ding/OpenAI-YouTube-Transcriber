@@ -189,7 +189,7 @@ used_fields = {
     "MODEL_CHOICE": "",
     "TARGET_LANGUAGE": "",
     "USE_EN_MODEL": "",
-    "DELETE_AUDIO": "",
+    "DELETE_AUDIO_RESIDUAL": "",
     "DOWNLOAD_AUDIO": ""}
 
 # Initialize load_profile to False
@@ -386,7 +386,7 @@ if not load_profile:
         model_name = "base"  # Set a default model name
         use_en_model = False
 
-    delete_audio = False
+    delete_audio_residual = False
 
     if not is_local_file:
         # --- Download audio only if not transcribing ---
@@ -396,10 +396,10 @@ if not load_profile:
             used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
 
         if transcribe_audio or download_audio:
-            delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
-            used_fields["DELETE_AUDIO"] = "y" if delete_audio else "n"
+            delete_audio_residual = get_yes_no_input("Delete the audio residual? (Y/n): ")
+            used_fields["DELETE_AUDIO_RESIDUAL"] = "y" if delete_audio_residual else "n"
         else:
-            delete_audio = False  # Don't delete audio if not transcribing
+            delete_audio_residual = False  # Don't delete audio if not transcribing
         
 # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
 
@@ -606,7 +606,7 @@ else:
                 else:
                     use_en_model = False
 
-    delete_audio = False
+    delete_audio_residual = False
 
     if not is_local_file:
         download_audio = False
@@ -624,21 +624,21 @@ else:
                     download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
         if transcribe_audio or download_audio:
-            delete_audio_str = os.getenv("DELETE_AUDIO")
-            if delete_audio_str:
-                if delete_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                    delete_audio = True
-                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from {profile_name})")
-                elif delete_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                    delete_audio = False
-                    print(f"Loaded DELETE_AUDIO: {delete_audio_str} (from {profile_name})")
+            delete_audio_residual_str = os.getenv("DELETE_AUDIO_RESIDUAL")
+            if delete_audio_residual_str:
+                if delete_audio_residual_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                    delete_audio_residual = True
+                    print(f"Loaded DELETE_AUDIO_RESIDUAL: {delete_audio_residual_str} (from {profile_name})")
+                elif delete_audio_residual_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                    delete_audio_residual = False
+                    print(f"Loaded DELETE_AUDIO_RESIDUAL: {delete_audio_residual_str} (from {profile_name})")
                 else:
-                    print(f"Invalid value for DELETE_AUDIO in .env: {delete_audio_str}")
-                    delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
+                    print(f"Invalid value for DELETE_AUDIO_RESIDUAL in .env: {delete_audio_residual_str}")
+                    delete_audio_residual = get_yes_no_input("Delete the audio residual? (Y/n): ")
             else:
-                delete_audio = get_yes_no_input("Delete the audio file? (Y/n): ")
+                delete_audio_residual = get_yes_no_input("Delete the audio residual? (Y/n): ")
         else:
-            delete_audio = False
+            delete_audio_residual = False
 
 # --- Now, proceed with the rest of the script using the gathered parameters ---
 
@@ -861,13 +861,13 @@ else:
     print("Skipping transcription.")
     transcribed_text = ""  # Assign an empty string
 
-if delete_audio and not download_audio and not is_local_file:
+if delete_audio_residual and not download_audio and not is_local_file:
     output_path = "Audio"  # Set output_path here, before os.remove()
     filename = filename_base + ".mp3"
     # Delete the audio file
     os.remove(f"{output_path}/{filename}")
     file_path = os.path.abspath(f"{output_path}/{filename}")
-    print(f"Deleted audio file in {file_path}")
+    print(f"Deleted audio residual in {file_path}")
 elif not transcribe_audio and not download_audio:
     print("Skipping transcription and audio download...")
 
