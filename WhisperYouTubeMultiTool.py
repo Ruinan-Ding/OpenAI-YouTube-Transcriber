@@ -863,8 +863,10 @@ if download_video and not is_local_file:
         file_path = os.path.abspath(output_path + "/" + filename)
         print(f"Video downloaded to {file_path}")
     else:
-        temp_dir = os.path.join("Temp")
-        os.makedirs(temp_dir, exist_ok=True)
+        video_temp_dir = os.path.join("Video", "Temp")
+        audio_temp_dir = os.path.join("Audio", "Temp")
+        os.makedirs(video_temp_dir, exist_ok=True)
+        os.makedirs(audio_temp_dir, exist_ok=True)
 
         video_filename = filename_base + ".mp4"
         audio_filename = filename_base + ".mp3"
@@ -877,16 +879,16 @@ if download_video and not is_local_file:
         audio_stream = audio_streams[0]  # Select the first stream from the sorted list
 
         # Download the audio stream
-        audio_stream.download(output_path=temp_dir, filename=audio_filename)
-        audio_path = os.path.abspath(os.path.join(temp_dir, audio_filename))
+        audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
+        audio_path = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
         print(f"Audio downloaded to {audio_path}")
 
         if resolution == "fetch":
             stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
         # Download the selected video stream
-        stream.download(output_path=temp_dir, filename=video_filename)
-        video_path = os.path.abspath(os.path.join(temp_dir, video_filename))
+        stream.download(output_path=video_temp_dir, filename=video_filename)
+        video_path = os.path.abspath(os.path.join(video_temp_dir, video_filename))
         print(f"Video downloaded to {video_path}")
 
         # Mux with ffmpeg
@@ -895,10 +897,11 @@ if download_video and not is_local_file:
         command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
         os.system(command)
 
-        # Delete temporary files and directory
+        # Delete temporary files and directories
         os.remove(video_path)
         os.remove(audio_path)
-        os.rmdir(temp_dir)
+        os.rmdir(video_temp_dir)
+        os.rmdir(audio_temp_dir)
 
         print(f"Combined video saved to {output_path_combined}")
 
