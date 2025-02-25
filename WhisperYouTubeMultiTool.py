@@ -307,6 +307,7 @@ if not load_profile:
             continue
 
     download_video = False
+    resolution = None  # Initialize resolution variable
 
     if not is_local_file:
         download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
@@ -320,7 +321,12 @@ if not load_profile:
         if download_video:
             while True:
                 resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, (default get the highest resolutions). enter fetch or f to get a list of available: ")
-                used_fields["RESOLUTION"] = resolution
+                if resolution.endswith("p"):
+                    used_fields["RESOLUTION"] = resolution
+                elif resolution == "fetch" or resolution == "f":
+                    used_fields["RESOLUTION"] = "fetch"
+                else:
+                    used_fields["RESOLUTION"] = resolution + "p"
                 if not resolution:
                     resolution = "highest"  # Default to highest if input is empty
                     break
@@ -341,10 +347,52 @@ if not load_profile:
                         print("Invalid resolution. Please enter a non-zero number.")
                 else:
                     print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
-            if resolution != "fetch" and resolution != "f":
+            if resolution not in ("fetch", "f"):
                 print(f"Using resolution: {resolution}")  # Indicate selected resolution
             else:
-                print("vailable resolutions will be shown later.")
+                if resolution == "f":
+                    resolution = "fetch"
+                print("Loading available resolution...")
+
+        # If the requested resolution is not found, prompt the user
+        if resolution == "fetch":
+            try:
+                yt = YouTube(url, "WEB")
+            except RegexMatchError:
+                print("Error: Invalid YouTube URL.")
+                exit()
+            if resolution != "fetch":
+                print("Requested resolution not found, left null, or invalid.")
+            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+
+            # Order streams by resolution numerically
+            available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+            # Use a set to get unique resolutions and then order them
+            available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
+            available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+
+            if not available_resolutions:
+                print("No video streams found. Exiting...")
+                exit()
+
+            print("Available resolutions:")
+            for i, res in enumerate(available_resolutions):
+                print(f"{i+1}. {res}")
+
+            while True:
+                user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+                if not user_input:
+                    selected_res = available_resolutions[0]  # Default to highest
+                    break
+                elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
+                    selected_res = available_resolutions[int(user_input) - 1]
+                    break
+                elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+                    selected_res = user_input if user_input in available_resolutions else user_input + "p"
+                    break
+                else:
+                    print("Invalid input. Please enter a valid number or resolution.")
 
 
     transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
@@ -521,17 +569,96 @@ else:
                     if resolution.isdigit():
                         if int(resolution) > 0:
                             resolution += "p"  # Add "p" if it's a number
+                            print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
                         else:
                             print(f"Invalid value for RESOLUTION in .env: {resolution}")
                             resolution = None  # Set to None to trigger the prompt
                     elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
                         print(f"Invalid value for RESOLUTION in .env: {resolution}")
                         resolution = "fetch"  # Set to None to trigger the prompt
-                if resolution:  # Only print if resolution is valid
+                elif resolution in ("highest", "lowest"):
                     print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
+                elif resolution in ("fetch", "f"):
+                    print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
+                    print(f"Loading available resolution...")
+                    if resolution == "f":
+                        resolution = "fetch"
+                else:
+                    print(f"Loaded RESOLUTION: null (from {profile_name})")
+                    print(f"Loading available resolution...")
+                    resolution = "fetch"  # Set to "fetch" to trigger the prompt
+
+    if download_video and not is_local_file and resolution == "fetch":
+        try:
+            yt = YouTube(url, "WEB")
+        except RegexMatchError:
+            print("Error: Invalid YouTube URL.")
+            exit()
+        if resolution == "highest":
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+            if streams:
+                stream = streams[0]  # Highest resolution is first in descending order
             else:
-                print(f"Loaded RESOLUTION: null (from {profile_name})")
-                resolution = "fetch"  # Set to "fetch" to trigger the prompt
+                stream = None
+
+        elif resolution == "lowest":
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+            if streams:
+                stream = streams[-1]  # Lowest resolution is last in descending order
+            else:
+                stream = None
+
+        elif resolution == "fetch":
+            stream = None
+            resolution = "fetch"  # Set to "fetch" to trigger the prompt
+
+        else:  # Specific resolution provided
+            streams = yt.streams.filter(only_video=True, resolution=resolution)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+            if streams:
+                stream = streams[0]  # If specific resolution exists, take the first
+            else:
+                stream = None
+
+        # If the requested resolution is not found, prompt the user
+        if stream is None and resolution == "fetch":
+            if resolution != "fetch":
+                print("Requested resolution not found, left null, or invalid.")
+            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+
+            # Order streams by resolution numerically
+            available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+
+            # Use a set to get unique resolutions and then order them
+            available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
+            available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+
+            if not available_resolutions:
+                print("No video streams found. Exiting...")
+                exit()
+
+            print("Available resolutions:")
+            for i, res in enumerate(available_resolutions):
+                print(f"{i+1}. {res}")
+
+            while True:
+                user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+                if not user_input:
+                    selected_res = available_resolutions[0]  # Default to highest
+                    break
+                elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
+                    selected_res = available_resolutions[int(user_input) - 1]
+                    break
+                elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+                    selected_res = user_input if user_input in available_resolutions else user_input + "p"
+                    break
+                else:
+                    print("Invalid input. Please enter a valid number or resolution.")
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -646,7 +773,6 @@ print("\nProcessing...")  # Indicate step
 
 # Create a YouTube object from the URL ONLY if it's NOT a local file
 if not is_local_file:
-        
     try:
         # Create YouTube object
         yt = YouTube(url, "WEB")
@@ -667,37 +793,24 @@ filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
 print(f"Processing: {video_title}")  # Indicate step
 
 if download_video and not is_local_file:
-    if resolution == "highest":
-        streams = yt.streams.filter(only_video=True)
-        streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+    match resolution:
+        case "highest":
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+            stream = streams[0] if streams else None
 
-        if streams:
-            stream = streams[0]  # Highest resolution is first in descending order
-        else:
-            stream = None
+        case "lowest":
+            streams = yt.streams.filter(only_video=True)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+            stream = streams[-1] if streams else None
 
-    elif resolution == "lowest":
-        streams = yt.streams.filter(only_video=True)
-        streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        case "fetch":
+            stream = yt.streams.filter(only_video=True, resolution=selected_res)
 
-        if streams:
-            stream = streams[-1]  # Lowest resolution is last in descending order
-        else:
-            stream = None
-
-    elif resolution == "fetch" or resolution == "f":
-        stream = None
-        if not load_profile:
-            used_fields["RESOLUTION"] = "fetch"  # Update the field to "fetch" for the profile
-
-    else:  # Specific resolution provided
-        streams = yt.streams.filter(only_video=True, resolution=resolution)
-        streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-
-        if streams:
-            stream = streams[0]  # If specific resolution exists, take the first
-        else:
-            stream = None
+        case _:
+            streams = yt.streams.filter(only_video=True, resolution=resolution)
+            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+            stream = streams[0] if streams else None
 
     # If the requested resolution is not found, prompt the user
     if stream is None:
@@ -750,8 +863,11 @@ if download_video and not is_local_file:
         file_path = os.path.abspath(output_path + "/" + filename)
         print(f"Video downloaded to {file_path}")
     else:
-        video_filename = filename_base + "_video.mp4"
-        output_path = "Video"
+        temp_dir = os.path.join("Temp")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        video_filename = filename_base + ".mp4"
+        audio_filename = filename_base + ".mp3"
 
         audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
 
@@ -760,31 +876,29 @@ if download_video and not is_local_file:
 
         audio_stream = audio_streams[0]  # Select the first stream from the sorted list
 
-        # Set output_path and filename for the audio file
-        audio_filename = filename_base + "_audio.mp3"
-
         # Download the audio stream
-        audio_stream.download(output_path=output_path, filename=audio_filename)
-        file_path = os.path.abspath(output_path + "/" + audio_filename)
-        print(f"Audio downloaded to {file_path}")
+        audio_stream.download(output_path=temp_dir, filename=audio_filename)
+        audio_path = os.path.abspath(os.path.join(temp_dir, audio_filename))
+        print(f"Audio downloaded to {audio_path}")
 
-        # Download the selected stream
-        print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
-        stream.download(output_path=output_path, filename=video_filename)
-        file_path = os.path.abspath(output_path + "/" + video_filename)
-        print(f"Video downloaded to {file_path}")
-        
+        if resolution == "fetch":
+            stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
+
+        # Download the selected video stream
+        stream.download(output_path=temp_dir, filename=video_filename)
+        video_path = os.path.abspath(os.path.join(temp_dir, video_filename))
+        print(f"Video downloaded to {video_path}")
+
         # Mux with ffmpeg
-        video_path = os.path.join(output_path, f"{video_filename}")
-        audio_path = os.path.join(output_path, f"{audio_filename}")
-        output_path_combined = os.path.join(output_path, f"{filename_base}.mp4")  # Use original filename
+        output_path_combined = os.path.join("Video", f"{filename_base}.mp4")  # Use original filename
 
         command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
         os.system(command)
 
-        # Delete temporary files
+        # Delete temporary files and directory
         os.remove(video_path)
         os.remove(audio_path)
+        os.rmdir(temp_dir)
 
         print(f"Combined video saved to {output_path_combined}")
 
