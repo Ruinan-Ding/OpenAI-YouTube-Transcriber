@@ -185,12 +185,11 @@ used_fields = {
     "DOWNLOAD_VIDEO": "",
     "NO_AUDIO_IN_VIDEO": "",
     "RESOLUTION": "",
+    "DOWNLOAD_AUDIO": "",
     "TRANSCRIBE_AUDIO": "",
     "MODEL_CHOICE": "",
     "TARGET_LANGUAGE": "",
-    "USE_EN_MODEL": "",
-    "DELETE_AUDIO_RESIDUAL": "",
-    "DOWNLOAD_AUDIO": ""}
+    "USE_EN_MODEL": ""}
 
 # Initialize load_profile to False
 load_profile = False
@@ -307,6 +306,7 @@ if not load_profile:
             continue
 
     download_video = False
+    no_audio_in_video = False
     resolution = None  # Initialize resolution variable
 
     if not is_local_file:
@@ -320,7 +320,7 @@ if not load_profile:
 
         if download_video:
             while True:
-                resolution = input("Enter desired resolution (e.g., 720p, 720, highest, lowest, (default get the highest resolutions). enter fetch or f to get a list of available: ")
+                resolution = input("... enter desired resolution (e.g., 720p, 720, highest, lowest, default get the highest resolutions), or enter fetch or f to get a list of available resolutions: ")
                 if resolution.endswith("p"):
                     used_fields["RESOLUTION"] = resolution
                 elif resolution == "fetch" or resolution == "f":
@@ -394,6 +394,10 @@ if not load_profile:
                 else:
                     print("Invalid input. Please enter a valid number or resolution.")
 
+    if not is_local_file:
+        # --- Download audio only if not transcribing ---
+        download_audio = get_yes_no_input("Download audio? (y/N): ", default='n')
+        used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
 
     transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
     used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
@@ -433,21 +437,6 @@ if not load_profile:
     else:  # If not transcribing, skip model and language options
         model_name = "base"  # Set a default model name
         use_en_model = False
-
-    delete_audio_residual = False
-
-    if not is_local_file:
-        # --- Download audio only if not transcribing ---
-        download_audio = False
-        if not transcribe_audio:
-            download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
-            used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
-
-        if transcribe_audio or download_audio:
-            delete_audio_residual = get_yes_no_input("Delete the audio residual? (Y/n): ")
-            used_fields["DELETE_AUDIO_RESIDUAL"] = "y" if delete_audio_residual else "n"
-        else:
-            delete_audio_residual = False  # Don't delete audio if not transcribing
         
 # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
 
@@ -530,6 +519,7 @@ else:
                     continue
 
     download_video = False
+    no_audio_in_video = False
 
     if not is_local_file:
         download_video_str = os.getenv("DOWNLOAD_VIDEO")
@@ -659,6 +649,19 @@ else:
                     break
                 else:
                     print("Invalid input. Please enter a valid number or resolution.")
+    
+    if not is_local_file:
+        download_audio_str = os.getenv("DOWNLOAD_AUDIO")
+        if download_audio_str:
+            if download_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
+                download_audio = True
+                print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
+            elif download_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
+                download_audio = False
+                print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
+            else:
+                print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
+                download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
     transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
     if transcribe_audio_str:
@@ -732,40 +735,6 @@ else:
                     use_en_model = get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
                 else:
                     use_en_model = False
-
-    delete_audio_residual = False
-
-    if not is_local_file:
-        download_audio = False
-        if not transcribe_audio:
-            download_audio_str = os.getenv("DOWNLOAD_AUDIO")
-            if download_audio_str:
-                if download_audio_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                    download_audio = True
-                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
-                elif download_audio_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                    download_audio = False
-                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
-                elif not transcribe_audio:
-                    print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
-                    download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
-
-        if transcribe_audio or download_audio:
-            delete_audio_residual_str = os.getenv("DELETE_AUDIO_RESIDUAL")
-            if delete_audio_residual_str:
-                if delete_audio_residual_str.lower() in ('y', 'yes', 'true', 't', '1'):
-                    delete_audio_residual = True
-                    print(f"Loaded DELETE_AUDIO_RESIDUAL: {delete_audio_residual_str} (from {profile_name})")
-                elif delete_audio_residual_str.lower() in ('n', 'no', 'false', 'f', '0'):
-                    delete_audio_residual = False
-                    print(f"Loaded DELETE_AUDIO_RESIDUAL: {delete_audio_residual_str} (from {profile_name})")
-                else:
-                    print(f"Invalid value for DELETE_AUDIO_RESIDUAL in .env: {delete_audio_residual_str}")
-                    delete_audio_residual = get_yes_no_input("Delete the audio residual? (Y/n): ")
-            else:
-                delete_audio_residual = get_yes_no_input("Delete the audio residual? (Y/n): ")
-        else:
-            delete_audio_residual = False
 
 # --- Now, proceed with the rest of the script using the gathered parameters ---
 
@@ -864,52 +833,23 @@ if download_video and not is_local_file:
         print(f"Video downloaded to {file_path}")
     else:
         video_temp_dir = os.path.join("Video", "Temp")
-        audio_temp_dir = os.path.join("Audio", "Temp")
         os.makedirs(video_temp_dir, exist_ok=True)
-        os.makedirs(audio_temp_dir, exist_ok=True)
 
         video_filename = filename_base + ".mp4"
         audio_filename = filename_base + ".mp3"
-
-        audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
-
-        # Order audio streams by bitrate numerically, but keep it as a stream query
-        audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
-
-        audio_stream = audio_streams[0]  # Select the first stream from the sorted list
-
-        # Download the audio stream
-        audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
-        audio_path = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
-        print(f"Audio downloaded to {audio_path}")
 
         if resolution == "fetch":
             stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
         # Download the selected video stream
         stream.download(output_path=video_temp_dir, filename=video_filename)
-        video_path = os.path.abspath(os.path.join(video_temp_dir, video_filename))
+        video_path = os.path.join(video_temp_dir, video_filename)
         print(f"Video downloaded to {video_path}")
-
-        # Mux with ffmpeg
-        output_path_combined = os.path.join("Video", f"{filename_base}.mp4")  # Use original filename
-
-        command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
-        os.system(command)
-
-        # Delete temporary files and directories
-        os.remove(video_path)
-        os.remove(audio_path)
-        os.rmdir(video_temp_dir)
-        os.rmdir(audio_temp_dir)
-
-        print(f"Combined video saved to {output_path_combined}")
-
 
 else:
     print("Skipping video download...")  # Indicate that video download is skipped
     
-if (transcribe_audio or download_audio) and not is_local_file:  # Download audio if needed for video or audio-only
+if download_audio:  # Download audio if needed for video or audio-only
     print("Downloading the audio stream (highest quality)...")
 
     audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
@@ -921,13 +861,42 @@ if (transcribe_audio or download_audio) and not is_local_file:  # Download audio
 
 
     # Set output_path and filename for the audio file
-    output_path = "Audio"
+    #output_path = "Audio" if download_audio else os.path.join("Audio", "Temp")
+    audio_path = "Audio"
     filename = filename_base + ".mp3"
 
     # Download the audio stream
-    audio_stream.download(output_path=output_path, filename=filename)
-    file_path = os.path.abspath(output_path + "/" + filename)
+    audio_stream.download(output_path=audio_path, filename=filename)
+    file_path = os.path.abspath(os.path.join(audio_path, filename))
     print(f"Audio downloaded to {file_path}")
+
+if download_video and not no_audio_in_video:
+    audio_path = os.path.join("Audio", audio_filename)
+    if not download_audio:
+        # Download the audio stream
+        print("Downloading the audio stream (highest quality)...")
+        audio_temp_dir = os.path.join("Audio", "Temp")
+        os.makedirs(audio_temp_dir, exist_ok=True)
+        audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
+        # Order audio streams by bitrate numerically, but keep it as a stream query
+        audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+        audio_stream = audio_streams[0]  # Select the first stream from the sorted list
+        audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
+        audio_path = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
+        print(f"Audio downloaded to {audio_path}")
+        audio_path = os.path.join(audio_temp_dir, audio_filename)
+
+    # Mux with ffmpeg
+    output_path_combined = os.path.join("Video", video_filename)  # Use original filename
+    command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
+    os.system(command)
+
+    if not no_audio_in_video:
+        # Delete temporary files and directories
+        os.remove(video_path)
+        os.rmdir(video_temp_dir)
+
+    print(f"Combined video saved to {output_path_combined}")
 
 if transcribe_audio:
     if is_local_file:  # Check if it's a local file
@@ -938,7 +907,22 @@ if transcribe_audio:
             audio_file = f"{filename_base}.mp3"  # Create a filename for the extracted audio
             video.audio.write_audiofile(audio_file)  # Extract the audio from the video
     else:  # If it's not a local file, it's a YouTube video
-        audio_file = "Audio/" + filename_base + ".mp3"  # Use the downloaded audio file
+        audio_filename = filename_base + ".mp3"
+        audio_file = os.path.join("Audio", audio_filename)  # Use the downloaded audio file
+        if not download_audio and ((not download_audio) or (download_video and no_audio_in_video)):
+            # Download the audio stream
+            print("Downloading the audio stream (highest quality)...")
+            audio_temp_dir = os.path.join("Audio", "Temp")
+            audio_filename = filename_base + ".mp3"
+            os.makedirs(audio_temp_dir, exist_ok=True)
+            audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
+            # Order audio streams by bitrate numerically, but keep it as a stream query
+            audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+            audio_stream = audio_streams[0]  # Select the first stream from the sorted list
+            audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
+            audio_file = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
+            print(f"Audio downloaded to {audio_file}")
+            audio_file = os.path.join(audio_temp_dir, audio_filename)
 
     # Load the selected model
     model = whisper.load_model(model_name)
@@ -947,11 +931,12 @@ if transcribe_audio:
     target_language_full = target_language_full.capitalize()
 
     if is_local_file:  # Use the user-provided path for local files
-        file_path = os.path.abspath(url)
+        file_path = url
     else:  # Use the default "Audio/" path for YouTube downloads
-        file_path = os.path.abspath("Audio/" + f"{filename_base}" + ".mp3")
+        file_path = audio_file
 
-    print(f"Transcribing audio from {file_path} into {target_language_full}...")
+    absolute_path = os.path.abspath(file_path)
+    print(f"Transcribing audio from {absolute_path} into {target_language_full}...")
     result = model.transcribe(file_path, language=target_language)  # Use file_path here
     transcribed_text = result["text"]
     print("\nTranscription:\n" + transcribed_text + "\n")
@@ -978,15 +963,12 @@ else:
     print("Skipping transcription.")
     transcribed_text = ""  # Assign an empty string
 
-if delete_audio_residual and not download_audio and not is_local_file:
-    output_path = "Audio"  # Set output_path here, before os.remove()
+if not download_audio and (transcribe_audio or download_video) and not no_audio_in_video:
+    output_path = os.path.join("Audio", "Temp")  # Set output_path here, before os.remove()
     filename = filename_base + ".mp3"
-    # Delete the audio file
-    os.remove(f"{output_path}/{filename}")
-    file_path = os.path.abspath(f"{output_path}/{filename}")
+    os.remove(os.path.join(output_path, filename))  # Remove the audio file
+    os.rmdir(output_path)
     print(f"Deleted audio residual in {file_path}")
-elif not transcribe_audio and not download_audio:
-    print("Skipping transcription and audio download...")
 
 print("Tasks complete.")
 
