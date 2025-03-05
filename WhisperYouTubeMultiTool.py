@@ -229,7 +229,7 @@ def create_profile(used_fields):
     if not os.path.exists(config_path):
         with open(config_path, "w") as config_file:
             config_file.write("# Configuration file for YouTube Transcriber\n")
-            config_file.write(f"LOAD_PROFILE={DEFAULT_PROFILE}\n")
+            config_file.write(f"LOAD_PROFILE={DEFAULT_PROFILE}")  # Removed trailing newline
         print(f"Created {CONFIG_ENV}: {os.path.abspath(config_path)}")
     else:
         print(f"{CONFIG_ENV} already exists: {os.path.abspath(config_path)}. No changes were made to it.")
@@ -255,19 +255,26 @@ def create_profile(used_fields):
     with open(profile_path, "w") as profile_file:
         profile_file.write("#Change values after the equals sign (=)\n\n")
         
+        # Keep track of fields we've written
+        written_fields = set()
+        
         if "URL" in used_fields:
             profile_file.write(f"URL={used_fields['URL']}\n")
+            written_fields.add("URL")
             
         if "DOWNLOAD_VIDEO" in used_fields:
             profile_file.write(f"DOWNLOAD_VIDEO={used_fields['DOWNLOAD_VIDEO']}\n")
-            
-        # Add similar comments for other fields
-        # ...
+            written_fields.add("DOWNLOAD_VIDEO")
         
         # Add any remaining fields that don't have specific comments
-        for key, value in used_fields.items():
-            if key not in ["URL", "DOWNLOAD_VIDEO"]:  # Skip fields we already handled
-                profile_file.write(f"{key}={value}\n")
+        remaining_fields = sorted(set(used_fields.keys()) - written_fields)
+        for i, key in enumerate(remaining_fields):
+            # Add newline only if it's not the last field
+            if i < len(remaining_fields) - 1:
+                profile_file.write(f"{key}={used_fields[key]}\n")
+            else:
+                # No newline for last field
+                profile_file.write(f"{key}={used_fields[key]}")
 
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
