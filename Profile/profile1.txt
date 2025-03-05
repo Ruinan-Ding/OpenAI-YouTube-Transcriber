@@ -1,4 +1,6 @@
 #video downloader
+#Change values after the equals sign (=)
+
 URL=<Insert_YouTube_link_or_local_path_to_audio_or_video>
 DOWNLOAD_VIDEO=y
 NO_AUDIO_IN_VIDEO=n

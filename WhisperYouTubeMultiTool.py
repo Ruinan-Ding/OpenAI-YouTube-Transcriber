@@ -100,7 +100,7 @@ MP3_EXT = ".mp3"
 MP4_EXT = ".mp4"
 TXT_EXT = ".txt"
 PROFILE_PREFIX = "profile"
-ENV_EXT = ".env"
+ENV_EXT = ".txt"
 CONFIG_ENV = f"config{ENV_EXT}"
 PROFILE_NAME_TEMPLATE = f"{PROFILE_PREFIX}{{}}{ENV_EXT}"
 DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
@@ -221,32 +221,29 @@ def get_file_format(file_path):
         return None
     
 def create_profile(used_fields):
-    """
-    Creates a new profile file and config.env (if it doesn't exist).
-    Prints about config.env first, then the profile file.
-    Does not modify existing files.
-    Includes all fields in the profile file, even if they are empty.
-    """
-    os.makedirs(profile_dir, exist_ok=True)  # Create Profile directory if it doesn't exist
-
-    # Check and create config.env if it doesn't exist
+    """Creates a new profile file and config.txt (if it doesn't exist)."""
+    os.makedirs(profile_dir, exist_ok=True)
+    
+    # Check and create config.txt if it doesn't exist
     config_path = os.path.join(profile_dir, CONFIG_ENV)
     if not os.path.exists(config_path):
         with open(config_path, "w") as config_file:
-            config_file.write(f"LOAD_PROFILE={DEFAULT_PROFILE}\n")  # Default to profile.env
+            config_file.write("# Configuration file for YouTube Transcriber\n")
+            config_file.write(f"LOAD_PROFILE={DEFAULT_PROFILE}")  # Removed trailing newline
         print(f"Created {CONFIG_ENV}: {os.path.abspath(config_path)}")
     else:
         print(f"{CONFIG_ENV} already exists: {os.path.abspath(config_path)}. No changes were made to it.")
 
-    # Find all existing profiles
-    existing_profiles = [f for f in os.listdir(profile_dir) if re.match(f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$", f, re.IGNORECASE)]
-    existing_numbers = [int(re.search(r"\d+", f).group()) for f in existing_profiles if re.search(r"\d+", f)]
-
-    # Determine the next available profile name
+    # Find all existing profiles and determine next available name
+    existing_profiles = [f for f in os.listdir(profile_dir) 
+                        if re.match(f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$", f, re.IGNORECASE)]
+    existing_numbers = [int(re.search(r"\d+", f).group()) 
+                       for f in existing_profiles if re.search(r"\d+", f)]
+    
+    # Determine profile name
     if not existing_profiles:
         profile_name = DEFAULT_PROFILE
     else:
-        # Find the next available number
         next_number = 0
         while next_number in existing_numbers:
             next_number += 1
@@ -254,10 +251,30 @@ def create_profile(used_fields):
 
     profile_path = os.path.join(profile_dir, profile_name)
 
-    # Write all fields to the profile file, even if they are empty
+    # Write fields with helpful comments
     with open(profile_path, "w") as profile_file:
-        content = "\n".join([f"{key}={used_fields.get(key, '')}" for key in used_fields])
-        profile_file.write(content)
+        profile_file.write("#Change values after the equals sign (=)\n\n")
+        
+        # Keep track of fields we've written
+        written_fields = set()
+        
+        if "URL" in used_fields:
+            profile_file.write(f"URL={used_fields['URL']}\n")
+            written_fields.add("URL")
+            
+        if "DOWNLOAD_VIDEO" in used_fields:
+            profile_file.write(f"DOWNLOAD_VIDEO={used_fields['DOWNLOAD_VIDEO']}\n")
+            written_fields.add("DOWNLOAD_VIDEO")
+        
+        # Add any remaining fields that don't have specific comments
+        remaining_fields = sorted(set(used_fields.keys()) - written_fields)
+        for i, key in enumerate(remaining_fields):
+            # Add newline only if it's not the last field
+            if i < len(remaining_fields) - 1:
+                profile_file.write(f"{key}={used_fields[key]}\n")
+            else:
+                # No newline for last field
+                profile_file.write(f"{key}={used_fields[key]}")
 
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
@@ -300,8 +317,8 @@ else:
         interactive_mode = True
     else:
         # Check if LOAD_PROFILE specifies a profile name
-        if load_profile_str and not load_profile_str.endswith(".env"):
-            load_profile_str += ".env"
+        if load_profile_str and not load_profile_str.endswith(ENV_EXT):
+            load_profile_str += ENV_EXT
         profile_path = os.path.join(profile_dir, load_profile_str)  # Directly use the provided name
 
         profile_pattern = f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$"
