@@ -1,0 +1,10 @@
+# requirements.txt
+#pip install --upgrade -r requirements.txt
+
+requests
+py_mini_racer
+langdetect
+pytubefix
+python-dotenv
+moviepy
+git+https://github.com/openai/whisper.git

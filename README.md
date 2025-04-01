@@ -1,12 +1,12 @@
 # README AND INSTRUCTIONS ARE CURRENTLY OUTDATED
 
-# OpenAI Whisper YouTube Downloader Translator Transcriber Multi-Tool
+# OpenAI YouTube Transcriber
 
 A powerful and intuitive automation multi-tool, primarily designed to extract audio from YouTube videos, transcribe it into text, detect the language, and save the transcription as a `.txt` file. This core feature is complemented by many other functionalities, making it an essential tool for streamlining your workflow with cutting-edge technology.
 
 ## Table of Contents
 
-- [Project Overview](#openai-whisper-youtube-downloader-translator-transcriber-multi-tool)
+- [Project Overview](#openai-youtube-transcriber)
   - [Description](#description)
   - [Key Features](#key-features)
   - [Prerequisites](#prerequisites)
@@ -308,7 +308,7 @@ As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you
 
 ## Contributing
 
-We welcome contributions to this project! To get involved, participate in [Discussions](https://github.com/Ruinan-Ding/OpenAI-Whisper-YouTube-Downloader-Translator-Transcriber-Multi-Tool/discussions), submit a pull request, or report any issues. We're open to suggestions for new features or improvements.
+We welcome contributions to this project! To get involved, participate in [Discussions](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/discussions), submit a pull request, or report any issues. We're open to suggestions for new features or improvements.
 
 ### Pull Requests
 
@@ -319,7 +319,7 @@ We welcome contributions to this project! To get involved, participate in [Discu
 
 ### Issues
 
-1. Before opening a new issue, check if a similar one already exists in the [Issues](https://github.com/Ruinan-Ding/OpenAI-Whisper-YouTube-Downloader-Translator-Transcriber-Multi-Tool/issues) section.
+1. Before opening a new issue, check if a similar one already exists in the [Issues](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues) section.
 2. If not, create a new issue with a detailed description of the problem or proposed enhancement.
 
 ---
