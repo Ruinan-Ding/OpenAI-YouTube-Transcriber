@@ -8,7 +8,7 @@
 # Input the YouTube video URL when prompted, and it will download the audio or video streams
 # from the URL along with the transcription of the audio.
 
-# ===== IMPORTS =====
+# import required modules
 import sys
 import os
 import re
@@ -19,39 +19,13 @@ from py_mini_racer import MiniRacer
 import whisper
 from langdetect import detect
 from pytubefix import YouTube
-from pytubefix.exceptions import RegexMatchError
+from pytubefix.exceptions import RegexMatchError  # Import RegexMatchError
 from dotenv import load_dotenv
 import moviepy
 import subprocess
 import json
 from enum import Enum
 
-# ===== CONSTANTS =====
-# Directory names
-AUDIO_DIR = "Audio"
-TEMP_DIR = "Temp"
-VIDEO_DIR = "Video"
-TRANSCRIPT_DIR = "Transcript"
-VIDEO_WITHOUT_AUDIO_DIR = "VideoWithoutAudio"
-
-# File extensions
-MP3_EXT = ".mp3"
-MP4_EXT = ".mp4"
-TXT_EXT = ".txt"
-ENV_EXT = ".txt"
-
-# Profile settings
-PROFILE_PREFIX = "profile"
-CONFIG_ENV = f"config{ENV_EXT}"
-PROFILE_NAME_TEMPLATE = f"{PROFILE_PREFIX}{{}}{ENV_EXT}"
-DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
-URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
-DEFAULT_LANGUAGE = 'en'
-
-# Define the profile directory
-profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
-
-# ===== ENUMS =====
 class YesNo(Enum):
     YES = ('y', 'yes', 'true', 't', '1')
     NO = ('n', 'no', 'false', 'f', '0')
@@ -115,19 +89,38 @@ class ModelSize(Enum):
 class ModelChoice(Enum):
     OPTIONS = ('1', '2', '3', '4', '5', '6', '7') + tuple(ModelSize.all_model_values()) + ('',)
 
-# ===== FILE OPERATION FUNCTIONS =====
+# Global constants
+AUDIO_DIR = "Audio"
+TEMP_DIR = "Temp"
+VIDEO_DIR = "Video"
+TRANSCRIPT_DIR = "Transcript"
+VIDEO_WITHOUT_AUDIO_DIR = "VideoWithoutAudio"
+MP3_EXT = ".mp3"
+MP4_EXT = ".mp4"
+TXT_EXT = ".txt"
+PROFILE_PREFIX = "profile"
+ENV_EXT = ".txt"
+CONFIG_ENV = f"config{ENV_EXT}"
+PROFILE_NAME_TEMPLATE = f"{PROFILE_PREFIX}{{}}{ENV_EXT}"
+DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
+URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
+DEFAULT_LANGUAGE = 'en'
+
+# Define the profile directory
+profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
+
+# Function to open a file
 def startfile(fn):
-    """Open a file with the default application."""
     if os.name == 'nt':  # Windows
         os.startfile(fn)
     elif os.name == 'posix':  # macOS or Linux
         opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
         subprocess.run([opener, fn])
 
+# Function to create and open a txt file
 def create_and_open_txt(text, filename):
-    """Create a text file with the given content and open it."""
     # Create a directory for the transcript if it doesn't exist
-    output_dir = os.path.join(os.path.dirname(__file__), TRANSCRIPT_DIR)
+    output_dir = os.path.join(os.path.dirname(__file__), TRANSCRIPT_DIR)  # Or your preferred directory name
     os.makedirs(output_dir, exist_ok=True)
 
     # Create the full path for the transcript file
@@ -138,19 +131,7 @@ def create_and_open_txt(text, filename):
         file.write(text)
     startfile(file_path)
 
-def get_file_format(file_path):
-    """Returns the format of the input file using ffprobe."""
-    try:
-        result = subprocess.run(
-            ['ffprobe', '-v', 'error', '-show_entries', 'format=format_name', 
-             '-of', 'default=noprint_wrappers=1:nokey=1', file_path],
-            capture_output=True, text=True, check=True
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        return None
-
-# ===== URL AND FILE VALIDATION FUNCTIONS =====
+    
 def is_web_url(input_str):
     """Check if input is a valid web URL format without network calls."""
     try:
@@ -162,7 +143,7 @@ def is_web_url(input_str):
 def is_youtube_url(url):
     """Check if URL is YouTube using pytubefix's internal regex."""
     try:
-        YouTube(url, "WEB")
+        YouTube(url,"WEB")
         return True
     except RegexMatchError:
         return False
@@ -171,7 +152,7 @@ def is_valid_media_file(path):
     """Check if path is an existing local media file."""
     return os.path.exists(path) and get_file_format(path) is not None
 
-# ===== USER INPUT HANDLING FUNCTIONS =====
+# Function to get a yes/no input with validation and default option
 def get_yes_no_input(prompt_text, default="y"):
     """
     Gets a yes/no input with validation and default option.
@@ -195,8 +176,8 @@ def get_yes_no_input(prompt_text, default="y"):
         else:
             print(f"Invalid input. Please enter one of {YesNo.YES.value + YesNo.NO.value}.")
 
+# Function to get a model choice input with validation
 def get_model_choice_input():
-    """Get and validate user's choice of Whisper model."""
     while True:
         model_choice = input("Select Whisper model:\n"
                              "1. Tiny\n"
@@ -228,7 +209,82 @@ def get_target_language_input():
         else:
             print("Invalid language code or name. Please refer to the supported languages list and try again.")
 
-# ===== PROFILE MANAGEMENT FUNCTIONS =====
+def get_file_format(file_path):
+    """Returns the format of the input file using ffprobe."""
+    try:
+        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=format_name', 
+                                 '-of', 'default=noprint_wrappers=1:nokey=1', file_path],
+                                capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+    
+def get_sorted_video_streams(yt):
+    """
+    Get video streams sorted by resolution (highest first).
+    
+    Args:
+        yt: A YouTube object
+        
+    Returns:
+        List of streams sorted by resolution
+    """
+    streams = yt.streams.filter(only_video=True)
+    return sorted(
+        streams, 
+        key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, 
+        reverse=True
+    )
+
+def get_sorted_audio_streams(yt):
+    """
+    Get audio streams sorted by bitrate (highest first).
+    
+    Args:
+        yt: A YouTube object
+        
+    Returns:
+        List of streams sorted by bitrate
+    """
+    audio_streams = yt.streams.filter(only_audio=True)
+    return sorted(
+        audio_streams, 
+        key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, 
+        reverse=True
+    )
+
+def get_unique_sorted_resolutions(streams):
+    """
+    Extract unique resolutions from streams and sort them by quality (highest first).
+    
+    Args:
+        streams: List of video streams
+        
+    Returns:
+        List of resolution strings sorted by quality
+    """
+    # Extract unique resolutions
+    resolutions = set([stream.resolution for stream in streams if stream.resolution])
+    
+    # Sort resolutions by numeric value (highest first)
+    return sorted(
+        resolutions, 
+        key=lambda res: int(res[:-1]) if res else 0, 
+        reverse=True
+    )
+
+def sanitize_filename(text):
+    """
+    Clean a string to be safely used as a filename.
+    
+    Args:
+        text: String to sanitize
+        
+    Returns:
+        Sanitized string with only alphanumeric characters and safe symbols
+    """
+    return "".join(c for c in text if c.isalnum() or c in "._- ")
+    
 def create_profile(used_fields):
     """Creates a new profile file and config.txt (if it doesn't exist)."""
     os.makedirs(profile_dir, exist_ok=True)
@@ -287,7 +343,6 @@ def create_profile(used_fields):
 
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
-# ===== RUNTIME SETTINGS =====
 used_fields = {
     "URL": URL_PLACEHOLDER,
     "DOWNLOAD_VIDEO": "",
@@ -297,8 +352,7 @@ used_fields = {
     "TRANSCRIBE_AUDIO": "",
     "MODEL_CHOICE": "",
     "TARGET_LANGUAGE": "",
-    "USE_EN_MODEL": ""
-}
+    "USE_EN_MODEL": ""}
 
 # Initialize load_profile to False
 load_profile = False
@@ -476,14 +530,10 @@ if not load_profile:
                 exit()
             if resolution != Resolution.FETCH.value:
                 print("Requested resolution not found, left null, or invalid.")
-            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+            available_streams = get_sorted_video_streams(yt)
 
-            # Order streams by resolution numerically
-            available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-
-            # Use a set to get unique resolutions and then order them
-            available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
-            available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+            # Get unique resolutions sorted by quality
+            available_resolutions = get_unique_sorted_resolutions(available_streams)
 
             if not available_resolutions:
                 print("No video streams found. Exiting...")
@@ -726,14 +776,10 @@ else:
         if stream is None and resolution == Resolution.FETCH.value:
             if resolution != Resolution.FETCH.value:
                 print("Requested resolution not found, left null, or invalid.")
-            available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+            available_streams = get_sorted_video_streams(yt)
 
-            # Order streams by resolution numerically
-            available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-
-            # Use a set to get unique resolutions and then order them
-            available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
-            available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+            # Get unique resolutions sorted by quality
+            available_resolutions = get_unique_sorted_resolutions(available_streams)
 
             if not available_resolutions:
                 print("No video streams found. Exiting...")
@@ -859,19 +905,18 @@ if not is_local_file:
 else:  # If it's a local file, extract the filename base from the URL
     video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
 
-filename_base = "".join(c for c in video_title if c.isalnum() or c in "._- ")
+# Replace direct sanitization with the function call
+filename_base = sanitize_filename(video_title)
 print(f"Processing: {video_title}")  # Indicate step
 
 if download_video and not is_local_file:
     match resolution:
         case Resolution.HIGHEST.value:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+            streams = get_sorted_video_streams(yt)
             stream = streams[0] if streams else None
 
         case Resolution.LOWEST.value:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+            streams = get_sorted_video_streams(yt)
             stream = streams[-1] if streams else None
 
         case Resolution.FETCH.value:
@@ -885,14 +930,10 @@ if download_video and not is_local_file:
     # If the requested resolution is not found, prompt the user
     if stream is None:
         print("Requested resolution not found, left null, or invalid.")
-        available_streams = yt.streams.filter(only_video=True)  # Define available_streams here
+        available_streams = get_sorted_video_streams(yt)
 
-        # Order streams by resolution numerically
-        available_streams = sorted(available_streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-
-        # Use a set to get unique resolutions and then order them
-        available_resolutions = set([stream.resolution for stream in available_streams if stream.resolution])
-        available_resolutions = sorted(available_resolutions, key=lambda res: int(res[:-1]) if res else 0, reverse=True)
+        # Get unique resolutions sorted by quality
+        available_resolutions = get_unique_sorted_resolutions(available_streams)
 
         if not available_resolutions:
             print("No video streams found. Exiting...")
@@ -953,10 +994,7 @@ else:
 if download_audio:  # Download audio if needed for video or audio-only
     print("Downloading the audio stream (highest quality)...")
 
-    audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
-
-    # Order audio streams by bitrate numerically, but keep it as a stream query
-    audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+    audio_streams = get_sorted_audio_streams(yt)  # Get sorted audio streams
 
     audio_stream = audio_streams[0]  # Select the first stream from the sorted list
 
@@ -978,9 +1016,7 @@ if download_video and not no_audio_in_video:
         print("Downloading the audio stream (highest quality)...")
         audio_temp_dir = os.path.join(AUDIO_DIR, TEMP_DIR)
         os.makedirs(audio_temp_dir, exist_ok=True)
-        audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
-        # Order audio streams by bitrate numerically, but keep it as a stream query
-        audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+        audio_streams = get_sorted_audio_streams(yt)  # Get sorted audio streams
         audio_stream = audio_streams[0]  # Select the first stream from the sorted list
         audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
         audio_path = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
@@ -1016,9 +1052,7 @@ if transcribe_audio:
             audio_temp_dir = os.path.join(AUDIO_DIR, TEMP_DIR)
             audio_filename = filename_base + MP3_EXT
             os.makedirs(audio_temp_dir, exist_ok=True)
-            audio_streams = yt.streams.filter(only_audio=True)  # Get audio stream query
-            # Order audio streams by bitrate numerically, but keep it as a stream query
-            audio_streams = sorted(audio_streams, key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, reverse=True)
+            audio_streams = get_sorted_audio_streams(yt)  # Get sorted audio streams
             audio_stream = audio_streams[0]  # Select the first stream from the sorted list
             audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
             audio_file = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
