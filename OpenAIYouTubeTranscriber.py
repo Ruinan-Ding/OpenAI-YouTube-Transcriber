@@ -3,28 +3,48 @@
 # Author: Ruinan Ding
 
 # Description
-# To run this script, open this script with Python or use the following command in a command line terminal where this file is:
+# To run this script, open this script with Python or use the following command in a
+# command line terminal where this file is:
 # python WhisperYouTubeMultiTool.py
 # Input the YouTube video URL when prompted, and it will download the audio or video streams
 # from the URL along with the transcription of the audio.
 
-# import required modules
+# Standard library imports
 import sys
 import os
 import re
+import json
+import subprocess
+from enum import Enum
 from urllib.parse import urlparse
+
+# Third-party imports
 import requests
 import urllib.request
-from py_mini_racer import MiniRacer
 import whisper
+import moviepy
+from py_mini_racer import MiniRacer
 from langdetect import detect
 from pytubefix import YouTube
-from pytubefix.exceptions import RegexMatchError  # Import RegexMatchError
+from pytubefix.exceptions import RegexMatchError
 from dotenv import load_dotenv
-import moviepy
-import subprocess
-import json
-from enum import Enum
+
+# Global constants
+AUDIO_DIR = "Audio"
+TEMP_DIR = "Temp"
+VIDEO_DIR = "Video"
+TRANSCRIPT_DIR = "Transcript"
+VIDEO_WITHOUT_AUDIO_DIR = "VideoWithoutAudio"
+MP3_EXT = ".mp3"
+MP4_EXT = ".mp4"
+TXT_EXT = ".txt"
+PROFILE_PREFIX = "profile"
+ENV_EXT = ".txt"
+CONFIG_ENV = f"config{ENV_EXT}"
+PROFILE_NAME_TEMPLATE = f"{PROFILE_PREFIX}{{}}{ENV_EXT}"
+DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
+URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
+DEFAULT_LANGUAGE = 'en'
 
 class YesNo(Enum):
     YES = ('y', 'yes', 'true', 't', '1')
@@ -88,23 +108,6 @@ class ModelSize(Enum):
 
 class ModelChoice(Enum):
     OPTIONS = ('1', '2', '3', '4', '5', '6', '7') + tuple(ModelSize.all_model_values()) + ('',)
-
-# Global constants
-AUDIO_DIR = "Audio"
-TEMP_DIR = "Temp"
-VIDEO_DIR = "Video"
-TRANSCRIPT_DIR = "Transcript"
-VIDEO_WITHOUT_AUDIO_DIR = "VideoWithoutAudio"
-MP3_EXT = ".mp3"
-MP4_EXT = ".mp4"
-TXT_EXT = ".txt"
-PROFILE_PREFIX = "profile"
-ENV_EXT = ".txt"
-CONFIG_ENV = f"config{ENV_EXT}"
-PROFILE_NAME_TEMPLATE = f"{PROFILE_PREFIX}{{}}{ENV_EXT}"
-DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
-URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
-DEFAULT_LANGUAGE = 'en'
 
 # Define the profile directory
 profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
@@ -195,26 +198,42 @@ def get_model_choice_input():
 
 def get_target_language_input():
     """
-    Prompts the user for the target language and validates the input against Whisper's supported languages.
-    Defaults to 'en' (English) if no input is provided.
+    Prompts the user for the target language and validates the input against
+    Whisper's supported languages. Defaults to 'en' (English) if no input is provided.
     """
     while True:
-        target_language = input("Enter the target language for transcription (e.g., 'es' or 'spanish', default 'en'. "
-                                "See supported languages at https://github.com/openai/whisper#supported-languages): ").lower()
+        prompt = (
+            "Enter the target language for transcription (e.g., 'es' or 'spanish', "
+            f"default '{DEFAULT_LANGUAGE}'). See supported languages at "
+            "https://github.com/openai/whisper#supported-languages): "
+        )
+        target_language = input(prompt).lower()
+        
         if not target_language:
             return DEFAULT_LANGUAGE  # Default to English if no input is provided
+        
         # Check if the language code or full name is valid
-        if target_language in whisper.tokenizer.LANGUAGES or target_language in whisper.tokenizer.LANGUAGES.values():
+        in_codes = target_language in whisper.tokenizer.LANGUAGES
+        in_names = target_language in whisper.tokenizer.LANGUAGES.values()
+        
+        if in_codes or in_names:
             return target_language
         else:
-            print("Invalid language code or name. Please refer to the supported languages list and try again.")
+            print("Invalid language code or name. Please refer to the supported "
+                  "languages list and try again.")
 
 def get_file_format(file_path):
     """Returns the format of the input file using ffprobe."""
     try:
-        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=format_name', 
-                                 '-of', 'default=noprint_wrappers=1:nokey=1', file_path],
-                                capture_output=True, text=True, check=True)
+        cmd = [
+            'ffprobe', '-v', 'error', 
+            '-show_entries', 'format=format_name',
+            '-of', 'default=noprint_wrappers=1:nokey=1', 
+            file_path
+        ]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True
+        )
         return result.stdout.strip()
     except subprocess.CalledProcessError:
         return None
@@ -284,7 +303,115 @@ def sanitize_filename(text):
         Sanitized string with only alphanumeric characters and safe symbols
     """
     return "".join(c for c in text if c.isalnum() or c in "._- ")
+
+def combine_audio_video(video_path, audio_path, output_path, cleanup_temp=True, temp_video_dir=None):
+    """
+    Combines video and audio files using ffmpeg.
     
+    Args:
+        video_path: Path to the video file
+        audio_path: Path to the audio file
+        output_path: Path where the combined file will be saved
+        cleanup_temp: Whether to delete temporary files after combining
+        temp_video_dir: Directory containing temporary video files to remove
+        
+    Returns:
+        Path to the combined video file
+    """
+    command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path}"'
+    os.system(command)
+    
+    if cleanup_temp:
+        # Delete temporary files and directories
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if temp_video_dir and os.path.exists(temp_video_dir):
+            os.rmdir(temp_video_dir)
+    
+    print(f"Combined video saved to {output_path}")
+    return output_path
+
+def download_audio_stream(yt, filename_base, is_temp=False):
+    """
+    Downloads the highest quality audio stream from a YouTube object.
+    
+    Args:
+        yt: YouTube object
+        filename_base: Base filename for the downloaded audio (without extension)
+        is_temp: Whether to store in a temporary directory (default: False)
+        
+    Returns:
+        Tuple containing (relative_path, absolute_path) where:
+        - relative_path is the path for use in combiners/functions
+        - absolute_path is the absolute path for display purposes
+    """
+    print("Downloading the audio stream (highest quality)...")
+    
+    # Get sorted audio streams (highest quality first)
+    audio_streams = get_sorted_audio_streams(yt)
+    audio_stream = audio_streams[0]  # Select the highest quality
+    
+    # Set output path and filename
+    audio_filename = filename_base + MP3_EXT
+    
+    if is_temp:
+        output_dir = os.path.join(AUDIO_DIR, TEMP_DIR)
+        os.makedirs(output_dir, exist_ok=True)
+    else:
+        output_dir = AUDIO_DIR
+    
+    # Download the audio stream
+    audio_stream.download(output_path=output_dir, filename=audio_filename)
+    
+    # Get file paths
+    relative_path = os.path.join(output_dir, audio_filename)
+    absolute_path = os.path.abspath(relative_path)
+    
+    print(f"Audio downloaded to {absolute_path}")
+    
+    return relative_path, absolute_path
+
+def transcribe_audio_file(file_path, model_name, target_language):
+    """
+    Transcribes audio using OpenAI's Whisper model.
+    
+    Args:
+        file_path: Path to the audio file
+        model_name: Name of the Whisper model to use
+        target_language: Target language for transcription
+        
+    Returns:
+        Tuple containing (transcribed_text, detected_language_code)
+    """
+    # Load the selected model
+    model = whisper.load_model(model_name)
+    
+    # Get full language name and capitalize
+    target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)
+    target_language_full = target_language_full.capitalize()
+    
+    # Display absolute path for user clarity
+    absolute_path = os.path.abspath(file_path)
+    print(f"Transcribing audio from {absolute_path} into {target_language_full}...")
+    
+    # Perform transcription
+    result = model.transcribe(file_path, language=target_language)
+    transcribed_text = result["text"]
+    print("\nTranscription:\n" + transcribed_text + "\n")
+    
+    # Detect the language of the transcription
+    detected_language = detect(transcribed_text)
+    detected_language_full = whisper.tokenizer.LANGUAGES.get(detected_language, detected_language)
+    detected_language_full = detected_language_full.capitalize()
+    
+    # Verify language match
+    if detected_language_full == target_language_full:
+        print(f"Verified {detected_language_full}")
+    else:
+        print("Transcription/translation mismatch")
+    
+    return transcribed_text, detected_language
+
 def create_profile(used_fields):
     """Creates a new profile file and config.txt (if it doesn't exist)."""
     os.makedirs(profile_dir, exist_ok=True)
@@ -294,16 +421,23 @@ def create_profile(used_fields):
     if not os.path.exists(config_path):
         with open(config_path, "w") as config_file:
             config_file.write("# Configuration file for YouTube Transcriber\n")
-            config_file.write(f"LOAD_PROFILE={DEFAULT_PROFILE}")  # Removed trailing newline
+            # Removed trailing newline
+            config_file.write(f"LOAD_PROFILE={DEFAULT_PROFILE}")
         print(f"Created {CONFIG_ENV}: {os.path.abspath(config_path)}")
     else:
-        print(f"{CONFIG_ENV} already exists: {os.path.abspath(config_path)}. No changes were made to it.")
+        print(f"{CONFIG_ENV} already exists: {os.path.abspath(config_path)}. "
+              f"No changes were made to it.")
 
     # Find all existing profiles and determine next available name
-    existing_profiles = [f for f in os.listdir(profile_dir) 
-                        if re.match(f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$", f, re.IGNORECASE)]
-    existing_numbers = [int(re.search(r"\d+", f).group()) 
-                       for f in existing_profiles if re.search(r"\d+", f)]
+    profile_pattern = f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$"
+    existing_profiles = [
+        f for f in os.listdir(profile_dir) 
+        if re.match(profile_pattern, f, re.IGNORECASE)
+    ]
+    existing_numbers = [
+        int(re.search(r"\d+", f).group()) 
+        for f in existing_profiles if re.search(r"\d+", f)
+    ]
     
     # Determine profile name
     if not existing_profiles:
@@ -362,7 +496,10 @@ interactive_mode = False
 # Check if config.env exists
 config_env_path = os.path.join(profile_dir, CONFIG_ENV)
 if not os.path.exists(config_env_path):
-    print(f"config.env not found in the {profile_dir} directory. Switching to default/interactive mode.")
+    print(
+        f"config.env not found in the {profile_dir} directory. "
+        "Switching to default/interactive mode."
+    )
     load_profile = False
     interactive_mode = True
 else:
@@ -384,7 +521,8 @@ else:
         # Check if LOAD_PROFILE specifies a profile name
         if load_profile_str and not load_profile_str.endswith(ENV_EXT):
             load_profile_str += ENV_EXT
-        profile_path = os.path.join(profile_dir, load_profile_str)  # Directly use the provided name
+        # Directly use the provided name
+        profile_path = os.path.join(profile_dir, load_profile_str)
 
         profile_pattern = f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$"
         if re.match(profile_pattern, load_profile_str, re.IGNORECASE):
@@ -394,13 +532,17 @@ else:
                 profile_name = os.path.basename(profile_path)
                 print(f"Loading profile: {profile_name}")
             else:
-                print(f"Profile not found: {load_profile_str}. "
-                      f"Make sure the profile file exists in the 'Profile' directory "
-                      f"relative to the script.")
+                print(
+                    f"Profile not found: {load_profile_str}. "
+                    f"Make sure the profile file exists in the 'Profile' directory "
+                    f"relative to the script."
+                )
         else:
-            print(f"Invalid profile name format: {load_profile_str}. "
-                  f"Profile names must match the format '{PROFILE_PREFIX}<number>{ENV_EXT}' "
-                  f"and be located in the 'Profile' directory relative to the script.")
+            print(
+                f"Invalid profile name format: {load_profile_str}. "
+                f"Profile names must match the format '{PROFILE_PREFIX}<number>{ENV_EXT}' "
+                f"and be located in the 'Profile' directory relative to the script."
+            )
 
     if interactive_mode is False and loaded_profile is False:
         # List available profiles (only if not found or invalid format)
@@ -474,22 +616,33 @@ if not load_profile:
     resolution = None  # Initialize resolution variable
 
     if not is_local_file:
-        download_video = get_yes_no_input("Download video? (y/N): ", default='n')  # Use the validation function
+        # Use the validation function
+        download_video = get_yes_no_input("Download video? (y/N): ", default='n')
         used_fields["DOWNLOAD_VIDEO"] = "y" if download_video else "n"
 
         if download_video:
             no_audio_in_video = False
-            no_audio_in_video = get_yes_no_input("... without the audio in the video? (y/N): ", "n")  # Use the validation function
+            # Use the validation function
+            no_audio_prompt = "... without the audio in the video? (y/N): "
+            no_audio_in_video = get_yes_no_input(no_audio_prompt, "n")
             used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
 
         if download_video:
             while True:
-                resolution = input("... enter desired resolution (e.g., 720p, 720, highest, lowest, default get the highest resolutions), or enter fetch or f to get a list of available resolutions: ")
+                resolution_prompt = (
+                    "... enter desired resolution (e.g., 720p, 720, highest, lowest, "
+                    "default get the highest resolutions), or enter fetch or f to get "
+                    "a list of available resolutions: "
+                )
+                resolution = input(resolution_prompt)
+                
                 if not resolution:
-                    resolution = Resolution.HIGHEST.value  # Default to highest if input is empty
+                    # Default to highest if input is empty
+                    resolution = Resolution.HIGHEST.value
                     break
                 
-                resolution = resolution.lower()  # Convert to lowercase after checking for empty input
+                # Convert to lowercase after checking for empty input
+                resolution = resolution.lower()
                 
                 if resolution in Resolution.values():
                     if resolution == Resolution.F.value:
@@ -507,13 +660,15 @@ if not load_profile:
                     else:
                         print("Invalid resolution. Please enter a non-zero number.")
                 elif resolution.endswith("p") and resolution[:-1].isdigit():
-                    if int(resolution[:-1]) > 0:  # Check if it's a non-zero number ending with "p"
+                    if int(resolution[:-1]) > 0:  # Check if non-zero with "p"
                         used_fields["RESOLUTION"] = resolution
                         break
                     else:
                         print("Invalid resolution. Please enter a non-zero number.")
                 else:
-                    print("Invalid resolution. Please enter a valid resolution (e.g., 720p, 720, highest, lowest).")
+                    print("Invalid resolution. Please enter a valid resolution "
+                          "(e.g., 720p, 720, highest, lowest).")
+            
             if resolution not in (Resolution.FETCH.value, Resolution.F.value):
                 print(f"Using resolution: {resolution}")  # Indicate selected resolution
             else:
@@ -992,48 +1147,21 @@ else:
     print("Skipping video download...")  # Indicate that video download is skipped
     
 if download_audio:  # Download audio if needed for video or audio-only
-    print("Downloading the audio stream (highest quality)...")
-
-    audio_streams = get_sorted_audio_streams(yt)  # Get sorted audio streams
-
-    audio_stream = audio_streams[0]  # Select the first stream from the sorted list
-
-
-    # Set output_path and filename for the audio file
-    #output_path = "Audio" if download_audio else os.path.join("Audio", "Temp")
-    audio_path = AUDIO_DIR
-    filename = filename_base + MP3_EXT
-
-    # Download the audio stream
-    audio_stream.download(output_path=audio_path, filename=filename)
-    file_path = os.path.abspath(os.path.join(audio_path, filename))
-    print(f"Audio downloaded to {file_path}")
+    audio_path, file_path = download_audio_stream(yt, filename_base, is_temp=False)
 
 if download_video and not no_audio_in_video:
-    audio_path = os.path.join(AUDIO_DIR, audio_filename)
     if not download_audio:
         # Download the audio stream
-        print("Downloading the audio stream (highest quality)...")
-        audio_temp_dir = os.path.join(AUDIO_DIR, TEMP_DIR)
-        os.makedirs(audio_temp_dir, exist_ok=True)
-        audio_streams = get_sorted_audio_streams(yt)  # Get sorted audio streams
-        audio_stream = audio_streams[0]  # Select the first stream from the sorted list
-        audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
-        audio_path = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
-        print(f"Audio downloaded to {audio_path}")
-        audio_path = os.path.join(audio_temp_dir, audio_filename)
+        audio_path, _ = download_audio_stream(yt, filename_base, is_temp=True)
+    else:
+        audio_path = os.path.join(AUDIO_DIR, audio_filename)
 
     # Mux with ffmpeg
     output_path_combined = os.path.join(VIDEO_DIR, video_filename)  # Use original filename
-    command = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path_combined}"'
-    os.system(command)
-
-    if not no_audio_in_video:
-        # Delete temporary files and directories
-        os.remove(video_path)
-        os.rmdir(video_temp_dir)
-
-    print(f"Combined video saved to {output_path_combined}")
+    combine_audio_video(video_path, audio_path, output_path_combined, 
+                       cleanup_temp=not no_audio_in_video, temp_video_dir=video_temp_dir)
+    
+    # The print statement is now inside the function
 
 if transcribe_audio:
     if is_local_file:  # Check if it's a local file
@@ -1042,57 +1170,39 @@ if transcribe_audio:
         else:  # If it's not an MP3 file, assume it's an MP4
             video = VideoFileClip(url)  # Create a VideoFileClip object from the URL
             audio_file = f"{filename_base}.mp3"  # Create a filename for the extracted audio
-            video.audio.write_audiofile(audio_file)  # Extract the audio from the video
+            # Extract the audio from the video
+            video.audio.write_audiofile(audio_file)
     else:  # If it's not a local file, it's a YouTube video
         audio_filename = filename_base + MP3_EXT
-        audio_file = os.path.join(AUDIO_DIR, audio_filename)  # Use the downloaded audio file
-        if not download_audio and ((not download_audio) or (download_video and no_audio_in_video)):
+        # Use the downloaded audio file
+        audio_file = os.path.join(AUDIO_DIR, audio_filename)
+        if not download_audio and ((not download_audio) or 
+                                   (download_video and no_audio_in_video)):
             # Download the audio stream
-            print("Downloading the audio stream (highest quality)...")
-            audio_temp_dir = os.path.join(AUDIO_DIR, TEMP_DIR)
-            audio_filename = filename_base + MP3_EXT
-            os.makedirs(audio_temp_dir, exist_ok=True)
-            audio_streams = get_sorted_audio_streams(yt)  # Get sorted audio streams
-            audio_stream = audio_streams[0]  # Select the first stream from the sorted list
-            audio_stream.download(output_path=audio_temp_dir, filename=audio_filename)
-            audio_file = os.path.abspath(os.path.join(audio_temp_dir, audio_filename))
-            print(f"Audio downloaded to {audio_file}")
-            audio_file = os.path.join(audio_temp_dir, audio_filename)
+            audio_file, _ = download_audio_stream(yt, filename_base, is_temp=True)
 
-    # Load the selected model
-    model = whisper.load_model(model_name)
-
-    target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)
-    target_language_full = target_language_full.capitalize()
-
-    if is_local_file:  # Use the user-provided path for local files
+    # Use the appropriate file path
+    if is_local_file:
         file_path = url
-    else:  # Use the default "Audio/" path for YouTube downloads
-        file_path = audio_file
-
-    absolute_path = os.path.abspath(file_path)
-    print(f"Transcribing audio from {absolute_path} into {target_language_full}...")
-    result = model.transcribe(file_path, language=target_language)  # Use file_path here
-    transcribed_text = result["text"]
-    print("\nTranscription:\n" + transcribed_text + "\n")
-
-    # Detect the language
-    language = detect(transcribed_text)
-    language_full = whisper.tokenizer.LANGUAGES.get(language, language)  # Get full name or use code if not found
-    language_full = language_full.capitalize()  # Capitalize the first letter
-    if language_full == target_language_full:
-        print(f"Verified {language_full}")
     else:
-        print("Transcription/translation mismatch")
+        file_path = audio_file
+        
+    # Use the new transcribe_audio_file function
+    transcribed_text, language = transcribe_audio_file(
+        file_path, model_name, target_language
+    )
 
     # Create and open a txt file with the text
     if language == DEFAULT_LANGUAGE:
         create_and_open_txt(transcribed_text, f"{filename_base}{TXT_EXT}")
-        file_path = os.path.abspath(f"{TRANSCRIPT_DIR}/{filename_base}{TXT_EXT}")
+        transcript_path = f"{TRANSCRIPT_DIR}/{filename_base}{TXT_EXT}"
+        file_path = os.path.abspath(transcript_path)
         print(f"Saved transcript to {file_path}")  # Indicate location
     else:
-        create_and_open_txt(transcribed_text, f"{filename_base} [{language}]{TXT_EXT}")
-        file_path = os.path.abspath(f"{TRANSCRIPT_DIR}/{filename_base} [{language}]{TXT_EXT}")
+        transcript_name = f"{filename_base} [{language}]{TXT_EXT}"
+        create_and_open_txt(transcribed_text, transcript_name)
+        transcript_path = f"{TRANSCRIPT_DIR}/{transcript_name}"
+        file_path = os.path.abspath(transcript_path)
         print(f"Saved transcript to {file_path}")  # Indicate location
 else:
     print("Skipping transcription.")
