@@ -477,6 +477,7 @@ def create_profile(used_fields):
 
     print(f"Created profile: {os.path.abspath(profile_path)}")
 
+# Default field values
 used_fields = {
     "URL": URL_PLACEHOLDER,
     "DOWNLOAD_VIDEO": "",
@@ -488,449 +489,605 @@ used_fields = {
     "TARGET_LANGUAGE": "",
     "USE_EN_MODEL": ""}
 
-# Initialize load_profile to False
-load_profile = False
-loaded_profile = False
-interactive_mode = False
-
-# Check if config.env exists
-config_env_path = os.path.join(profile_dir, CONFIG_ENV)
-if not os.path.exists(config_env_path):
-    print(
-        f"config.env not found in the {profile_dir} directory. "
-        "Switching to default/interactive mode."
-    )
+# Main script execution
+if __name__ == "__main__":
+    # Initialize load_profile to False
     load_profile = False
-    interactive_mode = True
-else:
-    print(f"config.env detected in the {profile_dir} directory.")
-    load_dotenv(dotenv_path=config_env_path)
-    load_profile_str = os.getenv("LOAD_PROFILE")
-    print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
+    loaded_profile = False
+    interactive_mode = False
 
-    if load_profile_str is None:
-        load_profile = True
-
-    elif load_profile_str and load_profile_str.lower() in YesNo.YES.value + ('',):
-        load_profile = True
-    elif load_profile_str and load_profile_str.lower() in YesNo.all_no_and_skip():
-        print("Using default/interactive mode.")
+    # Check if config.env exists
+    config_env_path = os.path.join(profile_dir, CONFIG_ENV)
+    if not os.path.exists(config_env_path):
+        print(
+            f"config.env not found in the {profile_dir} directory. "
+            "Switching to default/interactive mode."
+        )
         load_profile = False
         interactive_mode = True
     else:
-        # Check if LOAD_PROFILE specifies a profile name
-        if load_profile_str and not load_profile_str.endswith(ENV_EXT):
-            load_profile_str += ENV_EXT
-        # Directly use the provided name
-        profile_path = os.path.join(profile_dir, load_profile_str)
+        print(f"config.env detected in the {profile_dir} directory.")
+        load_dotenv(dotenv_path=config_env_path)
+        load_profile_str = os.getenv("LOAD_PROFILE")
+        print(f"LOAD_PROFILE: {load_profile_str} (from config.env)")
 
-        profile_pattern = f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$"
-        if re.match(profile_pattern, load_profile_str, re.IGNORECASE):
-            if os.path.exists(profile_path):
-                load_profile = True
-                loaded_profile = True
-                profile_name = os.path.basename(profile_path)
-                print(f"Loading profile: {profile_name}")
+        if load_profile_str is None:
+            load_profile = True
+
+        elif load_profile_str and load_profile_str.lower() in YesNo.YES.value + ('',):
+            load_profile = True
+        elif load_profile_str and load_profile_str.lower() in YesNo.all_no_and_skip():
+            print("Using default/interactive mode.")
+            load_profile = False
+            interactive_mode = True
+        else:
+            # Check if LOAD_PROFILE specifies a profile name
+            if load_profile_str and not load_profile_str.endswith(ENV_EXT):
+                load_profile_str += ENV_EXT
+            # Directly use the provided name
+            profile_path = os.path.join(profile_dir, load_profile_str)
+
+            profile_pattern = f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$"
+            if re.match(profile_pattern, load_profile_str, re.IGNORECASE):
+                if os.path.exists(profile_path):
+                    load_profile = True
+                    loaded_profile = True
+                    profile_name = os.path.basename(profile_path)
+                    print(f"Loading profile: {profile_name}")
+                else:
+                    print(
+                        f"Profile not found: {load_profile_str}. "
+                        f"Make sure the profile file exists in the 'Profile' directory "
+                        f"relative to the script."
+                    )
             else:
                 print(
-                    f"Profile not found: {load_profile_str}. "
-                    f"Make sure the profile file exists in the 'Profile' directory "
-                    f"relative to the script."
+                    f"Invalid profile name format: {load_profile_str}. "
+                    f"Profile names must match the format '{PROFILE_PREFIX}<number>{ENV_EXT}' "
+                    f"and be located in the 'Profile' directory relative to the script."
                 )
-        else:
-            print(
-                f"Invalid profile name format: {load_profile_str}. "
-                f"Profile names must match the format '{PROFILE_PREFIX}<number>{ENV_EXT}' "
-                f"and be located in the 'Profile' directory relative to the script."
-            )
 
-    if interactive_mode is False and loaded_profile is False:
-        # List available profiles (only if not found or invalid format)
-        profiles = [f for f in os.listdir(profile_dir) if re.match(f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$", f, re.IGNORECASE)]
-        if profiles:
-            print("Available profiles:")
-            for i, profile in enumerate(profiles):
-                print(f"{i+1}. {profile}")
+        if interactive_mode is False and loaded_profile is False:
+            # List available profiles (only if not found or invalid format)
+            profiles = [f for f in os.listdir(profile_dir) if re.match(f"^{PROFILE_PREFIX}\\d*{ENV_EXT}$", f, re.IGNORECASE)]
+            if profiles:
+                print("Available profiles:")
+                for i, profile in enumerate(profiles):
+                    print(f"{i+1}. {profile}")
 
-            while True:
-                profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
-                                      f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
-                if profile_input == '' or profile_input == '1':
-                    profile_name = profiles[0]
-                    load_profile = True
-                    break
-                elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
-                    profile_name = profiles[int(profile_input) - 1]
-                    load_profile = True
-                    break
-                elif profile_input in profiles:
-                    profile_name = profile_input
-                    load_profile = True
-                    break
-                elif profile_input + ENV_EXT in profiles:
-                    profile_name = profile_input + ENV_EXT
-                    load_profile = True
-                    break
-                elif profile_input in YesNo.all_no_and_skip():
-                    load_profile = False
-                    break
-                else:
-                    print("Invalid profile selection.")
-        else:
-            print("No profiles found. Switching to default/interactive mode.")
-            load_profile = False
-
-    if load_profile:
-        # Ensure profile_name is set – default to "profile.env" if not already assigned
-        if 'profile_name' not in globals():
-            profile_name = DEFAULT_PROFILE
-        # Load the selected profile
-        profile_path = os.path.join(profile_dir, profile_name)
-        load_dotenv(dotenv_path=profile_path)
-        print(f"Loaded profile: {profile_name}")
-
-# --- Get ALL parameters from user first if not loading from .env ---
-
-if not load_profile:
-    is_local_file = False  # Initialize the flag here
-    while True:
-        url = input("Enter the YouTube video URL or local file path: ").strip()
-        
-        # --- Validation Steps ---
-        if is_web_url(url):
-            if is_youtube_url(url):
-                is_local_file = False
-                break  # Exit loop after successful YouTube validation
+                while True:
+                    profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
+                                          f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
+                    if profile_input == '' or profile_input == '1':
+                        profile_name = profiles[0]
+                        load_profile = True
+                        break
+                    elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
+                        profile_name = profiles[int(profile_input) - 1]
+                        load_profile = True
+                        break
+                    elif profile_input in profiles:
+                        profile_name = profile_input
+                        load_profile = True
+                        break
+                    elif profile_input + ENV_EXT in profiles:
+                        profile_name = profile_input + ENV_EXT
+                        load_profile = True
+                        break
+                    elif profile_input in YesNo.all_no_and_skip():
+                        load_profile = False
+                        break
+                    else:
+                        print("Invalid profile selection.")
             else:
-                print("Error: Only YouTube URLs supported for web inputs")
+                print("No profiles found. Switching to default/interactive mode.")
+                load_profile = False
+
+        if load_profile:
+            # Ensure profile_name is set – default to "profile.env" if not already assigned
+            if 'profile_name' not in globals():
+                profile_name = DEFAULT_PROFILE
+            # Load the selected profile
+            profile_path = os.path.join(profile_dir, profile_name)
+            load_dotenv(dotenv_path=profile_path)
+            print(f"Loaded profile: {profile_name}")
+
+    # --- Get ALL parameters from user first if not loading from .env ---
+
+    if not load_profile:
+        is_local_file = False  # Initialize the flag here
+        while True:
+            url = input("Enter the YouTube video URL or local file path: ").strip()
+            
+            # --- Validation Steps ---
+            if is_web_url(url):
+                if is_youtube_url(url):
+                    is_local_file = False
+                    break  # Exit loop after successful YouTube validation
+                else:
+                    print("Error: Only YouTube URLs supported for web inputs")
+                    continue
+            elif is_valid_media_file(url):
+                is_local_file = True
+                break
+            else:
+                print("Invalid input. Please enter valid YouTube URL or local file path")
                 continue
-        elif is_valid_media_file(url):
-            is_local_file = True
-            break
-        else:
-            print("Invalid input. Please enter valid YouTube URL or local file path")
-            continue
 
-    download_video = False
-    no_audio_in_video = False
-    resolution = None  # Initialize resolution variable
+        download_video = False
+        no_audio_in_video = False
+        resolution = None  # Initialize resolution variable
 
-    if not is_local_file:
-        # Use the validation function
-        download_video = get_yes_no_input("Download video? (y/N): ", default='n')
-        used_fields["DOWNLOAD_VIDEO"] = "y" if download_video else "n"
-
-        if download_video:
-            no_audio_in_video = False
+        if not is_local_file:
             # Use the validation function
-            no_audio_prompt = "... without the audio in the video? (y/N): "
-            no_audio_in_video = get_yes_no_input(no_audio_prompt, "n")
-            used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
+            download_video = get_yes_no_input("Download video? (y/N): ", default='n')
+            used_fields["DOWNLOAD_VIDEO"] = "y" if download_video else "n"
 
-        if download_video:
-            while True:
-                resolution_prompt = (
-                    "... enter desired resolution (e.g., 720p, 720, highest, lowest, "
-                    "default get the highest resolutions), or enter fetch or f to get "
-                    "a list of available resolutions: "
-                )
-                resolution = input(resolution_prompt)
+            if download_video:
+                no_audio_in_video = False
+                # Use the validation function
+                no_audio_prompt = "... without the audio in the video? (y/N): "
+                no_audio_in_video = get_yes_no_input(no_audio_prompt, "n")
+                used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
+
+            if download_video:
+                while True:
+                    resolution_prompt = (
+                        "... enter desired resolution (e.g., 720p, 720, highest, lowest, "
+                        "default get the highest resolutions), or enter fetch or f to get "
+                        "a list of available resolutions: "
+                    )
+                    resolution = input(resolution_prompt)
+                    
+                    if not resolution:
+                        # Default to highest if input is empty
+                        resolution = Resolution.HIGHEST.value
+                        break
+                    
+                    # Convert to lowercase after checking for empty input
+                    resolution = resolution.lower()
+                    
+                    if resolution in Resolution.values():
+                        if resolution == Resolution.F.value:
+                            resolution = Resolution.FETCH.value
+                        used_fields["RESOLUTION"] = resolution
+                        break
+                    elif resolution.endswith("p"):
+                        used_fields["RESOLUTION"] = resolution
+                        break
+                    elif resolution.isdigit():
+                        if int(resolution) > 0:  # Check if it's a non-zero number
+                            resolution += "p"  # Add "p" if it's a number
+                            used_fields["RESOLUTION"] = resolution
+                            break
+                        else:
+                            print("Invalid resolution. Please enter a non-zero number.")
+                    elif resolution.endswith("p") and resolution[:-1].isdigit():
+                        if int(resolution[:-1]) > 0:  # Check if non-zero with "p"
+                            used_fields["RESOLUTION"] = resolution
+                            break
+                        else:
+                            print("Invalid resolution. Please enter a non-zero number.")
+                    else:
+                        print("Invalid resolution. Please enter a valid resolution "
+                              "(e.g., 720p, 720, highest, lowest).")
                 
-                if not resolution:
-                    # Default to highest if input is empty
-                    resolution = Resolution.HIGHEST.value
-                    break
-                
-                # Convert to lowercase after checking for empty input
-                resolution = resolution.lower()
-                
-                if resolution in Resolution.values():
+                if resolution not in (Resolution.FETCH.value, Resolution.F.value):
+                    print(f"Using resolution: {resolution}")  # Indicate selected resolution
+                else:
                     if resolution == Resolution.F.value:
                         resolution = Resolution.FETCH.value
-                    used_fields["RESOLUTION"] = resolution
-                    break
-                elif resolution.endswith("p"):
-                    used_fields["RESOLUTION"] = resolution
-                    break
-                elif resolution.isdigit():
-                    if int(resolution) > 0:  # Check if it's a non-zero number
-                        resolution += "p"  # Add "p" if it's a number
-                        used_fields["RESOLUTION"] = resolution
-                        break
-                    else:
-                        print("Invalid resolution. Please enter a non-zero number.")
-                elif resolution.endswith("p") and resolution[:-1].isdigit():
-                    if int(resolution[:-1]) > 0:  # Check if non-zero with "p"
-                        used_fields["RESOLUTION"] = resolution
-                        break
-                    else:
-                        print("Invalid resolution. Please enter a non-zero number.")
-                else:
-                    print("Invalid resolution. Please enter a valid resolution "
-                          "(e.g., 720p, 720, highest, lowest).")
-            
-            if resolution not in (Resolution.FETCH.value, Resolution.F.value):
-                print(f"Using resolution: {resolution}")  # Indicate selected resolution
-            else:
-                if resolution == Resolution.F.value:
-                    resolution = Resolution.FETCH.value
-                print("Loading available resolution...")
+                    print("Loading available resolution...")
 
-        # If the requested resolution is not found, prompt the user
-        if resolution == Resolution.FETCH.value:
+            # If the requested resolution is not found, prompt the user
+            if resolution == Resolution.FETCH.value:
+                try:
+                    yt = YouTube(url, "WEB")
+                except RegexMatchError:
+                    print("Error: Invalid YouTube URL.")
+                    exit()
+                if resolution != Resolution.FETCH.value:
+                    print("Requested resolution not found, left null, or invalid.")
+                available_streams = get_sorted_video_streams(yt)
+
+                # Get unique resolutions sorted by quality
+                available_resolutions = get_unique_sorted_resolutions(available_streams)
+
+                if not available_resolutions:
+                    print("No video streams found. Exiting...")
+                    exit()
+
+                print("Available resolutions:")
+                for i, res in enumerate(available_resolutions):
+                    print(f"{i+1}. {res}")
+
+                while True:
+                    user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+                    if not user_input:
+                        selected_res = available_resolutions[0]  # Default to highest
+                        break
+                    elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
+                        selected_res = available_resolutions[int(user_input) - 1]
+                        break
+                    elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+                        selected_res = user_input if user_input in available_resolutions else user_input + "p"
+                        break
+                    else:
+                        print("Invalid input. Please enter a valid number or resolution.")
+
+        if not is_local_file:
+            # --- Download audio only if not transcribing ---
+            download_audio = get_yes_no_input("Download audio? (y/N): ", default='n')
+            used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
+
+        transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
+        used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
+
+        if transcribe_audio:
+            model_choice = get_model_choice_input()  # Use the validation function
+
+            # Set model based on user input (default to "base") using match statement
+            if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
+                # Number choice
+                model_enum = ModelSize.get_model_by_number(model_choice)
+                model_name = model_enum.value
+            else:
+                # Name choice or empty (default)
+                if model_choice == '':
+                    model_enum = ModelSize.BASE
+                else:
+                    model_enum = ModelSize.get_model_by_name(model_choice)
+                model_name = model_enum.value
+
+            used_fields["MODEL_CHOICE"] = model_name
+
+            target_language = get_target_language_input()  # Use the validation function
+            used_fields["TARGET_LANGUAGE"] = target_language
+
+            if model_enum in ModelSize.standard_models() and target_language == DEFAULT_LANGUAGE:  # Corrected condition
+                use_en_model = get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
+                used_fields["USE_EN_MODEL"] = "y" if use_en_model else "n"
+            else:
+                use_en_model = False
+        else:  # If not transcribing, skip model and language options
+            model_name = ModelSize.BASE.value  # Set a default model name
+            use_en_model = False
+            
+    # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
+
+    else:
+        is_local_file = False
+        url = os.getenv("URL")
+        if url and url != URL_PLACEHOLDER:
+            if is_web_url(url):
+                if is_youtube_url(url):
+                    try:
+                        # Create YouTube object
+                        yt = YouTube(url, "WEB")
+                        print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
+                    except RegexMatchError:
+                        # Use ffprobe to determine if it's a valid audio/video file
+                        file_format = get_file_format(url)
+                        if file_format:
+                            is_local_file = True
+                            print(f"Loaded local file: {url} (from {profile_name})")
+                        else:
+                            print("Incorrect value for YOUTUBE_URL in config.env. "
+                                  "Please enter a valid YouTube video URL or local file path: ")
+                            url = input()
+                else:
+                    print("Error: Only YouTube URLs supported for web inputs")
+            elif is_valid_media_file(url):
+                is_local_file = True
+                print(f"Loaded local file: {url} (from {profile_name})")
+            else:
+                if url != URL_PLACEHOLDER:
+                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                while True:
+                    url = input("Enter the YouTube video URL or local file path: ").strip()
+                    if is_web_url(url):
+                        if is_youtube_url(url):
+                            try:
+                                # Check if the URL is a valid YouTube URL
+                                yt = YouTube(url, "WEB")
+                                break
+                            except RegexMatchError:
+                                # Use ffprobe to determine if it's a valid audio/video file
+                                file_format = get_file_format(url)
+                                if file_format:
+                                    is_local_file = True
+                                    print(f"Loaded local file: {url}")
+                                    break
+                                else:
+                                    print("Incorrect value for YOUTUBE_URL. "
+                                          "Please enter a valid YouTube video URL or local file path.")
+                    elif is_valid_media_file(url):
+                        is_local_file = True
+                        break
+                    else:
+                        print("Invalid input. Please enter valid YouTube URL or local file path")
+                        continue
+        else:
+            while True:
+                    url = input("Enter the YouTube video URL or local file path: ").strip()
+                    if is_web_url(url):
+                        if is_youtube_url(url):
+                            try:
+                                # Check if the URL is a valid YouTube URL
+                                yt = YouTube(url, "WEB")
+                                break
+                            except RegexMatchError:
+                                # Use ffprobe to determine if it's a valid audio/video file
+                                file_format = get_file_format(url)
+                                if file_format:
+                                    is_local_file = True
+                                    print(f"Loaded local file: {url}")
+                                    break
+                                else:
+                                    print("Incorrect value for YOUTUBE_URL. "
+                                          "Please enter a valid YouTube video URL or local file path.")
+                    elif is_valid_media_file(url):
+                        is_local_file = True
+                        break
+                    else:
+                        print("Invalid input. Please enter valid YouTube URL or local file path")
+                        continue
+
+        download_video = False
+        no_audio_in_video = False
+
+        if not is_local_file:
+            download_video_str = os.getenv("DOWNLOAD_VIDEO")
+            if download_video_str:
+                if download_video_str.lower() in YesNo.YES.value:
+                    download_video = True
+                    print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
+                elif download_video_str.lower() in YesNo.NO.value:
+                    download_video = False
+                    print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
+                else:
+                    print(f"Invalid value for DOWNLOAD_VIDEO in .env: {download_video_str}")
+                    download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
+            else:
+                download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
+
+            if download_video:
+                no_audio_in_video_str = os.getenv("NO_AUDIO_IN_VIDEO")
+                if no_audio_in_video_str:
+                    if no_audio_in_video_str.lower() in YesNo.YES.value:
+                        no_audio_in_video = True
+                        print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
+                    elif no_audio_in_video_str.lower() in YesNo.NO.value:
+                        no_audio_in_video = False
+                        print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
+                    elif download_video:
+                        print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
+                        if download_video:
+                            no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
+                        else:
+                            no_audio_in_video = False
+                    
+                resolution = os.getenv("RESOLUTION")
+                if resolution:
+                    resolution = resolution.lower()  # Convert to lowercase for easier comparison
+                    if resolution not in Resolution.values():
+                        if resolution.isdigit():
+                            if int(resolution) > 0:
+                                resolution += "p"  # Add "p" if it's a number
+                                print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
+                            else:
+                                print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                                resolution = None  # Set to None to trigger the prompt
+                        elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
+                            print(f"Invalid value for RESOLUTION in .env: {resolution}")
+                            resolution = Resolution.FETCH.value  # Set to None to trigger the prompt
+                    elif resolution in Resolution.values():
+                        print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
+                    elif resolution in (Resolution.FETCH.value, Resolution.F.value):
+                        print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
+                        print(f"Loading available resolution...")
+                        if resolution == Resolution.F.value:
+                            resolution = Resolution.FETCH.value
+                    else:
+                        print(f"Loaded RESOLUTION: null (from {profile_name})")
+                        print(f"Loading available resolution...")
+                        resolution = Resolution.FETCH.value  # Set to "fetch" to trigger the prompt
+
+        if download_video and not is_local_file and resolution == Resolution.FETCH.value:
             try:
                 yt = YouTube(url, "WEB")
             except RegexMatchError:
                 print("Error: Invalid YouTube URL.")
                 exit()
-            if resolution != Resolution.FETCH.value:
-                print("Requested resolution not found, left null, or invalid.")
-            available_streams = get_sorted_video_streams(yt)
+            if resolution == Resolution.HIGHEST.value:
+                streams = yt.streams.filter(only_video=True)
+                streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
-            # Get unique resolutions sorted by quality
-            available_resolutions = get_unique_sorted_resolutions(available_streams)
-
-            if not available_resolutions:
-                print("No video streams found. Exiting...")
-                exit()
-
-            print("Available resolutions:")
-            for i, res in enumerate(available_resolutions):
-                print(f"{i+1}. {res}")
-
-            while True:
-                user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
-                if not user_input:
-                    selected_res = available_resolutions[0]  # Default to highest
-                    break
-                elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
-                    selected_res = available_resolutions[int(user_input) - 1]
-                    break
-                elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
-                    selected_res = user_input if user_input in available_resolutions else user_input + "p"
-                    break
+                if streams:
+                    stream = streams[0]  # Highest resolution is first in descending order
                 else:
-                    print("Invalid input. Please enter a valid number or resolution.")
+                    stream = None
 
-    if not is_local_file:
-        # --- Download audio only if not transcribing ---
-        download_audio = get_yes_no_input("Download audio? (y/N): ", default='n')
-        used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
+            elif resolution == Resolution.LOWEST.value:
+                streams = yt.streams.filter(only_video=True)
+                streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
-    transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
-    used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
+                if streams:
+                    stream = streams[-1]  # Lowest resolution is last in descending order
+                else:
+                    stream = None
 
-    if transcribe_audio:
-        model_choice = get_model_choice_input()  # Use the validation function
+            elif resolution == Resolution.FETCH.value:
+                stream = None
+                resolution = Resolution.FETCH.value  # Set to "fetch" to trigger the prompt
 
-        # Set model based on user input (default to "base") using match statement
-        if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
-            # Number choice
-            model_enum = ModelSize.get_model_by_number(model_choice)
-            model_name = model_enum.value
-        else:
-            # Name choice or empty (default)
-            if model_choice == '':
-                model_enum = ModelSize.BASE
-            else:
-                model_enum = ModelSize.get_model_by_name(model_choice)
-            model_name = model_enum.value
+            else:  # Specific resolution provided
+                streams = yt.streams.filter(only_video=True, resolution=resolution)
+                streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
-        used_fields["MODEL_CHOICE"] = model_name
+                if streams:
+                    stream = streams[0]  # If specific resolution exists, take the first
+                else:
+                    stream = None
 
-        target_language = get_target_language_input()  # Use the validation function
-        used_fields["TARGET_LANGUAGE"] = target_language
+            # If the requested resolution is not found, prompt the user
+            if stream is None and resolution == Resolution.FETCH.value:
+                if resolution != Resolution.FETCH.value:
+                    print("Requested resolution not found, left null, or invalid.")
+                available_streams = get_sorted_video_streams(yt)
 
-        if model_enum in ModelSize.standard_models() and target_language == DEFAULT_LANGUAGE:  # Corrected condition
-            use_en_model = get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
-            used_fields["USE_EN_MODEL"] = "y" if use_en_model else "n"
-        else:
-            use_en_model = False
-    else:  # If not transcribing, skip model and language options
-        model_name = ModelSize.BASE.value  # Set a default model name
-        use_en_model = False
+                # Get unique resolutions sorted by quality
+                available_resolutions = get_unique_sorted_resolutions(available_streams)
+
+                if not available_resolutions:
+                    print("No video streams found. Exiting...")
+                    exit()
+
+                print("Available resolutions:")
+                for i, res in enumerate(available_resolutions):
+                    print(f"{i+1}. {res}")
+
+                while True:
+                    user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+                    if not user_input:
+                        selected_res = available_resolutions[0]  # Default to highest
+                        break
+                    elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
+                        selected_res = available_resolutions[int(user_input) - 1]
+                        break
+                    elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+                        selected_res = user_input if user_input in available_resolutions else user_input + "p"
+                        break
+                    else:
+                        print("Invalid input. Please enter a valid number or resolution.")
         
-# --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
+        if not is_local_file:
+            download_audio_str = os.getenv("DOWNLOAD_AUDIO")
+            if download_audio_str:
+                if download_audio_str.lower() in YesNo.YES.value:
+                    download_audio = True
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
+                elif download_audio_str.lower() in YesNo.NO.value:
+                    download_audio = False
+                    print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
+                else:
+                    print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
+                    download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
-else:
-    is_local_file = False
-    url = os.getenv("URL")
-    if url and url != URL_PLACEHOLDER:
-        if is_web_url(url):
-            if is_youtube_url(url):
-                try:
-                    # Create YouTube object
-                    yt = YouTube(url, "WEB")
-                    print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
-                except RegexMatchError:
-                    # Use ffprobe to determine if it's a valid audio/video file
-                    file_format = get_file_format(url)
-                    if file_format:
-                        is_local_file = True
-                        print(f"Loaded local file: {url} (from {profile_name})")
-                    else:
-                        print("Incorrect value for YOUTUBE_URL in config.env. "
-                              "Please enter a valid YouTube video URL or local file path: ")
-                        url = input()
+        transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
+        if transcribe_audio_str:
+            if transcribe_audio_str.lower() in YesNo.YES.value:
+                transcribe_audio = True
+                print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
+            elif transcribe_audio_str.lower() in YesNo.NO.value:
+                transcribe_audio = False
+                print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
             else:
-                print("Error: Only YouTube URLs supported for web inputs")
-        elif is_valid_media_file(url):
-            is_local_file = True
-            print(f"Loaded local file: {url} (from {profile_name})")
+                print(f"Invalid value for TRANSCRIBE_AUDIO in .env: {transcribe_audio_str}")
+                transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
         else:
-            if url != URL_PLACEHOLDER:
-                print("Invalid input. Please enter valid YouTube URL or local file path")
-            while True:
-                url = input("Enter the YouTube video URL or local file path: ").strip()
-                if is_web_url(url):
-                    if is_youtube_url(url):
-                        try:
-                            # Check if the URL is a valid YouTube URL
-                            yt = YouTube(url, "WEB")
-                            break
-                        except RegexMatchError:
-                            # Use ffprobe to determine if it's a valid audio/video file
-                            file_format = get_file_format(url)
-                            if file_format:
-                                is_local_file = True
-                                print(f"Loaded local file: {url}")
-                                break
-                            else:
-                                print("Incorrect value for YOUTUBE_URL. "
-                                      "Please enter a valid YouTube video URL or local file path.")
-                elif is_valid_media_file(url):
-                    is_local_file = True
-                    break
-                else:
-                    print("Invalid input. Please enter valid YouTube URL or local file path")
-                    continue
-    else:
-        while True:
-                url = input("Enter the YouTube video URL or local file path: ").strip()
-                if is_web_url(url):
-                    if is_youtube_url(url):
-                        try:
-                            # Check if the URL is a valid YouTube URL
-                            yt = YouTube(url, "WEB")
-                            break
-                        except RegexMatchError:
-                            # Use ffprobe to determine if it's a valid audio/video file
-                            file_format = get_file_format(url)
-                            if file_format:
-                                is_local_file = True
-                                print(f"Loaded local file: {url}")
-                                break
-                            else:
-                                print("Incorrect value for YOUTUBE_URL. "
-                                      "Please enter a valid YouTube video URL or local file path.")
-                elif is_valid_media_file(url):
-                    is_local_file = True
-                    break
-                else:
-                    print("Invalid input. Please enter valid YouTube URL or local file path")
-                    continue
+            transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
 
-    download_video = False
-    no_audio_in_video = False
+        model_choice = os.getenv("MODEL_CHOICE")
+        if model_choice and transcribe_audio:
+            # Validate model_choice from .env
+            if model_choice.lower() not in ('1', '2', '3', '4', '5', '6', '7', 'tiny', 'base', 'small', 'medium', 'large-v1', 'large-v2', 'large-v3'):
+                print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
+                model_choice = get_model_choice_input()  # Prompt for valid input
+            else:
+                print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")  # Indicate successful load from config.env
+        elif transcribe_audio:
+            model_choice = get_model_choice_input()  # Use the validation function
 
+        if transcribe_audio:
+            # Set model based on user input (default to "base") using match statement
+            if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
+                # Number choice
+                model_enum = ModelSize.get_model_by_number(model_choice)
+                model_name = model_enum.value
+            else:
+                # Name choice or empty (default)
+                if model_choice == '':
+                    model_enum = ModelSize.BASE
+                else:
+                    model_enum = ModelSize.get_model_by_name(model_choice)
+                model_name = model_enum.value
+
+            target_language = os.getenv("TARGET_LANGUAGE")
+            if target_language:
+                # Use target_language from .env
+                if target_language.lower() not in whisper.tokenizer.LANGUAGES:
+                    print(f"Invalid value for TARGET_LANGUAGE in .env: {target_language}")
+                    target_language = get_target_language_input()
+                else:
+                    print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")  # Indicate successful load from config.env
+            else:
+                target_language = get_target_language_input()
+                if not target_language:
+                    target_language = DEFAULT_LANGUAGE  # Default to English
+
+            use_en_model_str = os.getenv("USE_EN_MODEL")
+            if use_en_model_str and transcribe_audio:
+                if use_en_model_str.lower() in YesNo.YES.value:
+                    use_en_model = True
+                    print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
+                elif use_en_model_str.lower() in YesNo.NO.value:
+                    use_en_model = False
+                    print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
+                elif transcribe_audio:
+                    print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
+                    if model_enum in ModelSize.standard_models() and target_language == DEFAULT_LANGUAGE:
+                        use_en_model = get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
+                    else:
+                        use_en_model = False
+
+    # --- Now, proceed with the rest of the script using the gathered parameters ---
+
+    print("\nProcessing...")  # Indicate step
+
+    # Create a YouTube object from the URL ONLY if it's NOT a local file
     if not is_local_file:
-        download_video_str = os.getenv("DOWNLOAD_VIDEO")
-        if download_video_str:
-            if download_video_str.lower() in YesNo.YES.value:
-                download_video = True
-                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
-            elif download_video_str.lower() in YesNo.NO.value:
-                download_video = False
-                print(f"Loaded DOWNLOAD_VIDEO: {download_video_str} (from {profile_name})")
-            else:
-                print(f"Invalid value for DOWNLOAD_VIDEO in .env: {download_video_str}")
-                download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
-        else:
-            download_video = get_yes_no_input("Download video stream? (y/N): ", default='n')
-
-        if download_video:
-            no_audio_in_video_str = os.getenv("NO_AUDIO_IN_VIDEO")
-            if no_audio_in_video_str:
-                if no_audio_in_video_str.lower() in YesNo.YES.value:
-                    no_audio_in_video = True
-                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
-                elif no_audio_in_video_str.lower() in YesNo.NO.value:
-                    no_audio_in_video = False
-                    print(f"Loaded NO_AUDIO_IN_VIDEO: {no_audio_in_video_str} (from {profile_name})")
-                elif download_video:
-                    print(f"Invalid value for NO_AUDIO_IN_VIDEO in .env: {no_audio_in_video_str}")
-                    if download_video:
-                        no_audio_in_video = get_yes_no_input("Include audio stream with video stream? (Y/n): ")
-                    else:
-                        no_audio_in_video = False
-                
-            resolution = os.getenv("RESOLUTION")
-            if resolution:
-                resolution = resolution.lower()  # Convert to lowercase for easier comparison
-                if resolution not in Resolution.values():
-                    if resolution.isdigit():
-                        if int(resolution) > 0:
-                            resolution += "p"  # Add "p" if it's a number
-                            print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
-                        else:
-                            print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                            resolution = None  # Set to None to trigger the prompt
-                    elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
-                        print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                        resolution = Resolution.FETCH.value  # Set to None to trigger the prompt
-                elif resolution in Resolution.values():
-                    print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
-                elif resolution in (Resolution.FETCH.value, Resolution.F.value):
-                    print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
-                    print(f"Loading available resolution...")
-                    if resolution == Resolution.F.value:
-                        resolution = Resolution.FETCH.value
-                else:
-                    print(f"Loaded RESOLUTION: null (from {profile_name})")
-                    print(f"Loading available resolution...")
-                    resolution = Resolution.FETCH.value  # Set to "fetch" to trigger the prompt
-
-    if download_video and not is_local_file and resolution == Resolution.FETCH.value:
         try:
+            # Create YouTube object
             yt = YouTube(url, "WEB")
         except RegexMatchError:
-            print("Error: Invalid YouTube URL.")
-            exit()
-        if resolution == Resolution.HIGHEST.value:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-
-            if streams:
-                stream = streams[0]  # Highest resolution is first in descending order
+            # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
+            file_format = get_file_format(url)
+            if file_format:
+                is_local_file = True
             else:
-                stream = None
+                print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
 
-        elif resolution == Resolution.LOWEST.value:
-            streams = yt.streams.filter(only_video=True)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+        # Extract the filename base from the video title
+        video_title = yt.title
+    else:  # If it's a local file, extract the filename base from the URL
+        video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
 
-            if streams:
-                stream = streams[-1]  # Lowest resolution is last in descending order
-            else:
-                stream = None
+    # Replace direct sanitization with the function call
+    filename_base = sanitize_filename(video_title)
+    print(f"Processing: {video_title}")  # Indicate step
 
-        elif resolution == Resolution.FETCH.value:
-            stream = None
-            resolution = Resolution.FETCH.value  # Set to "fetch" to trigger the prompt
+    if download_video and not is_local_file:
+        match resolution:
+            case Resolution.HIGHEST.value:
+                streams = get_sorted_video_streams(yt)
+                stream = streams[0] if streams else None
 
-        else:  # Specific resolution provided
-            streams = yt.streams.filter(only_video=True, resolution=resolution)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+            case Resolution.LOWEST.value:
+                streams = get_sorted_video_streams(yt)
+                stream = streams[-1] if streams else None
 
-            if streams:
-                stream = streams[0]  # If specific resolution exists, take the first
-            else:
-                stream = None
+            case Resolution.FETCH.value:
+                stream = yt.streams.filter(only_video=True, resolution=selected_res)
+
+            case _:
+                streams = yt.streams.filter(only_video=True, resolution=resolution)
+                streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
+                stream = streams[0] if streams else None
 
         # If the requested resolution is not found, prompt the user
-        if stream is None and resolution == Resolution.FETCH.value:
-            if resolution != Resolution.FETCH.value:
-                print("Requested resolution not found, left null, or invalid.")
+        if stream is None:
+            print("Requested resolution not found, left null, or invalid.")
             available_streams = get_sorted_video_streams(yt)
 
             # Get unique resolutions sorted by quality
@@ -957,267 +1114,113 @@ else:
                     break
                 else:
                     print("Invalid input. Please enter a valid number or resolution.")
-    
-    if not is_local_file:
-        download_audio_str = os.getenv("DOWNLOAD_AUDIO")
-        if download_audio_str:
-            if download_audio_str.lower() in YesNo.YES.value:
-                download_audio = True
-                print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
-            elif download_audio_str.lower() in YesNo.NO.value:
-                download_audio = False
-                print(f"Loaded DOWNLOAD_AUDIO: {download_audio_str} (from {profile_name})")
-            else:
-                print(f"Invalid value for DOWNLOAD_AUDIO in .env: {download_audio_str}")
-                download_audio = get_yes_no_input("Download audio only? (y/N): ", default='n')
 
-    transcribe_audio_str = os.getenv("TRANSCRIBE_AUDIO")
-    if transcribe_audio_str:
-        if transcribe_audio_str.lower() in YesNo.YES.value:
-            transcribe_audio = True
-            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
-        elif transcribe_audio_str.lower() in YesNo.NO.value:
-            transcribe_audio = False
-            print(f"Loaded TRANSCRIBE_AUDIO: {transcribe_audio_str} (from {profile_name})")
-        else:
-            print(f"Invalid value for TRANSCRIBE_AUDIO in .env: {transcribe_audio_str}")
-            transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
-    else:
-        transcribe_audio = get_yes_no_input("Transcribe the audio? (Y/n): ")
-
-    model_choice = os.getenv("MODEL_CHOICE")
-    if model_choice and transcribe_audio:
-        # Validate model_choice from .env
-        if model_choice.lower() not in ('1', '2', '3', '4', '5', '6', '7', 'tiny', 'base', 'small', 'medium', 'large-v1', 'large-v2', 'large-v3'):
-            print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
-            model_choice = get_model_choice_input()  # Prompt for valid input
-        else:
-            print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")  # Indicate successful load from config.env
-    elif transcribe_audio:
-        model_choice = get_model_choice_input()  # Use the validation function
-
-    if transcribe_audio:
-        # Set model based on user input (default to "base") using match statement
-        if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
-            # Number choice
-            model_enum = ModelSize.get_model_by_number(model_choice)
-            model_name = model_enum.value
-        else:
-            # Name choice or empty (default)
-            if model_choice == '':
-                model_enum = ModelSize.BASE
-            else:
-                model_enum = ModelSize.get_model_by_name(model_choice)
-            model_name = model_enum.value
-
-        target_language = os.getenv("TARGET_LANGUAGE")
-        if target_language:
-            # Use target_language from .env
-            if target_language.lower() not in whisper.tokenizer.LANGUAGES:
-                print(f"Invalid value for TARGET_LANGUAGE in .env: {target_language}")
-                target_language = get_target_language_input()
-            else:
-                print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")  # Indicate successful load from config.env
-        else:
-            target_language = get_target_language_input()
-            if not target_language:
-                target_language = DEFAULT_LANGUAGE  # Default to English
-
-        use_en_model_str = os.getenv("USE_EN_MODEL")
-        if use_en_model_str and transcribe_audio:
-            if use_en_model_str.lower() in YesNo.YES.value:
-                use_en_model = True
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
-            elif use_en_model_str.lower() in YesNo.NO.value:
-                use_en_model = False
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
-            elif transcribe_audio:
-                print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
-                if model_enum in ModelSize.standard_models() and target_language == DEFAULT_LANGUAGE:
-                    use_en_model = get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
-                else:
-                    use_en_model = False
-
-# --- Now, proceed with the rest of the script using the gathered parameters ---
-
-print("\nProcessing...")  # Indicate step
-
-# Create a YouTube object from the URL ONLY if it's NOT a local file
-if not is_local_file:
-    try:
-        # Create YouTube object
-        yt = YouTube(url, "WEB")
-    except RegexMatchError:
-        # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
-        file_format = get_file_format(url)
-        if file_format:
-            is_local_file = True
-        else:
-            print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
-
-    # Extract the filename base from the video title
-    video_title = yt.title
-else:  # If it's a local file, extract the filename base from the URL
-    video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
-
-# Replace direct sanitization with the function call
-filename_base = sanitize_filename(video_title)
-print(f"Processing: {video_title}")  # Indicate step
-
-if download_video and not is_local_file:
-    match resolution:
-        case Resolution.HIGHEST.value:
-            streams = get_sorted_video_streams(yt)
-            stream = streams[0] if streams else None
-
-        case Resolution.LOWEST.value:
-            streams = get_sorted_video_streams(yt)
-            stream = streams[-1] if streams else None
-
-        case Resolution.FETCH.value:
-            stream = yt.streams.filter(only_video=True, resolution=selected_res)
-
-        case _:
-            streams = yt.streams.filter(only_video=True, resolution=resolution)
-            streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
-            stream = streams[0] if streams else None
-
-    # If the requested resolution is not found, prompt the user
-    if stream is None:
-        print("Requested resolution not found, left null, or invalid.")
-        available_streams = get_sorted_video_streams(yt)
-
-        # Get unique resolutions sorted by quality
-        available_resolutions = get_unique_sorted_resolutions(available_streams)
-
-        if not available_resolutions:
-            print("No video streams found. Exiting...")
-            exit()
-
-        print("Available resolutions:")
-        for i, res in enumerate(available_resolutions):
-            print(f"{i+1}. {res}")
-
-        while True:
-            user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
-            if not user_input:
-                selected_res = available_resolutions[0]  # Default to highest
-                break
-            elif user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
-                selected_res = available_resolutions[int(user_input) - 1]
-                break
-            elif user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
-                selected_res = user_input if user_input in available_resolutions else user_input + "p"
-                break
-            else:
-                print("Invalid input. Please enter a valid number or resolution.")
-
-        stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
-
-        if stream is None:
-            print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
-            exit()
-
-    # Set output path based on audio preference
-    if no_audio_in_video:
-        filename = filename_base + MP4_EXT
-        output_path = VIDEO_WITHOUT_AUDIO_DIR
-
-        # Download the selected stream
-        print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
-        stream.download(output_path=output_path, filename=filename)
-        file_path = os.path.abspath(output_path + "/" + filename)
-        print(f"Video downloaded to {file_path}")
-    else:
-        video_temp_dir = os.path.join(VIDEO_DIR, TEMP_DIR)
-        os.makedirs(video_temp_dir, exist_ok=True)
-
-        video_filename = filename_base + MP4_EXT
-        audio_filename = filename_base + MP3_EXT
-
-        if resolution == Resolution.FETCH.value:
             stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
-        # Download the selected video stream
-        stream.download(output_path=video_temp_dir, filename=video_filename)
-        video_path = os.path.join(video_temp_dir, video_filename)
-        print(f"Video downloaded to {video_path}")
+            if stream is None:
+                print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
+                exit()
 
-else:
-    print("Skipping video download...")  # Indicate that video download is skipped
-    
-if download_audio:  # Download audio if needed for video or audio-only
-    audio_path, file_path = download_audio_stream(yt, filename_base, is_temp=False)
+        # Set output path based on audio preference
+        if no_audio_in_video:
+            filename = filename_base + MP4_EXT
+            output_path = VIDEO_WITHOUT_AUDIO_DIR
 
-if download_video and not no_audio_in_video:
-    if not download_audio:
-        # Download the audio stream
-        audio_path, _ = download_audio_stream(yt, filename_base, is_temp=True)
+            # Download the selected stream
+            print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
+            stream.download(output_path=output_path, filename=filename)
+            file_path = os.path.abspath(output_path + "/" + filename)
+            print(f"Video downloaded to {file_path}")
+        else:
+            video_temp_dir = os.path.join(VIDEO_DIR, TEMP_DIR)
+            os.makedirs(video_temp_dir, exist_ok=True)
+
+            video_filename = filename_base + MP4_EXT
+            audio_filename = filename_base + MP3_EXT
+
+            if resolution == Resolution.FETCH.value:
+                stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
+
+            # Download the selected video stream
+            stream.download(output_path=video_temp_dir, filename=video_filename)
+            video_path = os.path.join(video_temp_dir, video_filename)
+            print(f"Video downloaded to {video_path}")
+
     else:
-        audio_path = os.path.join(AUDIO_DIR, audio_filename)
-
-    # Mux with ffmpeg
-    output_path_combined = os.path.join(VIDEO_DIR, video_filename)  # Use original filename
-    combine_audio_video(video_path, audio_path, output_path_combined, 
-                       cleanup_temp=not no_audio_in_video, temp_video_dir=video_temp_dir)
-    
-    # The print statement is now inside the function
-
-if transcribe_audio:
-    if is_local_file:  # Check if it's a local file
-        if is_valid_media_file(url):  # Check if it's a valid media file
-            audio_file = url  # Use the URL directly as the audio file
-        else:  # If it's not an MP3 file, assume it's an MP4
-            video = VideoFileClip(url)  # Create a VideoFileClip object from the URL
-            audio_file = f"{filename_base}.mp3"  # Create a filename for the extracted audio
-            # Extract the audio from the video
-            video.audio.write_audiofile(audio_file)
-    else:  # If it's not a local file, it's a YouTube video
-        audio_filename = filename_base + MP3_EXT
-        # Use the downloaded audio file
-        audio_file = os.path.join(AUDIO_DIR, audio_filename)
-        if not download_audio and ((not download_audio) or 
-                                   (download_video and no_audio_in_video)):
-            # Download the audio stream
-            audio_file, _ = download_audio_stream(yt, filename_base, is_temp=True)
-
-    # Use the appropriate file path
-    if is_local_file:
-        file_path = url
-    else:
-        file_path = audio_file
+        print("Skipping video download...")  # Indicate that video download is skipped
         
-    # Use the new transcribe_audio_file function
-    transcribed_text, language = transcribe_audio_file(
-        file_path, model_name, target_language
-    )
+    if download_audio:  # Download audio if needed for video or audio-only
+        audio_path, file_path = download_audio_stream(yt, filename_base, is_temp=False)
 
-    # Create and open a txt file with the text
-    if language == DEFAULT_LANGUAGE:
-        create_and_open_txt(transcribed_text, f"{filename_base}{TXT_EXT}")
-        transcript_path = f"{TRANSCRIPT_DIR}/{filename_base}{TXT_EXT}"
-        file_path = os.path.abspath(transcript_path)
-        print(f"Saved transcript to {file_path}")  # Indicate location
+    if download_video and not no_audio_in_video:
+        if not download_audio:
+            # Download the audio stream
+            audio_path, _ = download_audio_stream(yt, filename_base, is_temp=True)
+        else:
+            audio_path = os.path.join(AUDIO_DIR, audio_filename)
+
+        # Mux with ffmpeg
+        output_path_combined = os.path.join(VIDEO_DIR, video_filename)  # Use original filename
+        combine_audio_video(video_path, audio_path, output_path_combined, 
+                           cleanup_temp=not no_audio_in_video, temp_video_dir=video_temp_dir)
+        
+        # The print statement is now inside the function
+
+    if transcribe_audio:
+        if is_local_file:  # Check if it's a local file
+            if is_valid_media_file(url):  # Check if it's a valid media file
+                audio_file = url  # Use the URL directly as the audio file
+            else:  # If it's not an MP3 file, assume it's an MP4
+                video = VideoFileClip(url)  # Create a VideoFileClip object from the URL
+                audio_file = f"{filename_base}.mp3"  # Create a filename for the extracted audio
+                # Extract the audio from the video
+                video.audio.write_audiofile(audio_file)
+        else:  # If it's not a local file, it's a YouTube video
+            audio_filename = filename_base + MP3_EXT
+            # Use the downloaded audio file
+            audio_file = os.path.join(AUDIO_DIR, audio_filename)
+            if not download_audio and ((not download_audio) or 
+                                       (download_video and no_audio_in_video)):
+                # Download the audio stream
+                audio_file, _ = download_audio_stream(yt, filename_base, is_temp=True)
+
+        # Use the appropriate file path
+        if is_local_file:
+            file_path = url
+        else:
+            file_path = audio_file
+            
+        # Use the new transcribe_audio_file function
+        transcribed_text, language = transcribe_audio_file(
+            file_path, model_name, target_language
+        )
+
+        # Create and open a txt file with the text
+        if language == DEFAULT_LANGUAGE:
+            create_and_open_txt(transcribed_text, f"{filename_base}{TXT_EXT}")
+            transcript_path = f"{TRANSCRIPT_DIR}/{filename_base}{TXT_EXT}"
+            file_path = os.path.abspath(transcript_path)
+            print(f"Saved transcript to {file_path}")  # Indicate location
+        else:
+            transcript_name = f"{filename_base} [{language}]{TXT_EXT}"
+            create_and_open_txt(transcribed_text, transcript_name)
+            transcript_path = f"{TRANSCRIPT_DIR}/{transcript_name}"
+            file_path = os.path.abspath(transcript_path)
+            print(f"Saved transcript to {file_path}")  # Indicate location
     else:
-        transcript_name = f"{filename_base} [{language}]{TXT_EXT}"
-        create_and_open_txt(transcribed_text, transcript_name)
-        transcript_path = f"{TRANSCRIPT_DIR}/{transcript_name}"
-        file_path = os.path.abspath(transcript_path)
-        print(f"Saved transcript to {file_path}")  # Indicate location
-else:
-    print("Skipping transcription.")
-    transcribed_text = ""  # Assign an empty string
+        print("Skipping transcription.")
+        transcribed_text = ""  # Assign an empty string
 
-if not download_audio and (transcribe_audio or download_video) and not no_audio_in_video:
-    output_path = os.path.join(AUDIO_DIR, TEMP_DIR)  # Set output_path here, before os.remove()
-    filename = filename_base + MP3_EXT
-    os.remove(os.path.join(output_path, filename))  # Remove the audio file
-    os.rmdir(output_path)
-    print(f"Deleted audio residual in {file_path}")
+    if not download_audio and (transcribe_audio or download_video) and not no_audio_in_video:
+        output_path = os.path.join(AUDIO_DIR, TEMP_DIR)  # Set output_path here, before os.remove()
+        filename = filename_base + MP3_EXT
+        os.remove(os.path.join(output_path, filename))  # Remove the audio file
+        os.rmdir(output_path)
+        print(f"Deleted audio residual in {file_path}")
 
-print("Tasks complete.")
+    print("Tasks complete.")
 
-if not load_profile:
-    create_profile_prompt = get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
-    if create_profile_prompt:
-        create_profile(used_fields)
+    if not load_profile:
+        create_profile_prompt = get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
+        if create_profile_prompt:
+            create_profile(used_fields)
