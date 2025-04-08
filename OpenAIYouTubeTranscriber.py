@@ -17,6 +17,7 @@ import json
 import subprocess
 from enum import Enum
 from urllib.parse import urlparse
+import time  # Added for retry operations
 
 # Third-party imports
 import requests
@@ -26,8 +27,9 @@ import moviepy
 from py_mini_racer import MiniRacer
 from langdetect import detect
 from pytubefix import YouTube
-from pytubefix.exceptions import RegexMatchError
+from pytubefix.exceptions import RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked  # Added more exceptions
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
 # Global constants
 AUDIO_DIR = "Audio"
@@ -146,9 +148,13 @@ def is_web_url(input_str):
 def is_youtube_url(url):
     """Check if URL is YouTube using pytubefix's internal regex."""
     try:
-        YouTube(url,"WEB")
+        YouTube(url, "WEB")
         return True
-    except RegexMatchError:
+    except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
+        # Still return False but don't raise exceptions
+        return False
+    except Exception as e:
+        print(f"Warning: Unknown error checking YouTube URL: {str(e)}")
         return False
 
 def is_valid_media_file(path):
@@ -248,12 +254,16 @@ def get_sorted_video_streams(yt):
     Returns:
         List of streams sorted by resolution
     """
-    streams = yt.streams.filter(only_video=True)
-    return sorted(
-        streams, 
-        key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, 
-        reverse=True
-    )
+    try:
+        streams = yt.streams.filter(only_video=True)
+        return sorted(
+            streams, 
+            key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, 
+            reverse=True
+        )
+    except Exception as e:
+        print(f"Error retrieving video streams: {str(e)}")
+        return []  # Return empty list instead of failing
 
 def get_sorted_audio_streams(yt):
     """
@@ -265,12 +275,16 @@ def get_sorted_audio_streams(yt):
     Returns:
         List of streams sorted by bitrate
     """
-    audio_streams = yt.streams.filter(only_audio=True)
-    return sorted(
-        audio_streams, 
-        key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, 
-        reverse=True
-    )
+    try:
+        audio_streams = yt.streams.filter(only_audio=True)
+        return sorted(
+            audio_streams, 
+            key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, 
+            reverse=True
+        )
+    except Exception as e:
+        print(f"Error retrieving audio streams: {str(e)}")
+        return []  # Return empty list instead of failing
 
 def get_unique_sorted_resolutions(streams):
     """
@@ -331,6 +345,12 @@ def combine_audio_video(video_path, audio_path, output_path, cleanup_temp=True, 
     print(f"Combined video saved to {output_path}")
     return output_path
 
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2), 
+       retry=retry_if_exception_type(Exception))
+def create_youtube_object(url):
+    """Create a YouTube object with retry logic."""
+    return YouTube(url, "WEB")
+
 def download_audio_stream(yt, filename_base, is_temp=False):
     """
     Downloads the highest quality audio stream from a YouTube object.
@@ -349,6 +369,10 @@ def download_audio_stream(yt, filename_base, is_temp=False):
     
     # Get sorted audio streams (highest quality first)
     audio_streams = get_sorted_audio_streams(yt)
+    
+    if not audio_streams:
+        raise ValueError("No audio streams available for this video")
+        
     audio_stream = audio_streams[0]  # Select the highest quality
     
     # Set output path and filename
@@ -359,14 +383,23 @@ def download_audio_stream(yt, filename_base, is_temp=False):
         os.makedirs(output_dir, exist_ok=True)
     else:
         output_dir = AUDIO_DIR
+        os.makedirs(output_dir, exist_ok=True)  # Ensure directory exists
     
-    # Download the audio stream
-    audio_stream.download(output_path=output_dir, filename=audio_filename)
+    relative_path = os.path.join(output_dir, audio_filename)
+    
+    # Use tenacity's retry decorator for the download operation
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+    def download_with_retry():
+        audio_stream.download(output_path=output_dir, filename=audio_filename)
+        if not os.path.exists(relative_path):
+            raise FileNotFoundError(f"Failed to download audio stream to {relative_path}")
+        return True
+    
+    # Execute download with retry
+    download_with_retry()
     
     # Get file paths
-    relative_path = os.path.join(output_dir, audio_filename)
     absolute_path = os.path.abspath(relative_path)
-    
     print(f"Audio downloaded to {absolute_path}")
     
     return relative_path, absolute_path
@@ -1048,18 +1081,22 @@ if __name__ == "__main__":
     # Create a YouTube object from the URL ONLY if it's NOT a local file
     if not is_local_file:
         try:
-            # Create YouTube object
-            yt = YouTube(url, "WEB")
-        except RegexMatchError:
-            # Instead of checking extensions, use ffprobe to determine if it's a valid audio/video file
-            file_format = get_file_format(url)
-            if file_format:
-                is_local_file = True
-            else:
-                print("Incorrect value. Please enter a valid YouTube video URL or local file path.")
-
-        # Extract the filename base from the video title
-        video_title = yt.title
+            # Use the retrying function to create YouTube object
+            yt = create_youtube_object(url)
+            
+            # Handle getting the video title
+            try:
+                video_title = yt.title
+            except Exception as e:
+                print(f"Error retrieving video title: {str(e)}")
+                video_title = "untitled_video"  # Fallback title
+                
+        except (VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
+            print(f"Error: This video is not available. {str(e)}")
+            exit()
+        except Exception as e:
+            print(f"Error connecting to YouTube: {str(e)}")
+            exit()
     else:  # If it's a local file, extract the filename base from the URL
         video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
 
