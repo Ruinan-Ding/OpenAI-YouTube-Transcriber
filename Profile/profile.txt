@@ -1,7 +1,7 @@
 #transcriber
 #Change values after the equals sign (=)
 
-URL=https://www.youtube.com/watch?v=jNQXAC9IVRw
+URL=<Insert_YouTube_link_or_local_path_to_audio_or_video>
 DOWNLOAD_VIDEO=n
 NO_AUDIO_IN_VIDEO=
 RESOLUTION=
