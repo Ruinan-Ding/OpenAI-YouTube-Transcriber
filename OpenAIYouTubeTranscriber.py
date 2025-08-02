@@ -108,12 +108,14 @@ class YouTubeTranscriber:
     Encapsulates all the operations for downloading and transcribing YouTube videos.
     """
     
-    # Class constants
-    AUDIO_DIR = "Audio"
+    # Set the parent data directory
+    DATA_DIR = "OpenAIYouTubeTranscriber"
+    AUDIO_DIR = os.path.join(DATA_DIR, "Audio")
     TEMP_DIR = "Temp"
-    VIDEO_DIR = "Video"
-    TRANSCRIPT_DIR = "Transcript"
-    VIDEO_WITHOUT_AUDIO_DIR = "VideoWithoutAudio"
+    VIDEO_DIR = os.path.join(DATA_DIR, "Video")
+    TRANSCRIPT_DIR = os.path.join(DATA_DIR, "Transcript")
+    VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
+    profile_dir = os.path.join(DATA_DIR, "Profile")
     MP3_EXT = ".mp3"
     MP4_EXT = ".mp4"
     TXT_EXT = ".txt"
@@ -162,7 +164,7 @@ class YouTubeTranscriber:
         self.use_en_model = False
         
         # Profile settings
-        self.profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
+        self.profile_dir = os.path.join(self.DATA_DIR, "Profile")
         self.load_profile = False
         self.loaded_profile = False
         self.interactive_mode = False
