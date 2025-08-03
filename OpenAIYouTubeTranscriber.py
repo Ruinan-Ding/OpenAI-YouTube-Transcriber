@@ -1439,24 +1439,42 @@ def main():
 
     # Create a YouTube object from the URL ONLY if it's NOT a local file
     if not is_local_file:
+        # Fix: If the URL is the placeholder, prompt the user before trying to create the YouTube object
+        if url == transcriber.URL_PLACEHOLDER:
+            while True:
+                url = input("Enter the YouTube video URL or local file path: ").strip()
+                if transcriber.is_web_url(url):
+                    if transcriber.is_youtube_url(url):
+                        is_local_file = False
+                        break
+                    else:
+                        print("Error: Only YouTube URLs supported for web inputs")
+                        continue
+                elif transcriber.is_valid_media_file(url):
+                    is_local_file = True
+                    break
+                else:
+                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    continue
         try:
-            # Use the retrying function to create YouTube object
             yt = transcriber.create_youtube_object(url)
-            
-            # Handle getting the video title
             try:
                 video_title = yt.title
             except (AttributeError, OSError, VideoUnavailable) as e:
                 print(f"Error retrieving video title: {str(e)}")
-                video_title = "untitled_video"  # Fallback title
-                
-        except (VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
-            print(f"Error: This video is not available. {str(e)}")
-            exit()
-        except (OSError, ValueError) as e:
-            print(f"Error connecting to YouTube: {str(e)}")
-            exit()
-    else:  # If it's a local file, extract the filename base from the URL
+                video_title = "untitled_video"
+        except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
+            print(f"pytubefix failed: {str(e)}")
+            user_choice = input("Do you want to update pytubefix now? (Y/n): ").strip().lower()
+            if user_choice in ('', 'y', 'yes'):
+                print("Updating pytubefix...")
+                subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pytubefix"], check=True)
+                print("pytubefix updated. Please restart the script.")
+                sys.exit(0)
+            else:
+                print("Skipping pytubefix update. Exiting.")
+                sys.exit(1)
+    else:
         video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
 
     # Replace direct sanitization with the function call
