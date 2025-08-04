@@ -843,6 +843,21 @@ class YouTubeTranscriber:
             return None
 
 #########################################
+## CONSTANTS
+#########################################
+
+REQUIRED_PACKAGES = [
+    "requests",
+    "py_mini_racer",
+    "langdetect",
+    "pytubefix",
+    "python-dotenv",
+    "moviepy",
+    "tenacity",
+    "git+https://github.com/openai/whisper.git"
+]
+
+#########################################
 ## MAIN EXECUTION
 #########################################
 
@@ -1464,15 +1479,20 @@ def main():
                 print(f"Error retrieving video title: {str(e)}")
                 video_title = "untitled_video"
         except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
-            print(f"pytubefix failed: {str(e)}")
-            user_choice = input("Do you want to update pytubefix now? (Y/n): ").strip().lower()
+            print(f"Dependency error (likely pytubefix): {str(e)}")
+            user_choice = input("Do you want to check for new updates to ALL required packages now? (Y/n): ").strip().lower()
             if user_choice in ('', 'y', 'yes'):
-                print("Updating pytubefix...")
-                subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pytubefix"], check=True)
-                print("pytubefix updated. Please restart the script.")
+                print("Updating all required packages...")
+                for pkg in REQUIRED_PACKAGES:
+                    print(f"Upgrading: {pkg}")
+                    try:
+                        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", pkg], check=True)
+                    except Exception as upgrade_error:
+                        print(f"Error upgrading {pkg}: {upgrade_error}")
+                print("All packages upgraded. Please restart the script.")
                 sys.exit(0)
             else:
-                print("Skipping pytubefix update. Exiting.")
+                print("Skipping package upgrades. Exiting.")
                 sys.exit(1)
     else:
         video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
