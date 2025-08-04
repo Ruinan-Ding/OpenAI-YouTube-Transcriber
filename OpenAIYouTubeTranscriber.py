@@ -843,21 +843,6 @@ class YouTubeTranscriber:
             return None
 
 #########################################
-## CONSTANTS
-#########################################
-
-REQUIRED_PACKAGES = [
-    "requests",
-    "py_mini_racer",
-    "langdetect",
-    "pytubefix",
-    "python-dotenv",
-    "moviepy",
-    "tenacity",
-    "git+https://github.com/openai/whisper.git"
-]
-
-#########################################
 ## MAIN EXECUTION
 #########################################
 
@@ -1483,7 +1468,9 @@ def main():
             user_choice = input("Do you want to check for new updates to ALL required packages now? (Y/n): ").strip().lower()
             if user_choice in ('', 'y', 'yes'):
                 print("Updating all required packages...")
-                for pkg in REQUIRED_PACKAGES:
+                requirements_path = os.path.join(os.path.dirname(__file__), "OpenAIYouTubeTranscriber", "requirements.txt")
+                packages = get_required_packages(requirements_path)
+                for pkg in packages:
                     print(f"Upgrading: {pkg}")
                     try:
                         subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", pkg], check=True)
@@ -1672,6 +1659,22 @@ def main():
         create_profile_prompt = transcriber.get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
         if create_profile_prompt:
             transcriber.create_profile(used_fields)
+
+def get_required_packages(requirements_path):
+    """
+    Reads requirements.txt and returns a list of package specs (ignoring comments/blank lines).
+    """
+    packages = []
+    try:
+        with open(requirements_path, 'r', encoding='utf-8') as req_file:
+            for line in req_file:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                packages.append(line)
+    except Exception as e:
+        print(f"Error reading requirements.txt: {e}")
+    return packages
 
 # Change main script execution to use the main function
 if __name__ == "__main__":
