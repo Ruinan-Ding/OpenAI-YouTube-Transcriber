@@ -108,12 +108,14 @@ class YouTubeTranscriber:
     Encapsulates all the operations for downloading and transcribing YouTube videos.
     """
     
-    # Class constants
-    AUDIO_DIR = "Audio"
+    # Set the parent data directory
+    DATA_DIR = "OpenAIYouTubeTranscriber"
+    AUDIO_DIR = os.path.join(DATA_DIR, "Audio")
     TEMP_DIR = "Temp"
-    VIDEO_DIR = "Video"
-    TRANSCRIPT_DIR = "Transcript"
-    VIDEO_WITHOUT_AUDIO_DIR = "VideoWithoutAudio"
+    VIDEO_DIR = os.path.join(DATA_DIR, "Video")
+    TRANSCRIPT_DIR = os.path.join(DATA_DIR, "Transcript")
+    VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
+    profile_dir = os.path.join(DATA_DIR, "Profile")
     MP3_EXT = ".mp3"
     MP4_EXT = ".mp4"
     TXT_EXT = ".txt"
@@ -162,7 +164,7 @@ class YouTubeTranscriber:
         self.use_en_model = False
         
         # Profile settings
-        self.profile_dir = os.path.join(os.path.dirname(__file__), "Profile")
+        self.profile_dir = os.path.join(self.DATA_DIR, "Profile")
         self.load_profile = False
         self.loaded_profile = False
         self.interactive_mode = False
@@ -1437,24 +1439,49 @@ def main():
 
     # Create a YouTube object from the URL ONLY if it's NOT a local file
     if not is_local_file:
+        # Fix: If the URL is the placeholder, prompt the user before trying to create the YouTube object
+        if url == transcriber.URL_PLACEHOLDER:
+            while True:
+                url = input("Enter the YouTube video URL or local file path: ").strip()
+                if transcriber.is_web_url(url):
+                    if transcriber.is_youtube_url(url):
+                        is_local_file = False
+                        break
+                    else:
+                        print("Error: Only YouTube URLs supported for web inputs")
+                        continue
+                elif transcriber.is_valid_media_file(url):
+                    is_local_file = True
+                    break
+                else:
+                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    continue
         try:
-            # Use the retrying function to create YouTube object
             yt = transcriber.create_youtube_object(url)
-            
-            # Handle getting the video title
             try:
                 video_title = yt.title
             except (AttributeError, OSError, VideoUnavailable) as e:
                 print(f"Error retrieving video title: {str(e)}")
-                video_title = "untitled_video"  # Fallback title
-                
-        except (VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
-            print(f"Error: This video is not available. {str(e)}")
-            exit()
-        except (OSError, ValueError) as e:
-            print(f"Error connecting to YouTube: {str(e)}")
-            exit()
-    else:  # If it's a local file, extract the filename base from the URL
+                video_title = "untitled_video"
+        except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
+            print(f"Dependency error (likely pytubefix): {str(e)}")
+            user_choice = input("Do you want to check for new updates to ALL required packages now? (Y/n): ").strip().lower()
+            if user_choice in ('', 'y', 'yes'):
+                print("Updating all required packages...")
+                requirements_path = os.path.join(os.path.dirname(__file__), "OpenAIYouTubeTranscriber", "requirements.txt")
+                packages = get_required_packages(requirements_path)
+                for pkg in packages:
+                    print(f"Upgrading: {pkg}")
+                    try:
+                        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", pkg], check=True)
+                    except Exception as upgrade_error:
+                        print(f"Error upgrading {pkg}: {upgrade_error}")
+                print("All packages upgraded. Please restart the script.")
+                sys.exit(0)
+            else:
+                print("Skipping package upgrades. Exiting.")
+                sys.exit(1)
+    else:
         video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
 
     # Replace direct sanitization with the function call
@@ -1632,6 +1659,22 @@ def main():
         create_profile_prompt = transcriber.get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
         if create_profile_prompt:
             transcriber.create_profile(used_fields)
+
+def get_required_packages(requirements_path):
+    """
+    Reads requirements.txt and returns a list of package specs (ignoring comments/blank lines).
+    """
+    packages = []
+    try:
+        with open(requirements_path, 'r', encoding='utf-8') as req_file:
+            for line in req_file:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                packages.append(line)
+    except Exception as e:
+        print(f"Error reading requirements.txt: {e}")
+    return packages
 
 # Change main script execution to use the main function
 if __name__ == "__main__":
