@@ -1,5 +1,13 @@
 # README AND INSTRUCTIONS ARE CURRENTLY OUTDATED
 
+Start with the command:
+`pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt`
+or
+`python -m pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt`
+to install dependencies, then
+`python OpenAIYoutubeTranscriber.py`
+to run this script.
+
 # OpenAI YouTube Transcriber
 
 A powerful and intuitive automation multi-tool, primarily designed to extract audio from YouTube videos, transcribe it into text, detect the language, and save the transcription as a `.txt` file. This core feature is complemented by many other functionalities, making it an essential tool for streamlining your workflow with cutting-edge technology.
