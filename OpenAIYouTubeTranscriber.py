@@ -1100,7 +1100,7 @@ def main():
                               "(e.g., 720p, 720, highest, lowest).")
                 
                 if resolution not in (Resolution.FETCH.value, Resolution.F.value):
-                    print(f"Using resolution: {resolution}")  # Indicate selected resolution
+                    print(f"Using resolution: {resolution}")
                 else:
                     if resolution == Resolution.F.value:
                         resolution = Resolution.FETCH.value
@@ -1387,7 +1387,7 @@ def main():
                 print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
                 model_choice = transcriber.get_model_choice_input()  # Prompt for valid input
             else:
-                print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")  # Indicate successful load from config.env
+                print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")
         elif transcribe_audio:
             model_choice = transcriber.get_model_choice_input()  # Use the validation function
 
@@ -1412,7 +1412,7 @@ def main():
                     print(f"Invalid value for TARGET_LANGUAGE in .env: {target_language}")
                     target_language = transcriber.get_target_language_input()
                 else:
-                    print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")  # Indicate successful load from config.env
+                    print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")
             else:
                 target_language = transcriber.get_target_language_input()
                 if not target_language:
@@ -1434,12 +1434,8 @@ def main():
                         use_en_model = False
 
     # --- Now, proceed with the rest of the script using the gathered parameters ---
-
-    print("\nProcessing...")  # Indicate step
-
-    # Create a YouTube object from the URL ONLY if it's NOT a local file
+    # Create a YouTube object from the URL only if it's not a local file
     if not is_local_file:
-        # Fix: If the URL is the placeholder, prompt the user before trying to create the YouTube object
         if url == transcriber.URL_PLACEHOLDER:
             while True:
                 url = input("Enter the YouTube video URL or local file path: ").strip()
@@ -1484,9 +1480,13 @@ def main():
     else:
         video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
 
-    # Replace direct sanitization with the function call
     filename_base = transcriber.sanitize_filename(video_title)
-    print(f"Processing: {video_title}")  # Indicate step
+    try:
+        display_source = os.path.abspath(url) if is_local_file else url
+    except NameError:
+        display_source = video_title
+
+    print(f"\nProcessing: {display_source}...")
 
     if download_video and not is_local_file:
         match resolution:
@@ -1499,7 +1499,6 @@ def main():
                 stream = streams[-1] if streams else None
 
             case Resolution.FETCH.value:
-                # Fix: Get first stream with selected resolution instead of a StreamQuery object
                 stream = yt.streams.filter(only_video=True, resolution=selected_res).first()
 
             case _:
@@ -1548,8 +1547,7 @@ def main():
             filename = filename_base + transcriber.MP4_EXT
             output_path = transcriber.VIDEO_WITHOUT_AUDIO_DIR
 
-            # Download the selected stream
-            print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")  # Modified print statement
+            print(f"Downloading video stream ({stream.resolution} {'with audio' if not no_audio_in_video else 'without audio'})...")
             stream.download(output_path=output_path, filename=filename)
             file_path = os.path.abspath(output_path + "/" + filename)
             print(f"Video downloaded to {file_path}")
@@ -1569,7 +1567,7 @@ def main():
             print(f"Video downloaded to {video_path}")
 
     else:
-        print("Skipping video download...")  # Indicate that video download is skipped
+        print("Skipping video download...")
         
     if download_audio:  # Download audio if needed for video or audio-only
         audio_path, file_path = transcriber.download_audio_stream(yt, filename_base, is_temp=False)
@@ -1581,12 +1579,10 @@ def main():
         else:
             audio_path = os.path.join(transcriber.AUDIO_DIR, audio_filename)
 
-        # Mux with ffmpeg
-        output_path_combined = os.path.join(transcriber.VIDEO_DIR, video_filename)  # Use original filename
+        output_path_combined = os.path.join(transcriber.VIDEO_DIR, video_filename)
         transcriber.combine_audio_video(video_path, audio_path, output_path_combined, 
-                           cleanup_temp=not no_audio_in_video, temp_video_dir=video_temp_dir)
+                cleanup_temp=not no_audio_in_video, temp_video_dir=video_temp_dir)
         
-        # The print statement is now inside the function
 
     if transcribe_audio:
         if is_local_file:  # Check if it's a local file
@@ -1629,13 +1625,13 @@ def main():
             transcriber.create_and_open_txt(transcribed_text, f"{filename_base}{transcriber.TXT_EXT}")
             transcript_path = f"{transcriber.TRANSCRIPT_DIR}/{filename_base}{transcriber.TXT_EXT}"
             file_path = os.path.abspath(transcript_path)
-            print(f"Saved transcript to {file_path}")  # Indicate location
+            print(f"Saved transcript to {file_path}")
         else:
             transcript_name = f"{filename_base} [{language}]{transcriber.TXT_EXT}"
             transcriber.create_and_open_txt(transcribed_text, transcript_name)
             transcript_path = f"{transcriber.TRANSCRIPT_DIR}/{transcript_name}"
             file_path = os.path.abspath(transcript_path)
-            print(f"Saved transcript to {file_path}")  # Indicate location
+            print(f"Saved transcript to {file_path}")
     else:
         print("Skipping transcription.")
         transcribed_text = ""  # Assign an empty string
