@@ -1434,9 +1434,6 @@ def main():
                         use_en_model = False
 
     # --- Now, proceed with the rest of the script using the gathered parameters ---
-
-    print("\nProcessing...")  # Indicate step
-
     # Create a YouTube object from the URL ONLY if it's NOT a local file
     if not is_local_file:
         # Fix: If the URL is the placeholder, prompt the user before trying to create the YouTube object
@@ -1486,7 +1483,7 @@ def main():
 
     # Replace direct sanitization with the function call
     filename_base = transcriber.sanitize_filename(video_title)
-    print(f"Processing: {video_title}")  # Indicate step
+    print(f"\nProcessing: {video_title}...")  # Indicate step
 
     if download_video and not is_local_file:
         match resolution:
