@@ -1483,7 +1483,17 @@ def main():
 
     # Replace direct sanitization with the function call
     filename_base = transcriber.sanitize_filename(video_title)
-    print(f"\nProcessing: {video_title}...")  # Indicate step
+    # Show the source being processed: absolute path for local files, or the original URL for online videos
+    try:
+        if is_local_file:
+            display_source = os.path.abspath(url)
+        else:
+            display_source = url
+    except NameError:
+        # If variables aren't in scope, fall back to the video title
+        display_source = video_title
+
+    print(f"\nProcessing: {display_source}...")  # Indicate step (shows path or URL)
 
     if download_video and not is_local_file:
         match resolution:
