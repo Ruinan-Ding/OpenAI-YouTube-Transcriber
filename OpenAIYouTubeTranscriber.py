@@ -137,7 +137,8 @@ class YouTubeTranscriber:
         "TRANSCRIBE_AUDIO": "",
         "MODEL_CHOICE": "",
         "TARGET_LANGUAGE": "",
-        "USE_EN_MODEL": ""
+        "USE_EN_MODEL": "",
+        "REPEAT": ""
     }
     
     def __init__(self):
@@ -765,26 +766,26 @@ class YouTubeTranscriber:
         with open(profile_path, "w", encoding='utf-8') as profile_file:
             profile_file.write("#Change values after the equals sign (=)\n\n")
             
-            # Keep track of fields we've written
-            written_fields = set()
+            # Define the field order (all fields except REPEAT)
+            field_order = [
+                "URL",
+                "DOWNLOAD_VIDEO",
+                "NO_AUDIO_IN_VIDEO",
+                "RESOLUTION",
+                "DOWNLOAD_AUDIO",
+                "TRANSCRIBE_AUDIO",
+                "MODEL_CHOICE",
+                "TARGET_LANGUAGE",
+                "USE_EN_MODEL",
+                "REPEAT"
+            ]
             
-            if "URL" in profile_fields:
-                profile_file.write(f"URL={profile_fields['URL']}\n")
-                written_fields.add("URL")
-                
-            if "DOWNLOAD_VIDEO" in profile_fields:
-                profile_file.write(f"DOWNLOAD_VIDEO={profile_fields['DOWNLOAD_VIDEO']}\n")
-                written_fields.add("DOWNLOAD_VIDEO")
-            
-            # Add any remaining fields that don't have specific comments
-            remaining_fields = sorted(set(profile_fields.keys()) - written_fields)
-            for i, key in enumerate(remaining_fields):
-                # Add newline only if it's not the last field
-                if i < len(remaining_fields) - 1:
-                    profile_file.write(f"{key}={profile_fields[key]}\n")
-                else:
-                    # No newline for last field
-                    profile_file.write(f"{key}={profile_fields[key]}")
+            # Write fields in the specified order
+            for i, field in enumerate(field_order):
+                if field in profile_fields:
+                    # Don't add newline after the last field
+                    newline = "" if i == len(field_order) - 1 else "\n"
+                    profile_file.write(f"{field}={profile_fields[field]}{newline}")
 
         print(f"Created profile: {os.path.abspath(profile_path)}")
 
@@ -878,145 +879,169 @@ def main():
     loaded_profile = False
     interactive_mode = False
 
-    # Check if config.env exists
-    config_env_path = os.path.join(transcriber.profile_dir, transcriber.CONFIG_ENV)
-    if not os.path.exists(config_env_path):
-        print(
-            f"config.txt not found in the {transcriber.profile_dir} directory."
-        )
-        # Check if there are any profile files even though config.txt is missing
-        if os.path.exists(transcriber.profile_dir):
-            profiles = [f for f in os.listdir(transcriber.profile_dir) if re.match(f"^{transcriber.PROFILE_PREFIX}\\d*{transcriber.ENV_EXT}$", f, re.IGNORECASE)]
-            if profiles:
-                print("Found existing profiles. Checking if you want to use one of them...")
-                print("Available profiles:")
-                for i, profile in enumerate(profiles):
-                    print(f"{i+1}. {profile}")
-                
-                while True:
-                    profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
-                                        f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
-                    if profile_input == '' or profile_input == '1':
-                        profile_name = profiles[0]
-                        load_profile = True
-                        break
-                    elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
-                        profile_name = profiles[int(profile_input) - 1]
-                        load_profile = True
-                        break
-                    elif profile_input in profiles:
-                        profile_name = profile_input
-                        load_profile = True
-                        break
-                    elif profile_input + transcriber.ENV_EXT in profiles:
-                        profile_name = profile_input + transcriber.ENV_EXT
-                        load_profile = True
-                        break
-                    elif profile_input in YesNo.all_no_and_skip():
-                        print("Switching to default/interactive mode.")
-                        load_profile = False
-                        break
-                    else:
-                        print("Invalid profile selection.")
-                        
-                if load_profile:
-                    # Load the selected profile
-                    profile_path = os.path.join(transcriber.profile_dir, profile_name)
-                    load_dotenv(dotenv_path=profile_path, override=True)
-                    print(f"Loaded profile: {profile_name}")
-            else:
-                print("No profiles found. Switching to default/interactive mode.")
-                load_profile = False
-                interactive_mode = True
-        else:
-            print("Switching to default/interactive mode.")
-            load_profile = False
-            interactive_mode = True
-    else:
-        print(f"config.txt detected in the {transcriber.profile_dir} directory.")
-        load_dotenv(dotenv_path=config_env_path, override=True)
-        # Manually read LOAD_PROFILE from config.txt to ensure accurate value
-        load_profile_str = None
-        with open(config_env_path, 'r', encoding='utf-8') as cf:
-            for line in cf:
-                if line.strip().startswith("LOAD_PROFILE"):
-                    _, val = line.split("=", 1)
-                    load_profile_str = val.strip()
-                    os.environ["LOAD_PROFILE"] = load_profile_str
-                    break
+    # If this is a repeat invocation from profile mode, reuse the prior profile
+    repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
+    repeat_profile_name = os.environ.get("_REPEAT_PROFILE_NAME")
+    repeat_without_profile = repeat_invocation and not repeat_profile_name
 
-        print(f"LOAD_PROFILE: {load_profile_str} (from config.txt)")
-        # Determine if LOAD_PROFILE is specifying a profile name or a boolean
-        lower_lp = load_profile_str.lower() if load_profile_str else ''
-        # Explicit profile names (not simple yes/no) take precedence
-        if load_profile_str and lower_lp not in YesNo.YES.value + YesNo.NO.value + YesNo.SKIP.value + ('',):
-            # Treat as profile name
-            if not load_profile_str.endswith(transcriber.ENV_EXT):
-                load_profile_str += transcriber.ENV_EXT
-            profile_path = os.path.join(transcriber.profile_dir, load_profile_str)
-            if os.path.exists(profile_path):
-                load_profile = True
-                loaded_profile = True
-                profile_name = os.path.basename(profile_path)
-                print(f"Loading profile: {profile_name}")
-            else:
-                print(f"Profile not found: {load_profile_str}. Using interactive mode.")
-                load_profile = False
-                interactive_mode = True
-        else:
-            # Interpret as boolean or skip
-            if lower_lp in YesNo.YES.value + ('',):
-                load_profile = True
-            elif lower_lp in YesNo.NO.value + YesNo.SKIP.value:
-                print("Using default/interactive mode.")
-                load_profile = False
-                interactive_mode = True
-            else:
-                # Fallback to interactive
-                load_profile = False
-                interactive_mode = True
-
-        if interactive_mode is False and loaded_profile is False:
-            # List available profiles (only if not found or invalid format)
-            profiles = [f for f in os.listdir(transcriber.profile_dir) if re.match(f"^{transcriber.PROFILE_PREFIX}\\d*{transcriber.ENV_EXT}$", f, re.IGNORECASE)]
-            if profiles:
-                print("Available profiles:")
-                for i, profile in enumerate(profiles):
-                    print(f"{i+1}. {profile}")
-
-                while True:
-                    profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
-                                          f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
-                    if profile_input == '' or profile_input == '1':
-                        profile_name = profiles[0]
-                        load_profile = True
-                        break
-                    elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
-                        profile_name = profiles[int(profile_input) - 1]
-                        load_profile = True
-                        break
-                    elif profile_input in profiles:
-                        profile_name = profile_input
-                        load_profile = True
-                        break
-                    elif profile_input + transcriber.ENV_EXT in profiles:
-                        profile_name = profile_input + transcriber.ENV_EXT
-                        load_profile = True
-                        break
-                    elif profile_input in YesNo.all_no_and_skip():
-                        load_profile = False
-                        break
-                    else:
-                        print("Invalid profile selection.")
-            else:
-                print("No profiles found. Switching to default/interactive mode.")
-                load_profile = False
-
-        if load_profile:
-            # Load the selected profile read earlier
-            profile_path = os.path.join(transcriber.profile_dir, profile_name)
+    if repeat_invocation and repeat_profile_name:
+        profile_name = repeat_profile_name
+        profile_path = os.path.join(transcriber.profile_dir, profile_name)
+        if os.path.exists(profile_path):
+            load_profile = True
+            loaded_profile = True
+            interactive_mode = False
             load_dotenv(dotenv_path=profile_path, override=True)
-            print(f"Loaded profile: {profile_name}")
+            print(f"Loaded profile (repeat): {profile_name}")
+        else:
+            print(f"Profile not found for repeat: {profile_name}. Falling back to selection.")
+            # continue with normal selection flow
+    elif repeat_without_profile:
+        # For interactive repeats, skip profile prompts and use the cached LAST_* answers
+        load_profile = False
+        interactive_mode = True
+
+    # Skip profile selection when repeating an interactive session
+    if not repeat_without_profile:
+        # Check if config.env exists
+        config_env_path = os.path.join(transcriber.profile_dir, transcriber.CONFIG_ENV)
+        if not os.path.exists(config_env_path):
+            print(
+                f"config.txt not found in the {transcriber.profile_dir} directory."
+            )
+            # Check if there are any profile files even though config.txt is missing
+            if os.path.exists(transcriber.profile_dir):
+                profiles = [f for f in os.listdir(transcriber.profile_dir) if re.match(f"^{transcriber.PROFILE_PREFIX}\\d*{transcriber.ENV_EXT}$", f, re.IGNORECASE)]
+                if profiles:
+                    print("Found existing profiles. Checking if you want to use one of them...")
+                    print("Available profiles:")
+                    for i, profile in enumerate(profiles):
+                        print(f"{i+1}. {profile}")
+                    
+                    while True:
+                        profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
+                                            f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
+                        if profile_input == '' or profile_input == '1':
+                            profile_name = profiles[0]
+                            load_profile = True
+                            break
+                        elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
+                            profile_name = profiles[int(profile_input) - 1]
+                            load_profile = True
+                            break
+                        elif profile_input in profiles:
+                            profile_name = profile_input
+                            load_profile = True
+                            break
+                        elif profile_input + transcriber.ENV_EXT in profiles:
+                            profile_name = profile_input + transcriber.ENV_EXT
+                            load_profile = True
+                            break
+                        elif profile_input in YesNo.all_no_and_skip():
+                            print("Switching to default/interactive mode.")
+                            load_profile = False
+                            break
+                        else:
+                            print("Invalid profile selection.")
+                            
+                    if load_profile:
+                        # Load the selected profile
+                        profile_path = os.path.join(transcriber.profile_dir, profile_name)
+                        load_dotenv(dotenv_path=profile_path, override=True)
+                        print(f"Loaded profile: {profile_name}")
+                else:
+                    print("No profiles found. Switching to default/interactive mode.")
+                    load_profile = False
+                    interactive_mode = True
+            else:
+                print("Switching to default/interactive mode.")
+                load_profile = False
+                interactive_mode = True
+        else:
+            print(f"config.txt detected in the {transcriber.profile_dir} directory.")
+            load_dotenv(dotenv_path=config_env_path, override=True)
+            # Manually read LOAD_PROFILE from config.txt to ensure accurate value
+            load_profile_str = None
+            with open(config_env_path, 'r', encoding='utf-8') as cf:
+                for line in cf:
+                    if line.strip().startswith("LOAD_PROFILE"):
+                        _, val = line.split("=", 1)
+                        load_profile_str = val.strip()
+                        os.environ["LOAD_PROFILE"] = load_profile_str
+                        break
+
+            print(f"LOAD_PROFILE: {load_profile_str} (from config.txt)")
+            # Determine if LOAD_PROFILE is specifying a profile name or a boolean
+            lower_lp = load_profile_str.lower() if load_profile_str else ''
+            # Explicit profile names (not simple yes/no) take precedence
+            if load_profile_str and lower_lp not in YesNo.YES.value + YesNo.NO.value + YesNo.SKIP.value + ('',):
+                # Treat as profile name
+                if not load_profile_str.endswith(transcriber.ENV_EXT):
+                    load_profile_str += transcriber.ENV_EXT
+                profile_path = os.path.join(transcriber.profile_dir, load_profile_str)
+                if os.path.exists(profile_path):
+                    load_profile = True
+                    loaded_profile = True
+                    profile_name = os.path.basename(profile_path)
+                    print(f"Loading profile: {profile_name}")
+                else:
+                    print(f"Profile not found: {load_profile_str}. Using interactive mode.")
+                    load_profile = False
+                    interactive_mode = True
+            else:
+                # Interpret as boolean or skip
+                if lower_lp in YesNo.YES.value + ('',):
+                    load_profile = True
+                elif lower_lp in YesNo.NO.value + YesNo.SKIP.value:
+                    print("Using default/interactive mode.")
+                    load_profile = False
+                    interactive_mode = True
+                else:
+                    # Fallback to interactive
+                    load_profile = False
+                    interactive_mode = True
+
+            if interactive_mode is False and loaded_profile is False:
+                # List available profiles (only if not found or invalid format)
+                profiles = [f for f in os.listdir(transcriber.profile_dir) if re.match(f"^{transcriber.PROFILE_PREFIX}\\d*{transcriber.ENV_EXT}$", f, re.IGNORECASE)]
+                if profiles:
+                    print("Available profiles:")
+                    for i, profile in enumerate(profiles):
+                        print(f"{i+1}. {profile}")
+
+                    while True:
+                        profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
+                                              f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
+                        if profile_input == '' or profile_input == '1':
+                            profile_name = profiles[0]
+                            load_profile = True
+                            break
+                        elif profile_input.isdigit() and 1 <= int(profile_input) <= len(profiles):
+                            profile_name = profiles[int(profile_input) - 1]
+                            load_profile = True
+                            break
+                        elif profile_input in profiles:
+                            profile_name = profile_input
+                            load_profile = True
+                            break
+                        elif profile_input + transcriber.ENV_EXT in profiles:
+                            profile_name = profile_input + transcriber.ENV_EXT
+                            load_profile = True
+                            break
+                        elif profile_input in YesNo.all_no_and_skip():
+                            load_profile = False
+                            break
+                        else:
+                            print("Invalid profile selection.")
+                else:
+                    print("No profiles found. Switching to default/interactive mode.")
+                    load_profile = False
+
+            if load_profile:
+                # Load the selected profile read earlier
+                profile_path = os.path.join(transcriber.profile_dir, profile_name)
+                load_dotenv(dotenv_path=profile_path, override=True)
+                print(f"Loaded profile: {profile_name}")
 
     # --- Get ALL parameters from user first if not loading from .env ---
 
@@ -1046,58 +1071,74 @@ def main():
         download_audio = False  # Initialize download_audio variable for all code paths
 
         if not is_local_file:
-            # Use the validation function
-            download_video = transcriber.get_yes_no_input("Download video? (y/N): ", default='n')
+            # Use the validation function (allow reuse from previous interactive run)
+            last_download = os.environ.get("LAST_DOWNLOAD_VIDEO")
+            if last_download is not None:
+                download_video = last_download.lower() in YesNo.YES.value
+                print(f"Using previous DOWNLOAD_VIDEO: {last_download} (from last session)")
+            else:
+                download_video = transcriber.get_yes_no_input("Download video? (y/N): ", default='n')
             used_fields["DOWNLOAD_VIDEO"] = "y" if download_video else "n"
 
             if download_video:
                 no_audio_in_video = False
                 # Use the validation function
                 no_audio_prompt = "... without the audio in the video? (y/N): "
-                no_audio_in_video = transcriber.get_yes_no_input(no_audio_prompt, "n")
+                last_no_audio = os.environ.get("LAST_NO_AUDIO_IN_VIDEO")
+                if last_no_audio is not None:
+                    no_audio_in_video = last_no_audio.lower() in YesNo.YES.value
+                    print(f"Using previous NO_AUDIO_IN_VIDEO: {last_no_audio} (from last session)")
+                else:
+                    no_audio_in_video = transcriber.get_yes_no_input(no_audio_prompt, "n")
                 used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
 
             if download_video:
-                while True:
-                    resolution_prompt = (
-                        "... enter desired resolution (e.g., 720p, 720, highest, lowest, "
-                        "default get the highest resolutions), or enter fetch or f to get "
-                        "a list of available resolutions: "
-                    )
-                    resolution = input(resolution_prompt)
-                    
-                    if not resolution:
-                        # Default to highest if input is empty
-                        resolution = Resolution.HIGHEST.value
-                        break
-                    
-                    # Convert to lowercase after checking for empty input
-                    resolution = resolution.lower()
-                    
-                    if resolution in Resolution.values():
-                        if resolution == Resolution.F.value:
-                            resolution = Resolution.FETCH.value
-                        used_fields["RESOLUTION"] = resolution
-                        break
-                    elif resolution.endswith("p"):
-                        used_fields["RESOLUTION"] = resolution
-                        break
-                    elif resolution.isdigit():
-                        if int(resolution) > 0:  # Check if it's a non-zero number
-                            resolution += "p"  # Add "p" if it's a number
+                # Allow reuse of previous resolution on interactive repeat
+                last_res = os.environ.get("LAST_RESOLUTION")
+                if last_res is not None:
+                    resolution = last_res
+                    print(f"Using previous RESOLUTION: {resolution} (from last session)")
+                else:
+                    while True:
+                        resolution_prompt = (
+                            "... enter desired resolution (e.g., 720p, 720, highest, lowest, "
+                            "default get the highest resolutions), or enter fetch or f to get "
+                            "a list of available resolutions: "
+                        )
+                        resolution = input(resolution_prompt)
+                        
+                        if not resolution:
+                            # Default to highest if input is empty
+                            resolution = Resolution.HIGHEST.value
+                            break
+                        
+                        # Convert to lowercase after checking for empty input
+                        resolution = resolution.lower()
+                        
+                        if resolution in Resolution.values():
+                            if resolution == Resolution.F.value:
+                                resolution = Resolution.FETCH.value
                             used_fields["RESOLUTION"] = resolution
                             break
-                        else:
-                            print("Invalid resolution. Please enter a non-zero number.")
-                    elif resolution.endswith("p") and resolution[:-1].isdigit():
-                        if int(resolution[:-1]) > 0:  # Check if non-zero with "p"
+                        elif resolution.endswith("p"):
                             used_fields["RESOLUTION"] = resolution
                             break
+                        elif resolution.isdigit():
+                            if int(resolution) > 0:  # Check if it's a non-zero number
+                                resolution += "p"  # Add "p" if it's a number
+                                used_fields["RESOLUTION"] = resolution
+                                break
+                            else:
+                                print("Invalid resolution. Please enter a non-zero number.")
+                        elif resolution.endswith("p") and resolution[:-1].isdigit():
+                            if int(resolution[:-1]) > 0:  # Check if non-zero with "p"
+                                used_fields["RESOLUTION"] = resolution
+                                break
+                            else:
+                                print("Invalid resolution. Please enter a non-zero number.")
                         else:
-                            print("Invalid resolution. Please enter a non-zero number.")
-                    else:
-                        print("Invalid resolution. Please enter a valid resolution "
-                              "(e.g., 720p, 720, highest, lowest).")
+                            print("Invalid resolution. Please enter a valid resolution "
+                                  "(e.g., 720p, 720, highest, lowest).")
                 
                 if resolution not in (Resolution.FETCH.value, Resolution.F.value):
                     print(f"Using resolution: {resolution}")
@@ -1144,14 +1185,29 @@ def main():
 
         if not is_local_file:
             # --- Download audio only if not transcribing ---
-            download_audio = transcriber.get_yes_no_input("Download audio? (y/N): ", default='n')
+            last_da = os.environ.get("LAST_DOWNLOAD_AUDIO")
+            if last_da is not None:
+                download_audio = last_da.lower() in YesNo.YES.value
+                print(f"Using previous DOWNLOAD_AUDIO: {last_da} (from last session)")
+            else:
+                download_audio = transcriber.get_yes_no_input("Download audio? (y/N): ", default='n')
             used_fields["DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
 
-        transcribe_audio = transcriber.get_yes_no_input("Transcribe the audio? (Y/n): ")
+        last_transcribe = os.environ.get("LAST_TRANSCRIBE_AUDIO")
+        if last_transcribe is not None:
+            transcribe_audio = last_transcribe.lower() in YesNo.YES.value
+            print(f"Using previous TRANSCRIBE_AUDIO: {last_transcribe} (from last session)")
+        else:
+            transcribe_audio = transcriber.get_yes_no_input("Transcribe the audio? (Y/n): ")
         used_fields["TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
 
         if transcribe_audio:
-            model_choice = transcriber.get_model_choice_input()  # Use the validation function
+            last_model = os.environ.get("LAST_MODEL_CHOICE")
+            if last_model is not None:
+                model_choice = last_model
+                print(f"Using previous MODEL_CHOICE: {model_choice} (from last session)")
+            else:
+                model_choice = transcriber.get_model_choice_input()  # Use the validation function
 
             # Set model based on user input (default to "base") using match statement
             if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
@@ -1168,11 +1224,21 @@ def main():
 
             used_fields["MODEL_CHOICE"] = model_name
 
-            target_language = transcriber.get_target_language_input()  # Use the validation function
+            last_target = os.environ.get("LAST_TARGET_LANGUAGE")
+            if last_target is not None:
+                target_language = last_target
+                print(f"Using previous TARGET_LANGUAGE: {target_language} (from last session)")
+            else:
+                target_language = transcriber.get_target_language_input()  # Use the validation function
             used_fields["TARGET_LANGUAGE"] = target_language
 
             if model_enum in ModelSize.standard_models() and target_language == transcriber.DEFAULT_LANGUAGE:  # Corrected condition
-                use_en_model = transcriber.get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
+                last_use_en = os.environ.get("LAST_USE_EN_MODEL")
+                if last_use_en is not None:
+                    use_en_model = last_use_en.lower() in YesNo.YES.value
+                    print(f"Using previous USE_EN_MODEL: {last_use_en} (from last session)")
+                else:
+                    use_en_model = transcriber.get_yes_no_input("Use English-specific model? (Recommended only if the video is originally in English) (y/N): ", default='n')
                 used_fields["USE_EN_MODEL"] = "y" if use_en_model else "n"
             else:
                 use_en_model = False
@@ -1184,7 +1250,17 @@ def main():
 
     else:
         is_local_file = False
-        url = os.getenv("URL")
+        # If this is a repeat invocation we want to prompt for a new URL each run
+        repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
+        url_env = os.getenv("URL")
+        if repeat_invocation:
+            # Use the URL placeholder when repeating so the code path that
+            # prompts for a new URL is taken instead of silently using an
+            # empty string which would bypass the URL prompt and lead to
+            # a regex error when creating the YouTube object.
+            url = transcriber.URL_PLACEHOLDER
+        else:
+            url = url_env
         if url and url != transcriber.URL_PLACEHOLDER:
             if transcriber.is_web_url(url):
                 if transcriber.is_youtube_url(url):
@@ -1649,12 +1725,125 @@ def main():
 
     print("Tasks complete.")
 
-    # Only ask to create a profile if we actually performed a useful operation
+    # Decide repeat first so the choice can be stored in a profile
     did_something_useful = (download_audio or download_video or transcribe_audio)
-    if not load_profile and did_something_useful:
+    is_repeat = os.environ.get("_REPEAT_INVOCATION", "") == "1"
+    repeat = False
+    repeat_value = ""
+    try:
+        if load_profile:
+            repeat_setting = os.getenv("REPEAT", "") or ""
+            if repeat_setting.lower() in YesNo.YES.value:
+                repeat = True
+                repeat_value = "y"
+            elif repeat_setting.lower() in YesNo.NO.value:
+                repeat = False
+                repeat_value = "n"
+            else:
+                # blank or invalid -> ask user
+                # Track how many times we've asked in this repeat chain
+                repeat_ask_count = int(os.environ.get("_REPEAT_ASK_COUNT", "0"))
+                # On first ask (count 0), default to 'n'; on subsequent asks, default to 'y'
+                default_repeat = 'y' if repeat_ask_count > 0 else 'n'
+                prompt_text = "Run again? (Y/n): " if default_repeat == 'y' else "Run again? Hit Enter to repeat (y/N): "
+                repeat = transcriber.get_yes_no_input(prompt_text, default=default_repeat)
+                repeat_value = "y" if repeat else "n"
+                # Increment counter for next ask
+                os.environ["_REPEAT_ASK_COUNT"] = str(repeat_ask_count + 1)
+        else:
+            # Interactive mode - also use the same repeat counter logic
+            repeat_ask_count = int(os.environ.get("_REPEAT_ASK_COUNT", "0"))
+            default_repeat = 'y' if repeat_ask_count > 0 else 'n'
+            prompt_text = "Run again? (Y/n): " if default_repeat == 'y' else "Run again? Hit Enter to repeat (y/N): "
+            repeat = transcriber.get_yes_no_input(prompt_text, default=default_repeat)
+            repeat_value = "y" if repeat else "n"
+            # Increment counter for next ask
+            os.environ["_REPEAT_ASK_COUNT"] = str(repeat_ask_count + 1)
+    except Exception:
+        repeat = False
+        repeat_value = ""
+
+    # Record repeat choice for potential profile creation
+    used_fields["REPEAT"] = repeat_value
+
+    # Only ask to create a profile if we actually performed a useful operation
+    # AND this is not a repeat invocation (to avoid duplicate profiles on repeat runs)
+    if not load_profile and did_something_useful and not is_repeat:
         create_profile_prompt = transcriber.get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
         if create_profile_prompt:
             transcriber.create_profile(used_fields)
+
+    # --- Repeat handling ---
+    try:
+        if repeat:
+            # For interactive mode, persist last non-URL choices so next run reuses them
+            if not load_profile:
+                try:
+                    os.environ["LAST_DOWNLOAD_VIDEO"] = "y" if download_video else "n"
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_RESOLUTION"] = resolution or ""
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_DOWNLOAD_AUDIO"] = "y" if download_audio else "n"
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_TRANSCRIBE_AUDIO"] = "y" if transcribe_audio else "n"
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_MODEL_CHOICE"] = model_choice if 'model_choice' in locals() else ""
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_TARGET_LANGUAGE"] = target_language if 'target_language' in locals() else ""
+                except Exception:
+                    pass
+                try:
+                    os.environ["LAST_USE_EN_MODEL"] = "y" if use_en_model else "n"
+                except Exception:
+                    pass
+            # Ensure next invocation prompts for a fresh URL while preserving these settings
+            os.environ["_REPEAT_INVOCATION"] = "1"
+            # For safety, set the URL env var to the placeholder as well so the
+            # profile loading step won't accidentally override the intention to
+            # prompt the user for a new URL on the next invocation.
+            try:
+                os.environ["URL"] = transcriber.URL_PLACEHOLDER
+            except Exception:
+                pass
+            # If running from a profile, remember which profile to reuse on repeat
+            if load_profile and 'profile_name' in locals():
+                try:
+                    os.environ["_REPEAT_PROFILE_NAME"] = profile_name
+                except Exception:
+                    pass
+            print("Repeating session as requested...")
+            main()
+        else:
+            # cleanup any repeat markers and stored LAST_ vars
+            for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL"):
+                if k in os.environ:
+                    try:
+                        del os.environ[k]
+                    except Exception:
+                        pass
+    except Exception:
+        # If repeat logic fails for any reason, just exit gracefully and clean markers
+        for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL"):
+            if k in os.environ:
+                try:
+                    del os.environ[k]
+                except Exception:
+                    pass
+    
 
 def get_required_packages(requirements_path):
     """
