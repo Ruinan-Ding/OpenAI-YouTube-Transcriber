@@ -1,0 +1,38 @@
+.PHONY: install deps lint format test run clean help
+
+install:
+	python -m pip install --upgrade pip
+	pip install -e .
+
+deps:
+	pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
+
+lint:
+	@echo "Running flake8..."
+	pip install --no-input flake8
+	flake8
+
+format:
+	@echo "Running black to format code..."
+	pip install --no-input black
+	black .
+
+test:
+	@echo "No tests configured. Add a 'tests/' directory and update this target."
+
+run:
+	python OpenAIYouTubeTranscriber.py
+
+clean:
+	rm -rf build dist *.egg-info __pycache__ .pytest_cache
+
+help:
+	@echo "Make targets:"
+	@echo "  install  - Install package in editable mode"
+	@echo "  deps     - Install runtime dependencies from requirements.txt"
+	@echo "  lint     - Run flake8 linting (installs flake8 if missing)"
+	@echo "  format   - Run black formatter (installs black if missing)"
+	@echo "  test     - Run tests (not configured)"
+	@echo "  run      - Run the main script"
+	@echo "  clean    - Remove build artifacts"
+	@echo "  help     - Show this message"
