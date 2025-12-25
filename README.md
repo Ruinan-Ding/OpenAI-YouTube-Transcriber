@@ -28,6 +28,35 @@ A powerful and intuitive automation multi-tool, primarily designed to extract au
     - [Pull Requests](#pull-requests)
     - [Issues](#issues)
 
+   ## Developer
+
+   Quick setup for contributors and maintainers:
+
+   1. Install runtime dependencies:
+
+   ```bash
+   make deps
+   ```
+
+   2. Install developer tools (linters, formatter, test runner):
+
+   ```bash
+   make dev
+   # or
+   pip install -r requirements-dev.txt
+   ```
+
+   Useful `make` targets:
+
+   - `make install` — install package in editable mode
+   - `make deps` — install runtime deps
+   - `make dev` — install development deps
+   - `make lint` — run flake8
+   - `make format` — run black
+   - `make run` — run the script
+
+   Add or update dev tooling in `requirements-dev.txt` as needed.
+
 ## Description
 
 This script automates the transcription of YouTube videos into text format, eliminating the need for manual transcription. With an intuitive interface, users simply input a YouTube video URL, and the script processes the audio, transcribes it, detects the language, and saves the result in a `.txt` file. Perfect for quick, accurate transcriptions for research, content creation, or accessibility purposes.
