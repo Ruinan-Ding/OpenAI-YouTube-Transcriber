@@ -741,15 +741,22 @@ class YouTubeTranscriber:
                   "No changes were made to it.")
 
         # Find all existing profiles and determine next available name
-        profile_pattern = f"^{self.PROFILE_PREFIX}\\d*{self.ENV_EXT}$"
+        # Accepts: profile.txt, profile<number>.txt, profile-<desc>.txt, profile<number>-<desc>.txt
+        profile_pattern = rf"^{re.escape(self.PROFILE_PREFIX)}(?:\d+)?(?:-.*)?{re.escape(self.ENV_EXT)}$"
         existing_profiles = [
-            f for f in os.listdir(self.profile_dir) 
-            if re.match(profile_pattern, f, re.IGNORECASE)
+            f for f in os.listdir(self.profile_dir)
+            if re.match(profile_pattern, f)
         ]
-        existing_numbers = [
-            int(re.search(r"\d+", f).group()) 
-            for f in existing_profiles if re.search(r"\d+", f)
-        ]
+        # Extract numeric suffix only when it immediately follows the prefix
+        num_pattern = rf"^{re.escape(self.PROFILE_PREFIX)}(?P<num>\d+)(?:-.*)?{re.escape(self.ENV_EXT)}$"
+        existing_numbers = []
+        for f in existing_profiles:
+            m = re.match(num_pattern, f)
+            if m:
+                try:
+                    existing_numbers.append(int(m.group('num')))
+                except (ValueError, TypeError):
+                    continue
         
         # Determine profile name
         if not existing_profiles:
@@ -911,17 +918,23 @@ def main():
             )
             # Check if there are any profile files even though config.txt is missing
             if os.path.exists(transcriber.profile_dir):
-                profiles = [f for f in os.listdir(transcriber.profile_dir) if re.match(f"^{transcriber.PROFILE_PREFIX}\\d*{transcriber.ENV_EXT}$", f, re.IGNORECASE)]
+                # Match profile files: profile.txt, profile<number>.txt, profile-<desc>.txt, profile<number>-<desc>.txt
+                profile_pattern = rf"^{re.escape(transcriber.PROFILE_PREFIX)}(?:\d+)?(?:-.*)?{re.escape(transcriber.ENV_EXT)}$"
+                profiles = sorted([f for f in os.listdir(transcriber.profile_dir) if re.match(profile_pattern, f)])
                 if profiles:
                     print("Found existing profiles. Checking if you want to use one of them...")
                     print("Available profiles:")
                     for i, profile in enumerate(profiles):
                         print(f"{i+1}. {profile}")
-                    
+
                     while True:
-                        profile_input = input(f"Select a profile (number or name, default 1. {profiles[0]}, "
-                                            f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): ").lower()
-                        if profile_input == '' or profile_input == '1':
+                        profile_input = input(
+                            f"Select a profile (number or name, default 1. {profiles[0]}, "
+                            f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): "
+                        )
+                        # keep raw input for exact filename matches, but accept numeric and Yes/No tokens case-insensitively
+                        lower_input = profile_input.lower()
+                        if profile_input == '' or lower_input == '1':
                             profile_name = profiles[0]
                             load_profile = True
                             break
@@ -937,13 +950,13 @@ def main():
                             profile_name = profile_input + transcriber.ENV_EXT
                             load_profile = True
                             break
-                        elif profile_input in YesNo.all_no_and_skip():
+                        elif lower_input in YesNo.all_no_and_skip():
                             print("Switching to default/interactive mode.")
                             load_profile = False
                             break
                         else:
                             print("Invalid profile selection.")
-                            
+
                     if load_profile:
                         # Load the selected profile
                         profile_path = os.path.join(transcriber.profile_dir, profile_name)
@@ -1003,7 +1016,9 @@ def main():
 
             if interactive_mode is False and loaded_profile is False:
                 # List available profiles (only if not found or invalid format)
-                profiles = [f for f in os.listdir(transcriber.profile_dir) if re.match(f"^{transcriber.PROFILE_PREFIX}\\d*{transcriber.ENV_EXT}$", f, re.IGNORECASE)]
+                # Match profile files: profile.txt, profile<number>.txt, profile-<desc>.txt, profile<number>-<desc>.txt
+                profile_pattern = rf"^{re.escape(transcriber.PROFILE_PREFIX)}(?:\d+)?(?:-.*)?{re.escape(transcriber.ENV_EXT)}$"
+                profiles = sorted([f for f in os.listdir(transcriber.profile_dir) if re.match(profile_pattern, f)])
                 if profiles:
                     print("Available profiles:")
                     for i, profile in enumerate(profiles):
