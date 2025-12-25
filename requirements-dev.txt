@@ -1,0 +1,6 @@
+# Development dependencies (install with `pip install -r requirements-dev.txt`)
+flake8
+black
+isort
+pytest
+pre-commit
