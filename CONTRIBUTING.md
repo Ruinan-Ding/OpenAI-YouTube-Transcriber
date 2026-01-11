@@ -23,9 +23,11 @@ Thank you for your interest in contributing! We welcome contributions of all kin
 - Add docstrings to functions and classes
 - Keep lines under 100 characters when reasonable
 
-### Testing
+### Manual Testing
 - Test your changes thoroughly before submitting
 - Ensure the script runs without errors on your system
+- Test with different YouTube URLs and local files
+- Verify all download and transcription options work correctly
 
 ### Commit Messages
 Use clear, descriptive commit messages:

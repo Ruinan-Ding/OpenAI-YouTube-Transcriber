@@ -41,12 +41,6 @@ make lint
 make format
 ```
 
-- Run tests:
-
-```bash
-pytest
-```
-
 Pre-commit hooks
 
 Install and enable pre-commit hooks:
