@@ -1,84 +1,65 @@
-# Contributing to OpenAI YouTube Transcriber
+# Contributing
 
-Thank you for your interest in contributing! We welcome contributions of all kinds.
+Thanks for wanting to help! Whether you're fixing bugs, adding features, or just improving docs, it's all appreciated.
 
-## Getting Started
+## Want to Contribute?
 
-1. **Fork the repository** and clone your fork locally
-2. **Create a virtual environment**:
+### First Time?
+
+1. Fork the repo on GitHub
+2. Clone your fork to your machine
+3. Create a virtual environment:
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate  # Windows: venv\Scripts\activate
    ```
-3. **Install dependencies**:
+4. Install what you need:
    ```bash
    pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
+   pip install -r requirements-dev.txt  # For dev tools
    ```
 
-## Making Changes
+### Making Your Changes
 
-### Code Style
-- Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) guidelines
-- Use meaningful variable and function names
-- Add docstrings to functions and classes
-- Keep lines under 100 characters when reasonable
+**Code style** — Keep it readable. Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) as a general guide. Use clear variable names. Don't make lines unnecessarily long (aim for under 100 characters). If you're adding a function, throw in a docstring explaining what it does.
 
-### Manual Testing
-- Test your changes thoroughly before submitting
-- Ensure the script runs without errors on your system
-- Test with different YouTube URLs and local files
-- Verify all download and transcription options work correctly
+**Test it before you submit** — Run the script with different scenarios:
+- Try it with different YouTube URLs
+- Test with local files
+- Try both downloading and just transcribing
+- Make sure different models work
+- Check different languages if you changed language handling
 
-### Commit Messages
-Use clear, descriptive commit messages:
+**Commit messages** should be straightforward:
 ```
-Fix: Correct YouTube URL validation regex
-Feature: Add support for playlist downloads
-Docs: Update README installation steps
+Fix: Correct URL validation issue
+Feature: Support for local subtitle files
+Docs: Update installation guide
 ```
 
-## Submitting Changes
+## Submitting Your Work
 
-1. **Push to your fork**: `git push origin your-feature-branch`
-2. **Create a Pull Request** with:
-   - Clear title describing the change
-   - Description of what was changed and why
-   - Reference any related issues (e.g., "Fixes #123")
-3. **Respond to feedback** and make requested changes
+1. Push to your fork
+2. Open a pull request with:
+   - A title that explains what you changed
+   - A description of why you changed it
+   - Reference any issue it fixes (like "Fixes #42")
+3. We'll review and might ask for changes—that's normal
+4. Once it looks good, it gets merged
 
-## Reporting Issues
+## Found a Bug?
 
-Before opening an issue, please:
-- Check existing [issues](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues)
-- Provide clear reproduction steps
-- Include Python version and OS information
-- Share relevant error messages
+Check if someone already reported it first. If not:
 
-### Issue Template
-```
-## Description
-Brief description of the issue
+- Explain what happened
+- How to reproduce it
+- What OS and Python version you're using
+- The error message if there was one
 
-## Steps to Reproduce
-1. Step one
-2. Step two
+## Be Cool
 
-## Expected Behavior
-What should happen
+- Respect other people
+- If someone disagrees with an idea, keep it constructive
+- Help others out if you can
 
-## Actual Behavior
-What actually happens
-
-## Environment
-- OS: 
-- Python Version:
-- OpenAI Whisper Version:
-```
-
-## Code of Conduct
-
-- Be respectful and inclusive
-- Provide constructive feedback
-- Help others learn and improve
-
-Thank you for contributing!
+That's it. Appreciate you! 🙌

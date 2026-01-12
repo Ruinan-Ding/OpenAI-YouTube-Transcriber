@@ -1,101 +1,114 @@
-# Usage Guide
+# How to Use the Transcriber
 
-## Running the Script
+## Basic Usage
+
+Just run it:
 
 ```bash
 python OpenAIYouTubeTranscriber.py
 ```
 
-## Interactive Mode
+The script will ask you some questions and then do its thing.
 
-When you run the script without a profile, you'll be prompted to:
+## What It Asks You
 
-1. **Enter YouTube URL or local file path**
-   - YouTube: `https://www.youtube.com/watch?v=...`
-   - Local file: `/path/to/audio.mp3` or `/path/to/video.mp4`
+**1. Where's the audio?**
+- YouTube link: `https://www.youtube.com/watch?v=...`
+- Local file: `/path/to/audio.mp3` or `/path/to/video.mp4`
 
-2. **Download options**
-   - Download video? (y/N)
-   - If yes, choose resolution (highest, lowest, or specific)
-   - Download audio separately? (y/N)
+**2. Download options**
+- Want the video file? (yes/no)
+- If yes, what resolution?
+- Want just the audio file separately? (yes/no)
 
-3. **Transcription options**
-   - Transcribe the audio? (Y/n)
-   - Select Whisper model (tiny, base, small, medium, large-v1, large-v2, large-v3)
-   - Target language (e.g., 'en', 'es', 'fr')
-   - Use English-specific model? (y/N) - only for English content
+**3. Transcription settings**
+- Which Whisper model? (tiny through large-v3)
+- What language? (en, es, fr, etc.)
+- For English: want the English-specific model? Usually gives better results
 
-4. **Repeat?** - Run another transcription immediately
+**4. Run again?**
+- Do another transcription right away or exit?
 
-## Profile-Based Usage
+## Using Profiles (The Smart Way)
 
-### Creating a Profile
+If you find yourself running the same workflow repeatedly, use profiles.
 
-After running a successful session, you can save it as a profile:
+### Saving a Profile
 
+After running it once, it'll ask:
 ```
-Do you want to create a profile from this session? (y/N): y
+Do you want to save these settings as a profile? (y/N): y
 ```
 
-This creates a profile file in `OpenAIYouTubeTranscriber/Profile/` directory.
+Say yes, and it creates a profile file you can reuse.
 
-### Using a Profile
+### Loading a Profile
 
-Profiles are automatically detected and offered on startup:
-
+Next time you run it, you'll see:
 ```
 Available profiles:
 1. profile.txt
-2. profile1.txt
-3. profile2.txt
+2. profile1-video_downloader.txt
 
-Select a profile (number or name, default 1. profile.txt, or 'no' to skip): 1
+Pick one (1-2, or 'no' to skip): 1
 ```
 
-### Profile Format
+Just pick one and you're done—no more answering the same questions.
 
-Each profile is a text file with configurable fields:
+### Editing a Profile
+
+Profiles live in `OpenAIYouTubeTranscriber/Profile/` and are just plain text files. Open one in your editor:
 
 ```ini
-URL=<Insert_YouTube_link_or_local_path_to_audio_or_video>
-DOWNLOAD_VIDEO=n
-NO_AUDIO_IN_VIDEO=
-RESOLUTION=
+URL=https://www.youtube.com/watch?v=example
+DOWNLOAD_VIDEO=y
+RESOLUTION=highest
 DOWNLOAD_AUDIO=n
 TRANSCRIBE_AUDIO=y
 MODEL_CHOICE=base
 TARGET_LANGUAGE=en
 USE_EN_MODEL=n
-REPEAT=
+REPEAT=n
 ```
 
-Edit any field directly in the profile file to customize behavior.
+Change whatever you want. Pretty self-explanatory.
 
-## Output Files
+## Where Stuff Gets Saved
 
-- **Transcripts**: `OpenAIYouTubeTranscriber/Transcript/`
-- **Audio**: `OpenAIYouTubeTranscriber/Audio/`
-- **Video**: `OpenAIYouTubeTranscriber/Video/`
-- **Video (no audio)**: `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
+Everything goes into organized folders:
 
-## Examples
+- **Transcripts** — `OpenAIYouTubeTranscriber/Transcript/`
+- **Audio files** — `OpenAIYouTubeTranscriber/Audio/`
+- **Video files** — `OpenAIYouTubeTranscriber/Video/`
+- **Video without audio** (rare) — `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
 
-### Example 1: Simple Transcription
+## Real Examples
+
+**Just transcribe a YouTube video, don't download anything:**
 ```bash
 python OpenAIYouTubeTranscriber.py
-# Enter: https://www.youtube.com/watch?v=jNQXAC9IVRw
+# URL: https://www.youtube.com/watch?v=jNQXAC9IVRw
 # Download video? n
 # Download audio? n
-# Transcribe? y (default)
-# Model? 2 (base)
-# Language? en (default)
+# Transcribe? y
+# Model? 2 (base is solid)
+# Language? en
 ```
 
-### Example 2: Download and Transcribe
+**Download the video and transcribe it:**
 ```bash
-# Using profile1.txt (video downloader)
 python OpenAIYouTubeTranscriber.py
-# Select profile: 1
+# Select a profile that has DOWNLOAD_VIDEO=y
+# Let it do its thing
+```
+
+**Transcribe a local file:**
+```bash
+python OpenAIYouTubeTranscriber.py
+# URL: /Users/you/Downloads/my_podcast.mp3
+# Download? n (it's already local)
+# Transcribe? y
+# Pick your settings
 ```
 
 ## Supported Languages
