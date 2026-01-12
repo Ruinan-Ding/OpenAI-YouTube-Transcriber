@@ -1,48 +1,38 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [1.0.0] - 2024
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+**Initial Release**
 
-## [1.0.0] - 2024-01-XX
+First stable version of the transcriber. Everything you need to grab transcripts from YouTube videos or local files.
 
-### Added
-- Initial release of OpenAI YouTube Transcriber
-- YouTube video and audio download functionality
-- OpenAI Whisper integration for transcription
-- Language detection using langdetect
-- Profile-based configuration system
-- Interactive and profile-based modes
-- Support for multiple Whisper models (tiny, base, small, medium, large-v1, v2, v3)
-- Multi-language transcription support
-- Video and audio stream quality selection
-- Automatic video/audio combination with ffmpeg
+### What's Included
 
-### Features
-- Download audio from YouTube videos
-- Extract audio from local video files
-- Transcribe audio to text using OpenAI's Whisper
-- Auto-detect language of transcription
-- Save transcriptions as .txt files
-- Create reusable profiles for common workflows
+- Download audio and video from YouTube
+- Transcribe with OpenAI's Whisper (7 model options)
+- Automatic language detection
+- Save your settings as reusable profiles
+- Local file transcription (MP3, MP4, WAV, etc.)
 - Support for 99+ languages
-- Cross-platform compatibility (Windows, macOS, Linux)
+- Works on Windows, macOS, and Linux
 
-### Dependencies
-- pytubefix - YouTube downloading
-- openai-whisper - Speech-to-text
-- langdetect - Language detection
-- moviepy - Video processing
-- python-dotenv - Configuration management
-- tenacity - Retry logic
+### The Nitty Gritty
 
-## [Unreleased]
+- **pytubefix** for reliable YouTube downloads
+- **OpenAI Whisper** for the actual transcription
+- **langdetect** to figure out what language you're transcribing
+- **moviepy** for handling video stuff
+- **python-dotenv** for configuration
+- **tenacity** for retrying when things go wrong
 
-### Planned
-- Playlist support
-- Batch processing
-- Translation to other languages
-- Subtitle generation (.srt, .vtt)
-- Web interface
-- API support
+---
+
+## What's Next
+
+We're thinking about:
+- Downloading whole playlists at once
+- Processing multiple files in batch
+- Translating transcripts to other languages
+- Generating subtitle files (.srt, .vtt formats)
+- Maybe a web interface down the road
+- API access if enough people want it

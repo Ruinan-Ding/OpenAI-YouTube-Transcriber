@@ -1,364 +1,383 @@
-# README AND INSTRUCTIONS ARE CURRENTLY OUTDATED
-
-Start with the command:
-`pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt`
-or
-`python -m pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt`
-to install dependencies, then
-`python OpenAIYoutubeTranscriber.py`
-to run this script.
-
 # OpenAI YouTube Transcriber
 
-A powerful and intuitive automation multi-tool, primarily designed to extract audio from YouTube videos, transcribe it into text, detect the language, and save the transcription as a `.txt` file. This core feature is complemented by many other functionalities, making it an essential tool for streamlining your workflow with cutting-edge technology.
+Ever wanted to grab a transcript from a YouTube video without doing it manually? This tool makes it dead simple. It downloads videos or audio from YouTube (or works with local files), then uses OpenAI's Whisper to transcribe everything. Supports 99+ languages with automatic language detection, and you can save your favorite settings as profiles so you don't have to reconfigure it every time.
 
-## Table of Contents
+## 🚀 Quick Start
 
-- [Project Overview](#openai-youtube-transcriber)
-  - [Description](#description)
-  - [Key Features](#key-features)
-  - [Prerequisites](#prerequisites)
-  - [Required Libraries](#required-libraries)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Workflow](#workflow)
-  - [Known Issues](#known-issues)
-  - [Tips](#tips)
-  - [Contributing](#contributing)
-    - [Pull Requests](#pull-requests)
-    - [Issues](#issues)
-
-   ## Developer
-
-   Quick setup for contributors and maintainers:
-
-   1. Install runtime dependencies:
-
-   ```bash
-   make deps
-   ```
-
-   2. Install developer tools (linters, formatter, test runner):
-
-   ```bash
-   make dev
-   # or
-   pip install -r requirements-dev.txt
-   ```
-
-   Useful `make` targets:
-
-   - `make install` — install package in editable mode
-   - `make deps` — install runtime deps
-   - `make dev` — install development deps
-   - `make lint` — run flake8
-   - `make format` — run black
-   - `make run` — run the script
-
-   Add or update dev tooling in `requirements-dev.txt` as needed.
-
-## Description
-
-This script automates the transcription of YouTube videos into text format, eliminating the need for manual transcription. With an intuitive interface, users simply input a YouTube video URL, and the script processes the audio, transcribes it, detects the language, and saves the result in a `.txt` file. Perfect for quick, accurate transcriptions for research, content creation, or accessibility purposes.
-
-## Key Features
-
-- **User-Friendly Interface**: Easy to use—simply input the YouTube video URL to start the transcription process.
-- **Efficient Audio Extraction**: Uses the `pytubefix` library to reliably download the audio stream from YouTube videos.
-- **High-Quality Transcription**: Powered by the `whisper` library, offering accurate, state-of-the-art speech-to-text capabilities.
-- **Convenient Output**: Automatically saves the transcription in a `.txt` file for easy access and sharing.
-
-## Prerequisites
-
-1. **Python 3.6+**  
-   - [Install on Windows](https://phoenixnap.com/kb/how-to-install-python-3-windows)  
-   - [Install on Mac](https://docs.python-guide.org/starting/install3/osx/)  
-   - [Install on Ubuntu](https://phoenixnap.com/kb/how-to-install-python-3-ubuntu)  
-
-2. **pip** (Python Package Installer)  
-   - [Install pip on Windows](https://phoenixnap.com/kb/install-pip-windows)  
-   - [Install pip on Mac](https://phoenixnap.com/kb/install-pip-mac)  
-   - [Install pip on Ubuntu](https://phoenixnap.com/kb/how-to-install-pip-on-ubuntu)
-
-## Required Libraries
-
-- **pytubefix**: A robust Python library for downloading YouTube videos and extracting audio. `pytubefix` resolves occasional issues in `pytube`, where certain regex expressions in `cipher.py` may occasionally fail.
-- **whisper**: OpenAI’s advanced speech-to-text model, known for its high accuracy and reliability in transcription.
-- **langdetect**: A powerful language detection library based on Google's language-detection algorithm.
-
-## Installation
-
-1. Clone or download the repository.
-2. Install the required libraries via pip:
-
-   ```bash
-   pip install pytubefix
-   pip install git+https://github.com/openai/whisper.git
-   pip install langdetect
-   ```
-
-3. Install FFmpeg (necessary for audio processing):
-
-   - **Windows**:
-     If Scoop is not installed, run PowerShell as administrator and execute:
-     ```bash
-     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-     Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-     scoop install ffmpeg
-     ```
-   
-   - **Mac**:
-     ```bash
-     brew install ffmpeg
-     ```
-   
-   - **Ubuntu**:
-     ```bash
-     sudo apt update && sudo apt install ffmpeg
-     ```
-
-## Usage
-
-1. Run the script by executing `WhisperYouTubeMultiTool.py`:
-
-   ```bash
-   python WhisperYouTubeMultiTool.py
-   ```
-
-2. Input the YouTube video URL when prompted:
-
-   ```bash
-   Enter the YouTube video URL: https://www.youtube.com/watch?v=XXXXXXXXXXX
-   ```
-
-   Example:
-   ```bash
-   Enter the YouTube video URL: https://www.youtube.com/watch?v=jNQXAC9IVRw
-   ```
-
-3. The script will:
-   - Download the audio,
-   - Transcribe the audio to text,
-   - Detect the language,
-   - Save the transcription in a file named `Transcript_{language}.txt`.
-
-4. Access the transcription file in the same directory as the script.
-
-## Workflow
-
-1. The user provides the YouTube video URL.
-2. `pytubefix` downloads the audio and saves it as an `.mp3` file.
-3. `whisper` transcribes the audio into text.
-4. `langdetect` identifies the transcription language.
-5. The transcription is saved as `Transcript_{language}.txt`, ready for review.
-
-## Known Issues
-
-- **Punctuation Errors**: Occasionally, punctuation may be missing or incorrect in some parts of the transcription. Manual editing or using tools like ChatGPT can help resolve these.
-- **Transcription Accuracy**: On rare occasions, the script might misinterpret words or produce spelling errors. These issues can be easily corrected using a text editor or ChatGPT.
-
-## Tips
-
-- If punctuation issues arise, use [ChatGPT](https://chatgpt.com/) to fix grammar and punctuation:
+Get up and running in about 30 seconds:
 
 ```bash
-Correct the punctuation and grammar errors in the provided text while keeping the content and structure the same.
-
-# Steps
-1. Carefully review the input text for any grammatical or punctuation mistakes.
-2. Correct the identified errors without changing the underlying meaning or structure.
-3. Ensure the revised text is grammatically correct and properly punctuated.
-
-# Output Format
-- Return the corrected text as plain text without modifications other than grammatical and punctuation corrections.
-
-# Examples
-- Input: "this is the sentence which needs fixin"
-  Output: "This is the sentence which needs fixing."
-
-- Input: "hello world i am a language model"
-  Output: "Hello world, I am a language model."
-
-# Notes
-- Maintain verbatim repetition of the original ideas and text, only adjusting for grammatical accuracy.
-
-
-Here is the text below:
-
-<insert generated text>
+pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
+python OpenAIYouTubeTranscriber.py
 ```
-As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
-- If words are misinterpreted, prompt ChatGPT to correct them:
+Then just follow the prompts. That's it.
+
+## What's in Here
+
+- [Features](#-features)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+- [How to Use It](#-usage)
+- [Profiles (save your settings)](#-profiles)
+- [Where Your Files Go](#-output-files)
+- [Stuck? Check Here](#-troubleshooting)
+- [Want to Help?](#-contributing)
+- [Pro Tips](#-tips--tricks)
+- [Known Quirks](#-known-issues)
+
+## ✨ What You Can Do
+
+**Simple Interface** — No complicated configuration. Just answer a few questions and it handles the rest.
+
+**YouTube or Local Files** — Paste a YouTube link or point it at an MP3/MP4 on your computer. Works with pretty much anything.
+
+**Handles 99+ Languages** — Whisper's got you covered whether it's English, Mandarin, Arabic, or something more obscure. Language detection is automatic.
+
+**Pick Your Model** — Want speed? Use `tiny`. Need accuracy? Go with `large-v3`. Options are tiny, base, small, medium, large-v1, large-v2, and large-v3.
+
+**Save Profiles** — Running the same transcription task repeatedly? Save your settings as a profile and reuse them next time.
+
+**Video Quality Control** — Want 1080p or prefer smaller file sizes? You can choose, or let it auto-select.
+
+**Cross-Platform** — Works on Windows, macOS, and Linux without any special tweaks.
+
+**Smart Audio Handling** — Automatically extracts audio from videos, combines them if needed, handles format conversions.
+
+## 📦 Before You Start
+
+You'll need a few things installed on your machine. Don't worry—none of this is complicated.
+
+**Python 3.6+** is required. Check if you have it by running `python --version`. If you need to install:
+- **Windows**: [phoenixnap.com guide](https://phoenixnap.com/kb/how-to-install-python-3-windows)
+- **macOS**: [docs.python-guide.org](https://docs.python-guide.org/starting/install3/osx/)
+- **Linux**: [phoenixnap.com Ubuntu guide](https://phoenixnap.com/kb/how-to-install-python-3-ubuntu)
+
+**pip** almost certainly came with Python, but verify it's there: `python -m pip --version`
+
+**FFmpeg** is the big one—it handles all the audio/video processing. This is what often trips people up, so pay attention:
+
+On **Windows**, open PowerShell as admin and run:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+scoop install ffmpeg
+```
+Or just grab it from [ffmpeg.org](https://ffmpeg.org/download.html) if you prefer the manual route.
+
+On **macOS**, if you have Homebrew: `brew install ffmpeg`. Don't have Homebrew? You should. Google it real quick.
+
+On **Linux** (Ubuntu/Debian): `sudo apt update && sudo apt install ffmpeg`
+
+## 💾 Getting Set Up
+
+First, clone the repo:
+```bash
+git clone https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber.git
+cd OpenAI-YouTube-Transcriber
+```
+
+**Virtual environment** (highly recommended): This keeps your dependencies isolated from other Python projects.
+```bash
+python -m venv venv
+
+# On Windows:
+.\venv\Scripts\activate
+
+# On macOS/Linux:
+source venv/bin/activate
+```
+
+Now install the dependencies:
+```bash
+pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
+```
+
+That's the basic setup. If you want to use `youtube-transcriber` as a command from anywhere on your system:
+```bash
+pip install -e .
+```
+
+This installs the package in "editable mode" so you can run `youtube-transcriber` from the terminal without having to be in the repo directory.
+
+## 🎯 How to Use It
+
+Just run it:
+```bash
+python OpenAIYouTubeTranscriber.py
+```
+
+The script will walk you through the process step-by-step. You'll be asked:
+
+1. Where to get the audio (YouTube link or local file)
+2. Whether you want to download the video
+3. Whether you want to download just the audio
+4. What video resolution (if downloading video)
+5. Which Whisper model to use for transcription
+6. What language to transcribe to
+7. Whether to use the English-specific Whisper model
+8. Whether you want to run again immediately
+
+Here's what it looks like in action:
 
 ```bash
-Edit the given auto-generated transcript to correct any misspellings and grammar errors but do not summarize or leave anything out.
+$ python OpenAIYouTubeTranscriber.py
 
-# Steps
-1. Read the entire transcript carefully to understand the context and content.
-2. Identify any spelling mistakes and correct them.
-3. Review the transcript for grammatical errors, including punctuation, subject-verb agreement, and verb tense consistency, and correct them.
-4. Ensure the paragraph breaks are logical and support reading comprehension, without altering the original intent or content.
+Enter the YouTube video URL or local file path: https://www.youtube.com/watch?v=jNQXAC9IVRw
+Download video? (y/N): n
+Download audio? (y/N): n
+Transcribe the audio? (Y/n): y
+Select Whisper model (1-7, default Base): 2
+Enter target language (default English): en
+Use English-specific model? (y/N): n
 
-# Output Format
-- The corrected transcript should be provided as plain text.
+[Whisper transcribes the audio...]
+Saved transcript to OpenAIYouTubeTranscriber/Transcript/video_title.txt
 
-# Notes
-- Do not add, summarize, or omit any information from the original transcript.
-- Maintain the original meaning and context in all corrections.
-- Focus on accuracy in spelling and grammatical structure without rewriting or rephrasing sentences unnecessarily.
-
-Here is the text below:
-
-<insert generated text>
+Run again? (y/N): n
 ```
-As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
-- **Using YouTube's Transcript**: If the video has an auto-generated transcript on YouTube, you can copy it and prompt ChatGPT to improve it. [Learn more about obtaining YouTube transcripts](https://www.descript.com/blog/article/transcript-of-youtube-videos). Use this prompt to ensure that the transcript remains verbatim while improving its quality:
+Pretty straightforward, right?
+
+## 📁 Profiles: Save Your Setup
+
+If you find yourself running the same transcription over and over, profiles are your friend. They let you save all your settings so you don't have to answer the same questions every time.
+
+When you start the script, it automatically finds any saved profiles:
+
+```
+Available profiles:
+1. profile.txt
+2. profile1.txt
+3. profile2.txt
+
+Select a profile (number or name, default 1. profile.txt, or 'no' to skip):
+```
+
+Just pick one and it'll load all your saved settings. Way faster than answering prompts every time.
+
+### Creating Your Own Profile
+
+After running the script successfully, you'll get asked if you want to save that session as a profile. Say yes, and it'll create a new profile file with whatever settings you just used. Next time you run the same workflow, you can just pick that profile instead of reconfiguring everything.
+
+### What's Inside a Profile
+
+Profiles are just text files in `OpenAIYouTubeTranscriber/Profile/`. You can edit them directly if you want:
+
+```ini
+URL=https://www.youtube.com/watch?v=example
+DOWNLOAD_VIDEO=n
+NO_AUDIO_IN_VIDEO=n
+RESOLUTION=
+DOWNLOAD_AUDIO=n
+TRANSCRIBE_AUDIO=y
+MODEL_CHOICE=base
+TARGET_LANGUAGE=en
+USE_EN_MODEL=n
+REPEAT=n
+```
+
+Pretty straightforward. Most of it is self-explanatory.
+
+### Built-In Profiles
+
+We've included a few pre-configured profiles to get you started:
+
+- **profile.txt** — Just transcribe (no downloads)
+- **profile1-video_downloader.txt** — Download video with audio and transcribe it
+- **profile2-audio_downloader.txt** — Download just the audio and transcribe
+- **profile0-translator.txt** — Transcribe in different languages
+
+## 📤 Where Your Files End Up
+
+Everything gets organized into separate folders:
+
+- **Transcripts** go here: `OpenAIYouTubeTranscriber/Transcript/`
+- **Downloaded audio**: `OpenAIYouTubeTranscriber/Audio/`
+- **Downloaded video**: `OpenAIYouTubeTranscriber/Video/`
+- **Video without audio** (rare edge case): `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
+
+The transcript filenames include the detected language in brackets, so you can tell at a glance what language it is:
+
+- `video_title.txt` (English)
+- `video_title [es].txt` (Spanish)
+- `video_title [fr].txt` (French)
+
+## 🔧 Running Into Issues?
+
+### FFmpeg Not Found
+
+If you see this:
+```
+ERROR: ffmpeg is not found in the system PATH.
+```
+
+FFmpeg isn't installed or isn't accessible. Go back to the Prerequisites section and install it. Then verify it's working: `ffmpeg -version`
+
+### YouTube Downloads Are Failing
+
+YouTube changes how it works pretty often, and sometimes the downloader needs an update. Try this:
+```bash
+pip install --upgrade pytubefix
+```
+
+Then try again. If it still fails, YouTube may have changed something major. Check the [issue tracker](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues) to see if others are having the same problem.
+
+### Running Out of Memory
+
+If the transcription crashes or your system gets sluggish, you're probably hitting memory limits. The different Whisper models have different resource needs:
+
+- `tiny` — ~1GB RAM (fastest, but less accurate)
+- `base` — ~2GB RAM (good middle ground)
+- `small` — ~3GB RAM (noticeably better)
+
+If you're on a older machine with limited RAM, stick with `tiny` or `base`. The quality difference usually isn't huge unless you're dealing with accents or low-quality audio.
+
+### The Transcription Doesn't Sound Right
+
+A few things to check:
+
+1. Did you pick the right model? Larger models = better accuracy but slower
+2. Is the audio clear? Lots of background noise = worse transcription
+3. Make sure the language is set correctly
+4. For English content, try the English-specific model option—it usually does better
+
+### Not Enough Disk Space
+
+Large videos take up a lot of disk space:
+
+- 1080p video: 500MB to 2GB depending on length
+- Audio file: about 5-50MB per minute
+- Whisper models: 140MB (tiny) up to 3GB (large) — only downloaded once though
+
+If you're tight on space, don't download the video, just the audio. That's usually what you need for transcription anyway.
+
+## 🤝 Contributing
+
+Found a bug? Have a cool feature idea? Want to improve the code? Awesome, check out [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
+
+If you want to contribute code, you'll need to set up the dev environment:
 
 ```bash
-You are tasked with converting a raw transcript from a YouTube video into a verbatim transcript in proper English. Your goal is to provide a transcript that is easy to read, follows the video word-for-word, and preserves the context, excluding any timestamps.
-
-# Steps
-1. **Read the Raw Transcript:** Understand the context and overall flow of the conversation without making assumptions about unknown parts.
-2. **Edit for Verbatim Accuracy:** Ensure the text is exactly as spoken in the video, capturing all words including fillers and non-verbal expressions, but improving readability without changing meaning.
-3. **Preserve the Original Structure:** Maintain any natural pauses or changes in speaker, annotating changes in speakers clearly but subtlely.
-4. **Remove Timestamps:** Ensure no timestamps or irrelevant metadata are included in the final output.
-5. **Maintain Contextual Integrity:** While improving clarity, do not alter or summarize the content of the transcript.
-
-# Output Format
-- The final output should be a clean, verbatim transcript.
-- Each speaker’s expressions should be clearly attributed and separated for clarity.
-- The transcript should be free of any timestamps or non-dialogue elements.
-
-# Examples
-
-## Example 1
-- **Raw Input:** "uh so today we're um going to explore the, like, you know, the Amazon rainforest."
-- **Verbatim Transcript:** "Uh, so today, we're um, going to explore, like, uh, you know, the Amazon rainforest."
-
-## Example 2
-- **Raw Input:** "and uh, yeah, that's pretty much it."
-- **Verbatim Transcript:** "And uh, yeah, that's pretty much it."
-
-# Notes
-- Prioritize accuracy and readability while ensuring the transcript remains a direct reflection of the spoken words.
-- The output should be suitable for following along with the video content directly.
-
-
-Here is the text below:
-
-<insert generated text>
+make dev
 ```
-As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
-- **Refining the Transcript**: If you'd like to improve the transcript, you can prompt ChatGPT with the following:
-
+Or if you don't have `make`:
 ```bash
-Given a transcript, convert it into a structured written document by including accurate section titles and correcting any grammatical errors, while preserving the original meaning and content without omitting any words or sentences.
-
-# Steps
-
-1. **Read the Entire Transcript**:
-   - Carefully review the transcript to understand its flow and main topics discussed.
-   
-2. **Correct Grammatical Errors**:
-   - Identify and correct any grammatical errors without altering the intended meaning of the transcript.
-   
-3. **Identify Logical Segments**:
-   - Based on the flow of conversation or monologue, identify logical segments that could form distinct sections.
-
-4. **Add Appropriate Section Titles**:
-   - Create descriptive and appropriate titles for each section, capturing the essence of the content within that segment.
-
-5. **Ensure No Content is Omitted**:
-   - Verify that no content from the original transcript is left out; maintain the verbatim content as much as possible, except where grammatical corrections are necessary.
-
-# Output Format
-
-- A written document with:
-  - Edited text with grammatical corrections.
-  - Section titles added above relevant content segments.
-  - Continuous and clear flow between sections.
-
-
-Here is the text below:
-
-<insert generated text>
+pip install -r requirements-dev.txt
 ```
-As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
-- **Summarizing the Transcript**: You can also ask ChatGPT to summarize the transcript into key takeaways:
-
+Then you can lint your code and make sure it's formatted properly:
 ```bash
-Summarize the provided text by extracting the most important points and core messages into concise key takeaways.
-
-# Steps
-1. Carefully read through the provided text to fully understand its content and context.
-2. Identify the main ideas and supporting details.
-3. Extract these elements and condense them into clear and concise bullet points or numbered lists of key takeaways.
-
-# Output Format
-- Provide a list of key takeaways, with each point clearly articulated.
-- Use bullet points or numbered lists for clarity and separation between different takeaways.
-
-# Notes
-- Ensure that the key takeaways preserve the original meaning and intent of the text.
-- Avoid adding personal opinions or external information.
-- Consider including any potential implications or conclusions directly supported by the text.
-
-
-Here is the text below:
-
-<insert generated text>
+make lint    # Check for code quality issues
+make format  # Auto-fix formatting
+make run     # Test the app
 ```
 
-- **Translating the Transcript**: You can ask ChatGPT to translate the transcript into another language. For example:
+## 💡 Tips for Better Results
 
+### Improving Bad Transcripts
+
+If Whisper mangles something, you can feed the transcript to an LLM to fix it up:
+
+**Fix grammar and punctuation:**
+```
+Correct the grammatical and punctuation errors in this transcript.
+Keep all the original content—don't summarize or skip anything.
+[paste your transcript here]
+```
+
+**Clean up structure:**
+```
+Turn this transcript into a nicely formatted document with section headers.
+Fix grammar but keep everything else the same.
+[paste your transcript here]
+```
+
+**Pull out key points:**
+```
+What are the main takeaways from this transcript? 
+List the most important points.
+[paste your transcript here]
+```
+
+This is super useful for lectures or meetings where you want a clean version later.
+
+### Multiple Profiles for Different Situations
+
+Think about the different things you transcribe regularly. Make a profile for each:
+
+- **Meetings**: base model, English
+- **Podcasts**: medium model, auto-detect language  
+- **Classes/Lectures**: large model, specific language
+- **Social Media**: tiny model (fast), English
+
+Then you just pick the right one instead of reconfiguring every time.
+
+### What File Formats Work
+
+Local files you can transcribe:
+
+- **Audio**: MP3, WAV, FLAC, OGG, M4A
+- **Video**: MP4, AVI, MOV, MKV, WebM
+
+Basically anything that has audio should work. If it doesn't, FFmpeg probably doesn't support it.
+
+### Using from Command Line
+
+If you installed with `pip install -e .`:
 ```bash
-Translate a YouTube video transcript into verbatim text in the specified target language, ensuring a word-for-word translation that retains all context while excluding timestamps.
-
-# Steps
-1. Review the provided transcript to understand its content and context fully.
-2. Translate each line of the transcript into the target language specified by [language], ensuring accuracy and fidelity to the source.
-3. Avoid including any timestamps or summarizing any content.
-4. Ensure the translation retains all context and details as per the original transcript.
-
-# Output Format
-Produce a verbatim transcript in the specified target language, maintaining the original order of text as presented in the source document. Do not include any formatting or timestamps, strictly focusing on text translation only.
-
-# Example
-**Source:** Hello, and welcome to my channel. Today, we're going to talk about astrophysics.
-
-**Output in French:** Bonjour, et bienvenue sur ma chaîne. Aujourd'hui, nous allons parler d'astrophysique.
-
-# Notes
-- The translation should be clear and as direct as possible, to be used as a one-to-one guide while watching the video.
-- Pay attention to maintaining the tone and nuances of the original language to ensure effective communication.
-
-
-Here is the text below:
-
-<insert generated text>
+youtube-transcriber
 ```
-As of GPT-4o, long YouTube transcripts might be summarized. If this happens, you may have to break the transcript piecemeal.
 
-## Contributing
+Much cleaner than typing out the whole `python OpenAIYouTubeTranscriber.py` every time.
 
-We welcome contributions to this project! To get involved, participate in [Discussions](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/discussions), submit a pull request, or report any issues. We're open to suggestions for new features or improvements.
+## ⚠️ Known Quirks
 
-### Pull Requests
+A few things to be aware of:
 
-1. Fork the repository and create a branch from the `main` branch.
-2. Make your changes or additions.
-3. Commit your changes and push them to your branch.
-4. Open a pull request to the `main` branch, describing your changes clearly.
+**Punctuation sometimes gets weird.** Whisper doesn't always nail comma placement or period locations. An LLM cleanup usually fixes this though.
 
-### Issues
+**Uncommon words might be wrong.** Domain-specific jargon, unusual names, or industry terms sometimes get transcribed incorrectly. If you're transcribing something specialized, you might need to do a manual review.
 
-1. Before opening a new issue, check if a similar one already exists in the [Issues](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues) section.
-2. If not, create a new issue with a detailed description of the problem or proposed enhancement.
+**Really long videos can get choppy.** Anything over 3+ hours might have fragmented transcriptions. Usually still usable though, just needs some cleanup.
+
+All of these are fixable by editing the transcript yourself or running it through an LLM for post-processing.
+
+## 🌍 Languages Supported
+
+Whisper handles [99+ languages](https://github.com/openai/whisper#supported-languages). Here are the common ones:
+
+| Language | Code | Language | Code |
+|----------|------|----------|------|
+| English | `en` | Spanish | `es` |
+| French | `fr` | German | `de` |
+| Chinese | `zh` | Japanese | `ja` |
+| Russian | `ru` | Arabic | `ar` |
+| Portuguese | `pt` | Hindi | `hi` |
+
+Check [Whisper's docs](https://github.com/openai/whisper#supported-languages) for the full list if you need something else.
+
+## 📜 License
+
+BSD 3-Clause License. See [LICENSE](LICENSE) for the full legal stuff.
+
+## Thanks
+
+Big thanks to:
+
+- **OpenAI** for Whisper—seriously impressive speech recognition
+- **pytubefix** for keeping YouTube downloading reliable
+- **langdetect** for the language detection magic
+
+## 📞 Something Broken or Have Ideas?
+
+Found a bug? [Open an issue](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues).
+
+Got questions? [Start a discussion](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/discussions).
+
+Want to contribute? Check out [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-Feel free to contribute, share, and help improve this project!
+Happy transcribing! 🎉

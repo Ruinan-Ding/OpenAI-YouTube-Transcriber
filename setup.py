@@ -35,7 +35,7 @@ setup(
         "python-dotenv",
         "moviepy",
         "tenacity",
-        "git+https://github.com/openai/whisper.git",
+           "openai-whisper @ git+https://github.com/openai/whisper.git",
     ],
     entry_points={
         "console_scripts": [

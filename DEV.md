@@ -1,68 +1,83 @@
-# Developer Workflow
+# Setting Up for Development
 
-This file documents the recommended developer workflow for the project.
+Want to work on the code? Here's how to get your environment ready.
 
-Setup
+## Initial Setup
+
+Create a virtual environment to keep things isolated:
 
 ```bash
 python -m venv .venv
-# Windows
+
+# On Windows:
 .\.venv\Scripts\activate
-# macOS / Linux
+
+# On macOS/Linux:
 source .venv/bin/activate
-
-# Install runtime deps
-make deps
-
-# Install development tools
-make dev
-
-# Install editable package
-make install
 ```
 
-Common tasks
+Then install everything:
 
-- Run the CLI:
+```bash
+make deps      # Install runtime dependencies
+make dev       # Install dev tools (linters, formatters, etc.)
+make install   # Install the package in editable mode
+```
 
+If you don't have `make`, you can do it manually:
+
+```bash
+pip install -r OpenAIYouTubeTranscriber/requirements.txt
+pip install -r requirements-dev.txt
+pip install -e .
+```
+
+## Working on Code
+
+**Run the app to test changes:**
 ```bash
 make run
 ```
 
-- Lint the code with `flake8`:
-
+**Check code quality:**
 ```bash
 make lint
 ```
 
-- Format with `black`:
+This uses flake8 to catch potential issues and style problems.
 
+**Format everything nicely:**
 ```bash
 make format
 ```
 
-- Run tests:
+This uses black and isort to auto-fix formatting issues.
+
+## Git Hooks
+
+We use pre-commit hooks to automatically check things before you commit:
 
 ```bash
-pytest
+make precommit-install
 ```
 
-Pre-commit hooks
+This sets up automatic linting and formatting on every commit. If something fails, fix it and try committing again. The hooks exist to keep the code clean.
 
-Install and enable pre-commit hooks:
+## Important Notes
 
-```bash
-pip install pre-commit
-pre-commit install
-pre-commit run --all-files
-```
+- Keep `OpenAIYouTubeTranscriber/requirements.txt` pinned to specific versions so installs are reproducible. The versions in `setup.py` can be looser though.
+- Don't commit audio or video files—they're already in `.gitignore` for good reason.
+- If you add new dependencies, update both `requirements.txt` and `setup.py`.
 
-Make targets
+## Makefile Targets
 
-- `make dev` — install development dependencies from `requirements-dev.txt`
-- `make precommit-install` — install git hooks via `pre-commit install`
+- `make install` — Install the package in editable mode
+- `make deps` — Install runtime dependencies
+- `make dev` — Install development tools
+- `make lint` — Check code quality
+- `make format` — Auto-format code
+- `make run` — Run the app
+- `make clean` — Remove build artifacts
+- `make precommit-install` — Set up git hooks
 
-Notes
-
-- Keep `requirements.txt` pinned for reproducible installs; keep `install_requires` in `setup.py` as the looser package dependency list.
-- Avoid committing large media files (audio/video) — they are covered by `.gitignore`.
+Pretty straightforward stuff.

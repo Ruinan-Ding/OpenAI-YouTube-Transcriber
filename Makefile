@@ -21,9 +21,6 @@ format:
 	pip install --no-input black
 	black .
 
-test:
-	@echo "No tests configured. Add a 'tests/' directory and update this target."
-
 run:
 	python OpenAIYouTubeTranscriber.py
 
@@ -37,7 +34,6 @@ help:
 	@echo "  dev      - Install development dependencies from requirements-dev.txt"
 	@echo "  lint     - Run flake8 linting (installs flake8 if missing)"
 	@echo "  format   - Run black formatter (installs black if missing)"
-	@echo "  test     - Run tests (not configured)"
 	@echo "  run      - Run the main script"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  help     - Show this message"
