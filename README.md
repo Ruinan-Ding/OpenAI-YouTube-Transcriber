@@ -1,6 +1,23 @@
-# OpenAI YouTube Transcriber
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:FF6B6B,100:4ECDC4&height=120&section=header&text=YouTube%20Transcriber&fontSize=45&fontColor=fff&animation=fadeIn" width="100%"/>
+</div>
+
+<div align="center">
+  
+  ![Python](https://img.shields.io/badge/Python-3.6+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+  ![OpenAI](https://img.shields.io/badge/OpenAI-Whisper-412991?style=for-the-badge&logo=openai&logoColor=white)
+  ![License](https://img.shields.io/badge/License-BSD%203--Clause-blue?style=for-the-badge)
+  ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)
+  
+</div>
+
+<br>
 
 Ever wanted to grab a transcript from a YouTube video without doing it manually? This tool makes it dead simple. It downloads videos or audio from YouTube (or works with local files), then uses OpenAI's Whisper to transcribe everything. Supports 99+ languages with automatic language detection, and you can save your favorite settings as profiles so you don't have to reconfigure it every time.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 🚀 Quick Start
 
@@ -12,6 +29,10 @@ python OpenAIYouTubeTranscriber.py
 ```
 
 Then just follow the prompts. That's it.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## What's in Here
 
@@ -25,6 +46,10 @@ Then just follow the prompts. That's it.
 - [Want to Help?](#-contributing)
 - [Pro Tips](#-tips--tricks)
 - [Known Quirks](#-known-issues)
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## ✨ What You Can Do
 
@@ -43,6 +68,16 @@ Then just follow the prompts. That's it.
 **Cross-Platform** — Works on Windows, macOS, and Linux without any special tweaks.
 
 **Smart Audio Handling** — Automatically extracts audio from videos, combines them if needed, handles format conversions.
+
+<div align="center">
+  <img src="https://skillicons.dev/icons?i=python,github" alt="Tech Stack" />
+  <br><br>
+  <p><em>Powered by OpenAI Whisper, pytubefix, and FFmpeg</em></p>
+</div>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 📦 Before You Start
 
@@ -68,6 +103,10 @@ Or just grab it from [ffmpeg.org](https://ffmpeg.org/download.html) if you prefe
 On **macOS**, if you have Homebrew: `brew install ffmpeg`. Don't have Homebrew? You should. Google it real quick.
 
 On **Linux** (Ubuntu/Debian): `sudo apt update && sudo apt install ffmpeg`
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 💾 Getting Set Up
 
@@ -99,6 +138,10 @@ pip install -e .
 ```
 
 This installs the package in "editable mode" so you can run `youtube-transcriber` from the terminal without having to be in the repo directory.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 🎯 How to Use It
 
@@ -138,6 +181,10 @@ Run again? (y/N): n
 ```
 
 Pretty straightforward, right?
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 📁 Profiles: Save Your Setup
 
@@ -188,6 +235,10 @@ We've included a few pre-configured profiles to get you started:
 - **profile2-audio_downloader.txt** — Download just the audio and transcribe
 - **profile0-translator.txt** — Transcribe in different languages
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
+
 ## 📤 Where Your Files End Up
 
 Everything gets organized into separate folders:
@@ -202,6 +253,10 @@ The transcript filenames include the detected language in brackets, so you can t
 - `video_title.txt` (English)
 - `video_title [es].txt` (Spanish)
 - `video_title [fr].txt` (French)
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 🔧 Running Into Issues?
 
@@ -252,6 +307,10 @@ Large videos take up a lot of disk space:
 
 If you're tight on space, don't download the video, just the audio. That's usually what you need for transcription anyway.
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
+
 ## 🤝 Contributing
 
 Found a bug? Have a cool feature idea? Want to improve the code? Awesome, check out [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
@@ -273,6 +332,10 @@ make lint    # Check for code quality issues
 make format  # Auto-fix formatting
 make run     # Test the app
 ```
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 💡 Tips for Better Results
 
@@ -332,6 +395,10 @@ youtube-transcriber
 
 Much cleaner than typing out the whole `python OpenAIYouTubeTranscriber.py` every time.
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
+
 ## ⚠️ Known Quirks
 
 A few things to be aware of:
@@ -343,6 +410,10 @@ A few things to be aware of:
 **Really long videos can get choppy.** Anything over 3+ hours might have fragmented transcriptions. Usually still usable though, just needs some cleanup.
 
 All of these are fixable by editing the transcript yourself or running it through an LLM for post-processing.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## 🌍 Languages Supported
 
@@ -358,9 +429,17 @@ Whisper handles [99+ languages](https://github.com/openai/whisper#supported-lang
 
 Check [Whisper's docs](https://github.com/openai/whisper#supported-languages) for the full list if you need something else.
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
+
 ## 📜 License
 
 BSD 3-Clause License. See [LICENSE](LICENSE) for the full legal stuff.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
 
 ## Thanks
 
@@ -378,6 +457,14 @@ Got questions? [Start a discussion](https://github.com/Ruinan-Ding/OpenAI-YouTub
 
 Want to contribute? Check out [CONTRIBUTING.md](CONTRIBUTING.md).
 
----
-
-Happy transcribing! 🎉
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+  
+  <br>
+  
+  **Made with ❤️ for easier transcriptions**
+  
+  <br>
+  
+  <sub>Happy transcribing! 🎉</sub>
+</div>
