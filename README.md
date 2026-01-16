@@ -55,7 +55,13 @@ Then just follow the prompts. That's it.
 
 **Simple Interface** — No complicated configuration. Just answer a few questions and it handles the rest.
 
-**YouTube or Local Files** — Paste a YouTube link or point it at an MP3/MP4 on your computer. Works with pretty much anything.
+**Flexible Input Options** — Give it a YouTube URL, just the 11-character video ID, or point it at a local media file. All of these work:
+- Full URL: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
+- Short URL: `https://youtu.be/jNQXAC9IVRw`
+- Just the video ID: `jNQXAC9IVRw`
+- Local file: `/path/to/audio.mp3`
+
+The script automatically extracts just the video ID from URLs and ignores things like timestamps or playlist parameters.
 
 **Handles 99+ Languages** — Whisper's got you covered whether it's English, Mandarin, Arabic, or something more obscure. Language detection is automatic.
 
@@ -180,7 +186,7 @@ Saved transcript to OpenAIYouTubeTranscriber/Transcript/video_title.txt
 Run again? (y/N): n
 ```
 
-Pretty straightforward, right?
+**Note:** You can enter the full YouTube URL, short URL (`youtu.be/...`), or just the 11-character video ID. The script extracts the ID automatically and ignores query parameters like timestamps (`&t=30s`) or playlist info (`&list=PLxyz`).
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
@@ -225,6 +231,14 @@ REPEAT=n
 ```
 
 Pretty straightforward. Most of it is self-explanatory.
+
+**For the URL field**, you can use any of these formats:
+- Full URL: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
+- Short URL: `https://youtu.be/jNQXAC9IVRw`
+- Just the video ID: `jNQXAC9IVRw`
+- With timestamp/playlist params: `https://www.youtube.com/watch?v=jNQXAC9IVRw&t=30s` (params ignored)
+
+The script only cares about the 11-character video ID—everything else gets stripped out.
 
 ### Built-In Profiles
 
@@ -338,6 +352,16 @@ make run     # Test the app
 </div>
 
 ## 💡 Tips for Better Results
+
+### Quick Video ID Tips
+
+YouTube video IDs are always exactly 11 characters made up of letters, numbers, dashes, and underscores. When you give the script a URL, it automatically extracts just the ID:
+
+- `youtube.com/watch?v=jNQXAC9IVRw` → uses `jNQXAC9IVRw`
+- `youtu.be/jNQXAC9IVRw` → uses `jNQXAC9IVRw`
+- `youtube.com/watch?v=jNQXAC9IVRw&t=30s` → still just uses `jNQXAC9IVRw`
+
+You can save time by copying just the ID instead of the whole URL.
 
 ### Improving Bad Transcripts
 

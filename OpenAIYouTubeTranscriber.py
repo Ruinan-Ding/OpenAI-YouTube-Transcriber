@@ -193,8 +193,66 @@ class YouTubeTranscriber:
         except ValueError:
             return False
 
+    def is_youtube_video_id(self, text):
+        """
+        Check if text is a valid YouTube video ID.
+        
+        YouTube video IDs are exactly 11 characters and contain only:
+        - Letters (a-z, A-Z)
+        - Numbers (0-9)
+        - Hyphens (-)
+        - Underscores (_)
+        
+        Examples of valid IDs: jNQXAC9IVRw, dQw4w9WgXcQ
+        
+        Args:
+            text: String to validate as video ID
+            
+        Returns:
+            bool: True if valid video ID format, False otherwise
+        """
+        if len(text) != 11:
+            return False
+        import re
+        return bool(re.match(r'^[a-zA-Z0-9_-]{11}$', text))
+    
+    def construct_youtube_url(self, video_id):
+        """
+        Build full YouTube URL from video ID.
+        
+        Only the 11-character video ID is needed for processing. Query 
+        parameters (timestamps like &t=30s, playlist info like &list=PLxyz) 
+        are automatically stripped out by pytubefix during download and 
+        don't affect transcription.
+        
+        Args:
+            video_id: 11-character YouTube video ID
+            
+        Returns:
+            str: Full YouTube URL in standard format
+        """
+        return f"https://www.youtube.com/watch?v={video_id}"
+
     def is_youtube_url(self, url):
-        """Validate YouTube URL using pytubefix."""
+        """
+        Validate YouTube URL using pytubefix.
+        
+        pytubefix automatically extracts the 11-character video ID from 
+        any YouTube URL format:
+        - Standard: https://www.youtube.com/watch?v=jNQXAC9IVRw
+        - Short: https://youtu.be/jNQXAC9IVRw
+        - Embed: https://www.youtube.com/embed/jNQXAC9IVRw
+        
+        Query parameters (timestamps, playlists, tracking info) are ignored 
+        during processing—only the video ID is used for downloading and 
+        transcription.
+        
+        Args:
+            url: YouTube URL to validate
+            
+        Returns:
+            bool: True if valid YouTube URL, False otherwise
+        """
         try:
             YouTube(url, "WEB")
             return True
@@ -830,10 +888,15 @@ def main():
     if not load_profile:
         is_local_file = False
         while True:
-            url = input("Enter the YouTube video URL or local file path: ").strip()
+            url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
             
             # --- Validation Steps ---
-            if transcriber.is_web_url(url):
+            if transcriber.is_youtube_video_id(url):
+                url = transcriber.construct_youtube_url(url)
+                print(f"Detected video ID, using: {url}")
+                is_local_file = False
+                break
+            elif transcriber.is_web_url(url):
                 if transcriber.is_youtube_url(url):
                     is_local_file = False
                     break
@@ -844,7 +907,7 @@ def main():
                 is_local_file = True
                 break
             else:
-                print("Invalid input. Please enter valid YouTube URL or local file path")
+                print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                 continue
 
         download_video = False
@@ -1034,7 +1097,16 @@ def main():
         else:
             url = url_env
         if url and url != transcriber.URL_PLACEHOLDER:
-            if transcriber.is_web_url(url):
+            if transcriber.is_youtube_video_id(url):
+                url = transcriber.construct_youtube_url(url)
+                print(f"Detected video ID from profile, using: {url}")
+                try:
+                    yt = YouTube(url, "WEB")
+                    print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
+                except RegexMatchError:
+                    print("Error creating YouTube object. Please enter a valid URL or video ID.")
+                    url = input()
+            elif transcriber.is_web_url(url):
                 if transcriber.is_youtube_url(url):
                     try:
                         yt = YouTube(url, "WEB")
@@ -1047,7 +1119,7 @@ def main():
                             print(f"Loaded local file: {url} (from {profile_name})")
                         else:
                             print("Incorrect value for YOUTUBE_URL in config.env. "
-                                  "Please enter a valid YouTube video URL or local file path: ")
+                                  "Please enter a valid YouTube video URL, video ID, or local file path: ")
                             url = input()
                 else:
                     print("Error: Only YouTube URLs supported for web inputs")
@@ -1056,13 +1128,16 @@ def main():
                 print(f"Loaded local file: {url} (from {profile_name})")
             else:
                 if url != transcriber.URL_PLACEHOLDER:
-                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                 while True:
-                    url = input("Enter the YouTube video URL or local file path: ").strip()
-                    if transcriber.is_web_url(url):
+                    url = input("Enter the YouTube video URL, video ID,, video ID, or local file path: ").strip()
+                    if transcriber.is_youtube_video_id(url):
+                        url = transcriber.construct_youtube_url(url)
+                        print(f"Detected video ID, using: {url}")
+                        break
+                    elif transcriber.is_web_url(url):
                         if transcriber.is_youtube_url(url):
                             try:
-                                # Check if the URL is a valid YouTube URL
                                 yt = YouTube(url, "WEB")
                                 break
                             except RegexMatchError:
@@ -1074,12 +1149,12 @@ def main():
                                     break
                                 else:
                                     print("Incorrect value for YOUTUBE_URL. "
-                                          "Please enter a valid YouTube video URL or local file path.")
+                                          "Please enter a valid YouTube video URL, video ID, or local file path.")
                     elif transcriber.is_valid_media_file(url):
                         is_local_file = True
                         break
                     else:
-                        print("Invalid input. Please enter valid YouTube URL or local file path")
+                        print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                         continue
 
         download_video = False
@@ -1252,8 +1327,17 @@ def main():
 
             if url == transcriber.URL_PLACEHOLDER:
                 while True:
-                    url = input("Enter the YouTube video URL or local file path: ").strip()
-                    if transcriber.is_web_url(url):
+                    url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
+                    if transcriber.is_youtube_video_id(url):
+                        url = transcriber.construct_youtube_url(url)
+                        print(f"Detected video ID, using: {url}")
+                        try:
+                            yt = YouTube(url, "WEB")
+                            break
+                        except RegexMatchError:
+                            print("Invalid video ID. Please try again.")
+                            continue
+                    elif transcriber.is_web_url(url):
                         if transcriber.is_youtube_url(url):
                             try:
                                 yt = YouTube(url, "WEB")
@@ -1268,7 +1352,7 @@ def main():
                         is_local_file = True
                         break
                     else:
-                        print("Invalid input. Please enter valid YouTube URL or local file path")
+                        print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                         continue
 
             target_language = os.getenv("TARGET_LANGUAGE")
@@ -1304,8 +1388,13 @@ def main():
     if not is_local_file:
         if url == transcriber.URL_PLACEHOLDER:
             while True:
-                url = input("Enter the YouTube video URL or local file path: ").strip()
-                if transcriber.is_web_url(url):
+                url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
+                if transcriber.is_youtube_video_id(url):
+                    url = transcriber.construct_youtube_url(url)
+                    print(f"Detected video ID, using: {url}")
+                    is_local_file = False
+                    break
+                elif transcriber.is_web_url(url):
                     if transcriber.is_youtube_url(url):
                         is_local_file = False
                         break
@@ -1316,7 +1405,7 @@ def main():
                     is_local_file = True
                     break
                 else:
-                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                     continue
         
         while True:
@@ -1324,17 +1413,45 @@ def main():
                 yt = transcriber.create_youtube_object(url)
                 try:
                     video_title = yt.title
-                except (AttributeError, OSError, VideoUnavailable) as e:
-                    print(f"Error retrieving video title: {str(e)}")
-                    video_title = "untitled_video"
+                    yt.check_availability()
+                except (AttributeError, OSError, VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
+                    print(f"\nError with URL '{url}': {str(e)}")
+                    print("The video is unavailable or inaccessible.")
+                    
+                    while True:
+                        url = input("\nEnter a different YouTube video URL, video ID, or local file path: ").strip()
+                        if transcriber.is_youtube_video_id(url):
+                            url = transcriber.construct_youtube_url(url)
+                            print(f"Detected video ID, using: {url}")
+                            break
+                        elif transcriber.is_web_url(url):
+                            if transcriber.is_youtube_url(url):
+                                break
+                            else:
+                                print("Error: Only YouTube URLs supported for web inputs")
+                                continue
+                        elif transcriber.is_valid_media_file(url):
+                            is_local_file = True
+                            break
+                        else:
+                            print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
+                            continue
+                    
+                    if is_local_file:
+                        break
+                    continue
                 break
             except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
                 print(f"\nError with URL '{url}': {str(e)}")
                 print("The URL appears to be invalid or the video is unavailable.")
                 
                 while True:
-                    url = input("\nEnter a different YouTube video URL or local file path: ").strip()
-                    if transcriber.is_web_url(url):
+                    url = input("\nEnter a different YouTube video URL, video ID, or local file path: ").strip()
+                    if transcriber.is_youtube_video_id(url):
+                        url = transcriber.construct_youtube_url(url)
+                        print(f"Detected video ID, using: {url}")
+                        break
+                    elif transcriber.is_web_url(url):
                         if transcriber.is_youtube_url(url):
                             break
                         else:
@@ -1344,7 +1461,7 @@ def main():
                         is_local_file = True
                         break
                     else:
-                        print("Invalid input. Please enter valid YouTube URL or local file path")
+                        print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                         continue
                 
                 if is_local_file:

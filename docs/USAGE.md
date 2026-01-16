@@ -13,8 +13,13 @@ The script will ask you some questions and then do its thing.
 ## What It Asks You
 
 **1. Where's the audio?**
-- YouTube link: `https://www.youtube.com/watch?v=...`
-- Local file: `/path/to/audio.mp3` or `/path/to/video.mp4`
+
+You've got three input options:
+- **YouTube URL**: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
+- **Video ID only**: `jNQXAC9IVRw` (just the 11-character code)
+- **Local file**: `/path/to/audio.mp3` or `/path/to/video.mp4`
+
+The script automatically extracts the video ID from whatever YouTube URL format you give it—full URLs, short links (`youtu.be/jNQXAC9IVRw`), or just the ID itself all work the same way. Query parameters like timestamps (`&t=30s`) or playlist info (`&list=PLxyz`) get stripped out automatically. Only the 11-character video ID matters for downloading and transcription.
 
 **2. Download options**
 - Want the video file? (yes/no)
@@ -73,6 +78,14 @@ REPEAT=n
 
 Change whatever you want. Pretty self-explanatory.
 
+**The URL field accepts any format:**
+- Full URLs: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
+- Short URLs: `https://youtu.be/jNQXAC9IVRw`
+- Just the video ID: `jNQXAC9IVRw`
+- URLs with parameters: `https://www.youtube.com/watch?v=jNQXAC9IVRw&t=30s` (parameters get ignored)
+
+The script only cares about extracting the 11-character video ID—everything else gets stripped out during processing.
+
 ## Where Stuff Gets Saved
 
 Everything goes into organized folders:
@@ -83,6 +96,32 @@ Everything goes into organized folders:
 - **Video without audio** (rare) — `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
 
 ## Real Examples
+
+**Transcribe using just the video ID:**
+```bash
+python OpenAIYouTubeTranscriber.py
+# URL: jNQXAC9IVRw
+# Detected video ID, using: https://www.youtube.com/watch?v=jNQXAC9IVRw
+# Download video? n
+# Download audio? n
+# Transcribe? y
+# Model? 2 (base)
+# Language? en
+```
+
+**Use a full YouTube URL:**
+```bash
+python OpenAIYouTubeTranscriber.py
+# URL: https://www.youtube.com/watch?v=jNQXAC9IVRw
+# Works exactly the same—script extracts the ID automatically
+```
+
+**Use a short YouTube URL:**
+```bash
+python OpenAIYouTubeTranscriber.py
+# URL: https://youtu.be/jNQXAC9IVRw
+# Also works—ID gets extracted
+```
 
 **Just transcribe a YouTube video, don't download anything:**
 ```bash
