@@ -1,13 +1,7 @@
-# This Python script downloads the audio or video from a YouTube link,
-# uses OpenAI's Whisper to detect the language, and transcribes it into a .txt file.
+# Downloads audio/video from YouTube and transcribes it using OpenAI's Whisper
 # Author: Ruinan Ding
 
-# Description
-# To run this script, open this script with Python or use the following command in a
-# command line terminal where this file is:
-# python WhisperYouTubeMultiTool.py
-# Input the YouTube video URL when prompted, and it will download the audio or video streams
-# from the URL along with the transcription of the audio.
+# Run with: python OpenAIYouTubeTranscriber.py
 
 #########################################
 ## IMPORTS
@@ -103,12 +97,9 @@ class ModelChoice(Enum):
 #########################################
 
 class YouTubeTranscriber:
-    """
-    Main class for YouTube download and transcription functionality.
-    Encapsulates all the operations for downloading and transcribing YouTube videos.
-    """
+    """Handles YouTube downloads and Whisper transcription."""
     
-    # Set the parent data directory
+    # Data directories
     DATA_DIR = "OpenAIYouTubeTranscriber"
     AUDIO_DIR = os.path.join(DATA_DIR, "Audio")
     TEMP_DIR = "Temp"
@@ -142,8 +133,8 @@ class YouTubeTranscriber:
     }
     
     def __init__(self):
-        """Initialize the transcriber with default settings."""
-        # Core operation parameters
+        """Set up defaults."""
+        # Operation params
         self.url = None
         self.is_local_file = False
         self.yt_object = None
@@ -157,48 +148,36 @@ class YouTubeTranscriber:
         self.selected_res = None
         self.download_audio = False
         
-        # Transcription settings
+        # Transcription options
         self.transcribe_audio = True
         self.model_name = ModelSize.BASE.value
         self.model_enum = ModelSize.BASE
         self.target_language = self.DEFAULT_LANGUAGE
         self.use_en_model = False
         
-        # Profile settings
+        # Profile stuff
         self.profile_dir = os.path.join(self.DATA_DIR, "Profile")
         self.load_profile = False
         self.loaded_profile = False
         self.interactive_mode = False
         self.profile_name = None
         
-        # Initialize used_fields for profile creation
         self.used_fields = self.DEFAULT_FIELDS.copy()
-        
-        # Create directories needed for operation
         self._create_required_dirs()
         
     def _create_required_dirs(self):
-        """Create required directories if they don't exist."""
+        """Make directories we need."""
         required_dirs = [
             self.AUDIO_DIR, 
             self.VIDEO_DIR, 
             self.TRANSCRIPT_DIR, 
             self.VIDEO_WITHOUT_AUDIO_DIR
-            # Removed profile_dir from here
         ]
         for directory in required_dirs:
             os.makedirs(directory, exist_ok=True)
 
     def ensure_directory_exists(self, directory_path):
-        """
-        Ensures a directory exists, creating it if necessary.
-        
-        Args:
-            directory_path: Path to the directory
-            
-        Returns:
-            True if successful, False if failed
-        """
+        """Create directory if it doesn't exist. Returns True on success."""
         try:
             os.makedirs(directory_path, exist_ok=True)
             return True
@@ -207,31 +186,26 @@ class YouTubeTranscriber:
             return False
 
     def is_web_url(self, input_str):
-        """
-        Check if input is a valid web URL format without network calls.
-        
-        Args:
-            input_str: String to check if it's a valid URL
-            
-        Returns:
-            bool: True if valid URL format, False otherwise
-        """
+        """Check if string is a valid http/https URL (no network calls)."""
         try:
             result = urlparse(input_str)
             return all([result.scheme in ['http', 'https'], result.netloc])
         except ValueError:
             return False
 
+    def is_youtube_video_id(self, text):
+        """Check if text is a valid 11-character YouTube video ID (letters, numbers, dash, underscore only)."""
+        if len(text) != 11:
+            return False
+        import re
+        return bool(re.match(r'^[a-zA-Z0-9_-]{11}$', text))
+    
+    def construct_youtube_url(self, video_id):
+        """Build full YouTube URL from video ID. Query params get stripped by pytubefix automatically."""
+        return f"https://www.youtube.com/watch?v={video_id}"
+
     def is_youtube_url(self, url):
-        """
-        Check if URL is YouTube using pytubefix's internal regex.
-        
-        Args:
-            url: URL to check
-            
-        Returns:
-            bool: True if valid YouTube URL, False otherwise
-        """
+        """Validate YouTube URL using pytubefix. Extracts video ID from any format (standard, short, embed URLs)."""
         try:
             YouTube(url, "WEB")
             return True
@@ -242,38 +216,20 @@ class YouTubeTranscriber:
             return False
 
     def is_valid_media_file(self, path):
-        """
-        Check if path is an existing local media file.
-        
-        Args:
-            path: Path to check
-            
-        Returns:
-            bool: True if valid media file, False otherwise
-        """
+        """Check if path is a supported audio/video file."""
         if not os.path.exists(path):
             return False
             
-        # Try ffprobe first
         format_name = self.get_file_format(path)
         if format_name is not None:
             return True
             
-        # Fallback to file extension checking if ffprobe fails
         valid_extensions = ['.mp3', '.mp4', '.wav', '.avi', '.mov', '.mkv', '.flac', '.ogg', '.m4a', '.webm']
         file_ext = os.path.splitext(path)[1].lower()
         return file_ext in valid_extensions
 
     def get_file_format(self, file_path):
-        """
-        Returns the format of the input file using ffprobe.
-        
-        Args:
-            file_path: Path to the file to check
-            
-        Returns:
-            str: Format name if successful, None otherwise
-        """
+        """Get media format using ffprobe."""
         try:
             cmd = [
                 'ffprobe', '-v', 'error', 
@@ -290,16 +246,7 @@ class YouTubeTranscriber:
             return None
 
     def get_yes_no_input(self, prompt_text, default="y"):
-        """
-        Gets a yes/no input with validation and default option.
-        
-        Args:
-            prompt_text: The text to prompt the user with
-            default: The default value to return if no input ('y' or 'n')
-            
-        Returns:
-            bool: True for yes, False for no
-        """
+        """Prompt user for yes/no input with validation."""
         while True:
             user_input = input(prompt_text).lower()
             if user_input in YesNo.YES.value:
@@ -307,17 +254,12 @@ class YouTubeTranscriber:
             elif user_input in YesNo.NO.value:
                 return False
             elif user_input == "":
-                return default == 'y'  # Return True if default is 'y', False otherwise
+                return default == 'y'
             else:
                 print(f"Invalid input. Please enter one of {YesNo.YES.value + YesNo.NO.value}.")
 
     def get_model_choice_input(self):
-        """
-        Get and validate a Whisper model choice from the user.
-        
-        Returns:
-            str: The selected model choice (number or name)
-        """
+        """Prompt for Whisper model selection (1-7 or name)."""
         while True:
             model_choice = input("Select Whisper model:\n"
                                "1. Tiny\n"
@@ -334,13 +276,7 @@ class YouTubeTranscriber:
                 print("Invalid input. Please enter a valid model choice or number (1-7).")
 
     def get_target_language_input(self):
-        """
-        Prompts the user for the target language and validates the input against
-        Whisper's supported languages. Defaults to DEFAULT_LANGUAGE (English) if no input is provided.
-        
-        Returns:
-            str: The selected language code
-        """
+        """Prompt for target language (validates against Whisper's supported list)."""
         while True:
             prompt = (
                 "Enter the target language for transcription (e.g., 'es' or 'spanish', "
@@ -350,9 +286,8 @@ class YouTubeTranscriber:
             target_language = input(prompt).lower()
             
             if not target_language:
-                return self.DEFAULT_LANGUAGE  # Default to English if no input is provided
+                return self.DEFAULT_LANGUAGE
             
-            # Check if the language code or full name is valid
             in_codes = target_language in whisper.tokenizer.LANGUAGES
             in_names = target_language in whisper.tokenizer.LANGUAGES.values()
             
@@ -363,12 +298,7 @@ class YouTubeTranscriber:
                       "languages list and try again.")
 
     def startfile(self, fn):
-        """
-        Open a file using the appropriate system method.
-        
-        Args:
-            fn: Path to the file to open
-        """
+        """Open file with system default app (cross-platform)."""
         if os.name == 'nt':  # Windows
             os.startfile(fn)
         elif os.name == 'posix':  # macOS or Linux
@@ -376,52 +306,28 @@ class YouTubeTranscriber:
             subprocess.run([opener, fn], check=True)
 
     def sanitize_filename(self, text):
-        """
-        Clean a string to be safely used as a filename.
-        
-        Args:
-            text: String to sanitize
-            
-        Returns:
-            str: Sanitized string safe for use as filename
-        """
+        """Strip invalid characters from filename."""
         return "".join(c for c in text if c.isalnum() or c in "._- ")
 
     def create_and_open_txt(self, text, filename):
-        """
-        Create and open a text file with the given content.
-        
-        Args:
-            text: Content to write to the file
-            filename: Name of the file to create
-            
-        Returns:
-            bool: True if successful, False if failed
-        """
-        # Create a directory for the transcript if it doesn't exist
         output_dir = os.path.join(os.path.dirname(__file__), self.TRANSCRIPT_DIR)
         
-        # Ensure directory exists
         if not self.ensure_directory_exists(output_dir):
             print(f"Error: Cannot create transcript directory {output_dir}")
             return False
             
-        # Create the full path for the transcript file
         file_path = os.path.join(output_dir, filename)
         
-        # Check if the file path is writable
         if not self.verify_file_writable(file_path):
             print(f"Error: Cannot write to transcript file {file_path}")
             return False
             
-        # Check disk space - require at least 1MB for transcript file
-        required_space = max(len(text) * 2, 1024 * 1024)  # Minimum 1MB
+        required_space = max(len(text) * 2, 1024 * 1024)
         free_space = self.get_free_disk_space(output_dir)
         if free_space is not None and free_space < required_space:
             print(f"Error: Not enough disk space to save transcript. Need {required_space/1024/1024:.1f}MB, have {free_space/1024/1024:.1f}MB free.")
             return False
 
-        # Create and write the text to a txt file with UTF-8 encoding
         try:
             with open(file_path, "w", encoding='utf-8') as file:
                 file.write(text)
@@ -434,7 +340,7 @@ class YouTubeTranscriber:
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), 
            retry=retry_if_exception_type(Exception))
     def create_youtube_object(self, url):
-        """Create a YouTube object with retry logic."""
+        """Create YouTube object (retries up to 3 times on failures)."""
         try:
             return YouTube(url, "WEB")
         except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, ValueError, OSError) as e:
@@ -442,92 +348,52 @@ class YouTubeTranscriber:
             raise
 
     def get_sorted_video_streams(self, yt):
-        """
-        Get video streams sorted by resolution (highest first).
-        
-        Args:
-            yt: A YouTube object
-            
-        Returns:
-            List of streams sorted by resolution
-        """
+        """Get available video streams sorted by resolution (highest first)."""
         try:
             streams = yt.streams.filter(only_video=True)
             return sorted(
                 streams, 
-                key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, 
+                key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,  # [:-1] strips 'p' from '1080p' 
                 reverse=True
             )
         except (AttributeError, ValueError, OSError) as e:
             print(f"Error retrieving video streams: {str(e)}")
-            return []  # Return empty list instead of failing
+            return []
 
     def get_sorted_audio_streams(self, yt):
-        """
-        Get audio streams sorted by bitrate (highest first).
-        
-        Args:
-            yt: A YouTube object
-            
-        Returns:
-            List of streams sorted by bitrate
-        """
+        """Get available audio streams sorted by bitrate (highest first)."""
         try:
             audio_streams = yt.streams.filter(only_audio=True)
             return sorted(
                 audio_streams, 
-                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0, 
+                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,  # [:-4] strips 'kbps' from '128kbps' 
                 reverse=True
             )
         except (AttributeError, ValueError) as e:
             print(f"Error retrieving audio streams: {str(e)}")
-            return []  # Return empty list instead of failing
+            return []
 
     def get_unique_sorted_resolutions(self, streams):
-        """
-        Extract unique resolutions from streams and sort them by quality (highest first).
-        
-        Args:
-            streams: List of video streams
-            
-        Returns:
-            List of resolution strings sorted by quality
-        """
-        # Extract unique resolutions
+        """Extract unique resolutions from streams and sort by quality (highest first)."""
         resolutions = set([stream.resolution for stream in streams if stream.resolution])
         
-        # Sort resolutions by numeric value (highest first)
         return sorted(
             resolutions, 
-            key=lambda res: int(res[:-1]) if res else 0, 
+            key=lambda res: int(res[:-1]) if res else 0,  # Strip 'p' suffix for numeric sorting 
             reverse=True
         )
 
     def download_audio_stream(self, yt, filename_base, is_temp=False):
-        """
-        Downloads the highest quality audio stream from a YouTube object.
-        
-        Args:
-            yt: YouTube object
-            filename_base: Base filename for the downloaded audio (without extension)
-            is_temp: Whether to store in a temporary directory (default: False)
-            
-        Returns:
-            Tuple containing (relative_path, absolute_path) where:
-            - relative_path is the path for use in combiners/functions
-            - absolute_path is the absolute path for display purposes
-        """
+        """Download highest quality audio stream (optionally to temp directory)."""
         print("Downloading the audio stream (highest quality)...")
         
-        # Get sorted audio streams (highest quality first)
         audio_streams = self.get_sorted_audio_streams(yt)
         
         if not audio_streams:
             raise ValueError("No audio streams available for this video")
             
-        audio_stream = audio_streams[0]  # Select the highest quality
+        audio_stream = audio_streams[0]
         
-        # Set output path and filename
         audio_filename = filename_base + self.MP3_EXT
         
         if is_temp:
@@ -535,11 +401,10 @@ class YouTubeTranscriber:
             os.makedirs(output_dir, exist_ok=True)
         else:
             output_dir = self.AUDIO_DIR
-            os.makedirs(output_dir, exist_ok=True)  # Ensure directory exists
+            os.makedirs(output_dir, exist_ok=True)
         
         relative_path = os.path.join(output_dir, audio_filename)
         
-        # Use tenacity's retry decorator for the download operation
         @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
         def download_with_retry():
             audio_stream.download(output_path=output_dir, filename=audio_filename)
@@ -547,45 +412,28 @@ class YouTubeTranscriber:
                 raise FileNotFoundError(f"Failed to download audio stream to {relative_path}")
             return True
         
-        # Execute download with retry
         download_with_retry()
         
-        # Get file paths
         absolute_path = os.path.abspath(relative_path)
         print(f"Audio downloaded to {absolute_path}")
         
         return relative_path, absolute_path
 
     def combine_audio_video(self, video_path, audio_path, output_path, cleanup_temp=True, temp_video_dir=None):
-        """
-        Combines video and audio files using ffmpeg.
-        
-        Args:
-            video_path: Path to the video file
-            audio_path: Path to the audio file
-            output_path: Path where the combined file will be saved
-            cleanup_temp: Whether to delete temporary files after combining
-            temp_video_dir: Directory containing temporary video files to remove
-            
-        Returns:
-            Path to the combined video file or None if failed
-        """
-        # Ensure output directory exists
+        """Merge separate video and audio files using ffmpeg."""
         output_dir = os.path.dirname(output_path)
         if not self.ensure_directory_exists(output_dir):
             print(f"Error: Cannot create video output directory {output_dir}")
             return None
             
-        # Check if we can write to the output file
         if not self.verify_file_writable(output_path):
             print(f"Error: Cannot write to output video file {output_path}")
             return None
             
-        # Check for available disk space
         try:
             video_size = os.path.getsize(video_path)
             audio_size = os.path.getsize(audio_path)
-            required_space = (video_size + audio_size) * 1.5  # Add 50% buffer
+            required_space = (video_size + audio_size) * 1.5
             
             free_space = self.get_free_disk_space(output_dir)
             if free_space is not None and free_space < required_space:
@@ -594,7 +442,6 @@ class YouTubeTranscriber:
         except (OSError, IOError) as e:
             print(f"Warning: Could not verify file sizes: {str(e)}")
         
-        # Verify input files exist
         if not os.path.exists(video_path):
             print(f"Error: Video file not found: {video_path}")
             return None
@@ -619,7 +466,6 @@ class YouTubeTranscriber:
             return None
         
         if cleanup_temp:
-            # Delete temporary files and directories with error handling
             try:
                 if os.path.exists(video_path):
                     os.remove(video_path)
@@ -632,24 +478,12 @@ class YouTubeTranscriber:
         return output_path
 
     def transcribe_audio_file(self, file_path, model_name, target_language):
-        """
-        Transcribes audio using OpenAI's Whisper model.
-        
-        Args:
-            file_path: Path to the audio file
-            model_name: Name of the Whisper model to use
-            target_language: Target language for transcription
-            
-        Returns:
-            Tuple containing (transcribed_text, detected_language_code)
-        """
-        # Verify the file exists
+        """Transcribe audio file using Whisper and detect the language."""
         if not os.path.exists(file_path):
             error_msg = f"Error: Audio file not found: {file_path}"
             print(error_msg)
             return error_msg, "en"
         
-        # Load the selected model with error handling
         try:
             print(f"Loading Whisper model: {model_name}")
             model = whisper.load_model(model_name)
@@ -664,15 +498,12 @@ class YouTubeTranscriber:
                 print(error_msg)
                 return "Error: Unable to load Whisper model", "en"
         
-        # Get full language name and capitalize
         target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)
         target_language_full = target_language_full.capitalize()
         
-        # Display absolute path for user clarity
         absolute_path = os.path.abspath(file_path)
         print(f"Transcribing audio from {absolute_path} into {target_language_full}...")
         
-        # Perform transcription with error handling
         try:
             result = model.transcribe(file_path, language=target_language)
             transcribed_text = result["text"]
@@ -688,13 +519,11 @@ class YouTubeTranscriber:
         
         print("\nTranscription:\n" + transcribed_text + "\n")
         
-        # Detect the language of the transcription with error handling
         try:
             detected_language = detect(transcribed_text)
             detected_language_full = whisper.tokenizer.LANGUAGES.get(detected_language, detected_language)
             detected_language_full = detected_language_full.capitalize()
             
-            # Verify language match
             if detected_language_full == target_language_full:
                 print(f"Verified {detected_language_full}")
             else:
@@ -706,11 +535,8 @@ class YouTubeTranscriber:
         return transcribed_text, detected_language
 
     def check_dependencies(self):
-        """
-        Verify that required external tools are available.
-        Returns True if all dependencies are available, False otherwise.
-        """
-        # Check for ffmpeg
+        """Verify required system dependencies (ffmpeg) are installed."""
+        # ffmpeg needed for format detection (ffprobe) and combining video/audio streams
         ffmpeg_available = shutil.which("ffmpeg") is not None
         if not ffmpeg_available:
             print("ERROR: ffmpeg is not found in the system PATH.")
@@ -723,13 +549,11 @@ class YouTubeTranscriber:
         return True
 
     def create_profile(self, profile_fields):
-        """Creates a new profile file and config.txt (if it doesn't exist)."""
-        # Only create the profile directory when explicitly saving a profile
+        """Save current session settings as a reusable profile file."""
         if not os.path.exists(self.profile_dir):
             print(f"Creating profile directory: {self.profile_dir}")
             os.makedirs(self.profile_dir, exist_ok=True)
         
-        # Check and create config.txt if it doesn't exist
         config_path = os.path.join(self.profile_dir, self.CONFIG_ENV)
         if not os.path.exists(config_path):
             with open(config_path, "w", encoding='utf-8') as config_file:
@@ -740,14 +564,12 @@ class YouTubeTranscriber:
             print(f"{self.CONFIG_ENV} already exists: {os.path.abspath(config_path)}. "
                   "No changes were made to it.")
 
-        # Find all existing profiles and determine next available name
         # Accepts: profile.txt, profile<number>.txt, profile-<desc>.txt, profile<number>-<desc>.txt
         profile_pattern = rf"^{re.escape(self.PROFILE_PREFIX)}(?:\d+)?(?:-.*)?{re.escape(self.ENV_EXT)}$"
         existing_profiles = [
             f for f in os.listdir(self.profile_dir)
             if re.match(profile_pattern, f)
         ]
-        # Extract numeric suffix only when it immediately follows the prefix
         num_pattern = rf"^{re.escape(self.PROFILE_PREFIX)}(?P<num>\d+)(?:-.*)?{re.escape(self.ENV_EXT)}$"
         existing_numbers = []
         for f in existing_profiles:
@@ -758,7 +580,6 @@ class YouTubeTranscriber:
                 except (ValueError, TypeError):
                     continue
         
-        # Determine profile name
         if not existing_profiles:
             profile_name = self.DEFAULT_PROFILE
         else:
@@ -769,11 +590,9 @@ class YouTubeTranscriber:
 
         profile_path = os.path.join(self.profile_dir, profile_name)
 
-        # Write fields with helpful comments
         with open(profile_path, "w", encoding='utf-8') as profile_file:
-            profile_file.write("#Change values after the equals sign (=)\n\n")
+            profile_file.write("# Edit values after the = sign\n\n")
             
-            # Define the field order (all fields except REPEAT)
             field_order = [
                 "URL",
                 "DOWNLOAD_VIDEO",
@@ -787,25 +606,15 @@ class YouTubeTranscriber:
                 "REPEAT"
             ]
             
-            # Write fields in the specified order
             for i, field in enumerate(field_order):
                 if field in profile_fields:
-                    # Don't add newline after the last field
                     newline = "" if i == len(field_order) - 1 else "\n"
                     profile_file.write(f"{field}={profile_fields[field]}{newline}")
 
         print(f"Created profile: {os.path.abspath(profile_path)}")
 
     def verify_file_writable(self, file_path):
-        """
-        Checks if a file path is writable.
-        
-        Args:
-            file_path: Path to check
-            
-        Returns:
-            bool: True if writable, False otherwise
-        """
+        """Check if file path is writable (creates parent dirs if needed)."""
         try:
             if os.path.exists(file_path):
                 return os.access(file_path, os.W_OK)
@@ -825,15 +634,7 @@ class YouTubeTranscriber:
             return False
 
     def get_free_disk_space(self, directory):
-        """
-        Returns free disk space in bytes for the specified directory.
-        
-        Args:
-            directory: Path to check
-            
-        Returns:
-            int: Free space in bytes, or None if error
-        """
+        """Get available disk space in bytes for the given directory."""
         try:
             if os.path.exists(directory):
                 target_dir = directory
@@ -855,25 +656,20 @@ class YouTubeTranscriber:
 #########################################
 
 def main():
-    """Main function to execute the YouTube transcription workflow."""
-    # Create a single instance of YouTubeTranscriber
+    """Main entry point - handles user interaction and orchestrates transcription workflow."""
     transcriber = YouTubeTranscriber()
     
-    # Initialize used_fields with default values from class
     used_fields = transcriber.DEFAULT_FIELDS.copy()
     
-    # Check dependencies before starting
     if not transcriber.check_dependencies():
         print("Missing required dependencies. Please install them and try again.")
         sys.exit(1)
         
-    # Create required directories using class constants
     required_dirs = [
         transcriber.AUDIO_DIR, 
         transcriber.VIDEO_DIR, 
         transcriber.TRANSCRIPT_DIR,
         transcriber.VIDEO_WITHOUT_AUDIO_DIR
-        # Remove profile_dir from here too
     ]
     for directory in required_dirs:
         if not transcriber.ensure_directory_exists(directory):
@@ -881,12 +677,11 @@ def main():
             print("Please check permissions and try again.")
             sys.exit(1)
 
-    # Initialize load_profile to False
     load_profile = False
     loaded_profile = False
     interactive_mode = False
 
-    # If this is a repeat invocation from profile mode, reuse the prior profile
+    # Check if this is a recursive call from user choosing "repeat" option
     repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
     repeat_profile_name = os.environ.get("_REPEAT_PROFILE_NAME")
     repeat_without_profile = repeat_invocation and not repeat_profile_name
@@ -902,23 +697,18 @@ def main():
             print(f"Loaded profile (repeat): {profile_name}")
         else:
             print(f"Profile not found for repeat: {profile_name}. Falling back to selection.")
-            # continue with normal selection flow
     elif repeat_without_profile:
-        # For interactive repeats, skip profile prompts and use the cached LAST_* answers
         load_profile = False
         interactive_mode = True
 
-    # Skip profile selection when repeating an interactive session
     if not repeat_without_profile:
-        # Check if config.env exists
         config_env_path = os.path.join(transcriber.profile_dir, transcriber.CONFIG_ENV)
         if not os.path.exists(config_env_path):
             print(
                 f"config.txt not found in the {transcriber.profile_dir} directory."
             )
-            # Check if there are any profile files even though config.txt is missing
             if os.path.exists(transcriber.profile_dir):
-                # Match profile files: profile.txt, profile<number>.txt, profile-<desc>.txt, profile<number>-<desc>.txt
+                # Accepts: profile.txt, profile<number>.txt, profile-<desc>.txt, profile<number>-<desc>.txt
                 profile_pattern = rf"^{re.escape(transcriber.PROFILE_PREFIX)}(?:\d+)?(?:-.*)?{re.escape(transcriber.ENV_EXT)}$"
                 profiles = sorted([f for f in os.listdir(transcriber.profile_dir) if re.match(profile_pattern, f)])
                 if profiles:
@@ -932,7 +722,6 @@ def main():
                             f"Select a profile (number or name, default 1. {profiles[0]}, "
                             f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): "
                         )
-                        # keep raw input for exact filename matches, but accept numeric and Yes/No tokens case-insensitively
                         lower_input = profile_input.lower()
                         if profile_input == '' or lower_input == '1':
                             profile_name = profiles[0]
@@ -1061,15 +850,20 @@ def main():
     # --- Get ALL parameters from user first if not loading from .env ---
 
     if not load_profile:
-        is_local_file = False  # Initialize the flag here
+        is_local_file = False
         while True:
-            url = input("Enter the YouTube video URL or local file path: ").strip()
+            url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
             
             # --- Validation Steps ---
-            if transcriber.is_web_url(url):
+            if transcriber.is_youtube_video_id(url):
+                url = transcriber.construct_youtube_url(url)
+                print(f"Detected video ID, using: {url}")
+                is_local_file = False
+                break
+            elif transcriber.is_web_url(url):
                 if transcriber.is_youtube_url(url):
                     is_local_file = False
-                    break  # Exit loop after successful YouTube validation
+                    break
                 else:
                     print("Error: Only YouTube URLs supported for web inputs")
                     continue
@@ -1077,16 +871,15 @@ def main():
                 is_local_file = True
                 break
             else:
-                print("Invalid input. Please enter valid YouTube URL or local file path")
+                print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                 continue
 
         download_video = False
         no_audio_in_video = False
-        resolution = None  # Initialize resolution variable
-        download_audio = False  # Initialize download_audio variable for all code paths
+        resolution = None
+        download_audio = False
 
         if not is_local_file:
-            # Use the validation function (allow reuse from previous interactive run)
             last_download = os.environ.get("LAST_DOWNLOAD_VIDEO")
             if last_download is not None:
                 download_video = last_download.lower() in YesNo.YES.value
@@ -1097,7 +890,6 @@ def main():
 
             if download_video:
                 no_audio_in_video = False
-                # Use the validation function
                 no_audio_prompt = "... without the audio in the video? (y/N): "
                 last_no_audio = os.environ.get("LAST_NO_AUDIO_IN_VIDEO")
                 if last_no_audio is not None:
@@ -1108,7 +900,6 @@ def main():
                 used_fields["NO_AUDIO_IN_VIDEO"] = "y" if no_audio_in_video else "n"
 
             if download_video:
-                # Allow reuse of previous resolution on interactive repeat
                 last_res = os.environ.get("LAST_RESOLUTION")
                 if last_res is not None:
                     resolution = last_res
@@ -1139,14 +930,14 @@ def main():
                             used_fields["RESOLUTION"] = resolution
                             break
                         elif resolution.isdigit():
-                            if int(resolution) > 0:  # Check if it's a non-zero number
-                                resolution += "p"  # Add "p" if it's a number
+                            if int(resolution) > 0:
+                                resolution += "p"
                                 used_fields["RESOLUTION"] = resolution
                                 break
                             else:
                                 print("Invalid resolution. Please enter a non-zero number.")
                         elif resolution.endswith("p") and resolution[:-1].isdigit():
-                            if int(resolution[:-1]) > 0:  # Check if non-zero with "p"
+                            if int(resolution[:-1]) > 0:
                                 used_fields["RESOLUTION"] = resolution
                                 break
                             else:
@@ -1222,15 +1013,13 @@ def main():
                 model_choice = last_model
                 print(f"Using previous MODEL_CHOICE: {model_choice} (from last session)")
             else:
-                model_choice = transcriber.get_model_choice_input()  # Use the validation function
+                model_choice = transcriber.get_model_choice_input()
 
             # Set model based on user input (default to "base") using match statement
             if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
-                # Number choice
                 model_enum = ModelSize.get_model_by_number(model_choice)
                 model_name = model_enum.value
             else:
-                # Name choice or empty (default)
                 if model_choice == '':
                     model_enum = ModelSize.BASE
                 else:
@@ -1244,7 +1033,7 @@ def main():
                 target_language = last_target
                 print(f"Using previous TARGET_LANGUAGE: {target_language} (from last session)")
             else:
-                target_language = transcriber.get_target_language_input()  # Use the validation function
+                target_language = transcriber.get_target_language_input()
             used_fields["TARGET_LANGUAGE"] = target_language
 
             if model_enum in ModelSize.standard_models() and target_language == transcriber.DEFAULT_LANGUAGE:  # Corrected condition
@@ -1257,30 +1046,33 @@ def main():
                 used_fields["USE_EN_MODEL"] = "y" if use_en_model else "n"
             else:
                 use_en_model = False
-        else:  # If not transcribing, skip model and language options
-            model_name = ModelSize.BASE.value  # Set a default model name
+        else:
+            model_name = ModelSize.BASE.value
             use_en_model = False
             
     # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
 
     else:
         is_local_file = False
-        # If this is a repeat invocation we want to prompt for a new URL each run
         repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
         url_env = os.getenv("URL")
         if repeat_invocation:
-            # Use the URL placeholder when repeating so the code path that
-            # prompts for a new URL is taken instead of silently using an
-            # empty string which would bypass the URL prompt and lead to
-            # a regex error when creating the YouTube object.
             url = transcriber.URL_PLACEHOLDER
         else:
             url = url_env
         if url and url != transcriber.URL_PLACEHOLDER:
-            if transcriber.is_web_url(url):
+            if transcriber.is_youtube_video_id(url):
+                url = transcriber.construct_youtube_url(url)
+                print(f"Detected video ID from profile, using: {url}")
+                try:
+                    yt = YouTube(url, "WEB")
+                    print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
+                except RegexMatchError:
+                    print("Error creating YouTube object. Please enter a valid URL or video ID.")
+                    url = input()
+            elif transcriber.is_web_url(url):
                 if transcriber.is_youtube_url(url):
                     try:
-                        # Create YouTube object
                         yt = YouTube(url, "WEB")
                         print(f"Loaded YOUTUBE_URL: {url} (from {profile_name})")
                     except RegexMatchError:
@@ -1291,7 +1083,7 @@ def main():
                             print(f"Loaded local file: {url} (from {profile_name})")
                         else:
                             print("Incorrect value for YOUTUBE_URL in config.env. "
-                                  "Please enter a valid YouTube video URL or local file path: ")
+                                  "Please enter a valid YouTube video URL, video ID, or local file path: ")
                             url = input()
                 else:
                     print("Error: Only YouTube URLs supported for web inputs")
@@ -1300,13 +1092,16 @@ def main():
                 print(f"Loaded local file: {url} (from {profile_name})")
             else:
                 if url != transcriber.URL_PLACEHOLDER:
-                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                 while True:
-                    url = input("Enter the YouTube video URL or local file path: ").strip()
-                    if transcriber.is_web_url(url):
+                    url = input("Enter the YouTube video URL, video ID,, video ID, or local file path: ").strip()
+                    if transcriber.is_youtube_video_id(url):
+                        url = transcriber.construct_youtube_url(url)
+                        print(f"Detected video ID, using: {url}")
+                        break
+                    elif transcriber.is_web_url(url):
                         if transcriber.is_youtube_url(url):
                             try:
-                                # Check if the URL is a valid YouTube URL
                                 yt = YouTube(url, "WEB")
                                 break
                             except RegexMatchError:
@@ -1318,17 +1113,17 @@ def main():
                                     break
                                 else:
                                     print("Incorrect value for YOUTUBE_URL. "
-                                          "Please enter a valid YouTube video URL or local file path.")
+                                          "Please enter a valid YouTube video URL, video ID, or local file path.")
                     elif transcriber.is_valid_media_file(url):
                         is_local_file = True
                         break
                     else:
-                        print("Invalid input. Please enter valid YouTube URL or local file path")
+                        print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                         continue
 
         download_video = False
         no_audio_in_video = False
-        download_audio = False  # Initialize download_audio for all cases
+        download_audio = False
 
         if not is_local_file:
             download_video_str = os.getenv("DOWNLOAD_VIDEO")
@@ -1367,14 +1162,14 @@ def main():
                     if resolution not in Resolution.values():
                         if resolution.isdigit():
                             if int(resolution) > 0:
-                                resolution += "p"  # Add "p" if it's a number
+                                resolution += "p"
                                 print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
                             else:
                                 print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                                resolution = None  # Set to None to trigger the prompt
+                                resolution = None
                         elif not (resolution.endswith("p") and resolution[:-1].isdigit()):
                             print(f"Invalid value for RESOLUTION in .env: {resolution}")
-                            resolution = Resolution.FETCH.value  # Set to None to trigger the prompt
+                            resolution = Resolution.FETCH.value
                     elif resolution in Resolution.values():
                         print(f"Loaded RESOLUTION: {resolution} (from {profile_name})")
                     elif resolution in (Resolution.FETCH.value, Resolution.F.value):
@@ -1384,7 +1179,7 @@ def main():
                             resolution = Resolution.FETCH.value
                     else:
                         print("Loading available resolution...")
-                        resolution = Resolution.FETCH.value  # Set to "fetch" to trigger the prompt
+                        resolution = Resolution.FETCH.value
 
         if download_video and not is_local_file and resolution == Resolution.FETCH.value:
             try:
@@ -1402,14 +1197,14 @@ def main():
 
             elif resolution == Resolution.FETCH.value:
                 stream = None
-                resolution = Resolution.FETCH.value  # Set to "fetch" to trigger the prompt
+                resolution = Resolution.FETCH.value
 
             else:  # Specific resolution provided
                 streams = yt.streams.filter(only_video=True, resolution=resolution)
                 streams = sorted(streams, key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0, reverse=True)
 
                 if streams:
-                    stream = streams[0]  # If specific resolution exists, take the first
+                    stream = streams[0]
                 else:
                     stream = None
 
@@ -1480,21 +1275,49 @@ def main():
             else:
                 print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")
         elif transcribe_audio:
-            model_choice = transcriber.get_model_choice_input()  # Use the validation function
+            model_choice = transcriber.get_model_choice_input()
 
         if transcribe_audio:
             # Set model based on user input (default to "base") using match statement
             if model_choice in ('1', '2', '3', '4', '5', '6', '7'):
-                # Number choice
                 model_enum = ModelSize.get_model_by_number(model_choice)
                 model_name = model_enum.value
             else:
-                # Name choice or empty (default)
                 if model_choice == '':
                     model_enum = ModelSize.BASE
                 else:
                     model_enum = ModelSize.get_model_by_name(model_choice)
                 model_name = model_enum.value
+
+            if url == transcriber.URL_PLACEHOLDER:
+                while True:
+                    url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
+                    if transcriber.is_youtube_video_id(url):
+                        url = transcriber.construct_youtube_url(url)
+                        print(f"Detected video ID, using: {url}")
+                        try:
+                            yt = YouTube(url, "WEB")
+                            break
+                        except RegexMatchError:
+                            print("Invalid video ID. Please try again.")
+                            continue
+                    elif transcriber.is_web_url(url):
+                        if transcriber.is_youtube_url(url):
+                            try:
+                                yt = YouTube(url, "WEB")
+                                break
+                            except RegexMatchError:
+                                print("Invalid YouTube URL. Please try again.")
+                                continue
+                        else:
+                            print("Error: Only YouTube URLs supported for web inputs")
+                            continue
+                    elif transcriber.is_valid_media_file(url):
+                        is_local_file = True
+                        break
+                    else:
+                        print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
+                        continue
 
             target_language = os.getenv("TARGET_LANGUAGE")
             if target_language:
@@ -1529,8 +1352,13 @@ def main():
     if not is_local_file:
         if url == transcriber.URL_PLACEHOLDER:
             while True:
-                url = input("Enter the YouTube video URL or local file path: ").strip()
-                if transcriber.is_web_url(url):
+                url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
+                if transcriber.is_youtube_video_id(url):
+                    url = transcriber.construct_youtube_url(url)
+                    print(f"Detected video ID, using: {url}")
+                    is_local_file = False
+                    break
+                elif transcriber.is_web_url(url):
                     if transcriber.is_youtube_url(url):
                         is_local_file = False
                         break
@@ -1541,35 +1369,69 @@ def main():
                     is_local_file = True
                     break
                 else:
-                    print("Invalid input. Please enter valid YouTube URL or local file path")
+                    print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                     continue
-        try:
-            yt = transcriber.create_youtube_object(url)
+        
+        while True:
             try:
-                video_title = yt.title
-            except (AttributeError, OSError, VideoUnavailable) as e:
-                print(f"Error retrieving video title: {str(e)}")
-                video_title = "untitled_video"
-        except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
-            print(f"Dependency error (likely pytubefix): {str(e)}")
-            user_choice = input("Do you want to check for new updates to ALL required packages now? (Y/n): ").strip().lower()
-            if user_choice in ('', 'y', 'yes'):
-                print("Updating all required packages...")
-                requirements_path = os.path.join(os.path.dirname(__file__), "OpenAIYouTubeTranscriber", "requirements.txt")
-                packages = get_required_packages(requirements_path)
-                for pkg in packages:
-                    print(f"Upgrading: {pkg}")
-                    try:
-                        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", pkg], check=True)
-                    except Exception as upgrade_error:
-                        print(f"Error upgrading {pkg}: {upgrade_error}")
-                print("All packages upgraded. Please restart the script.")
-                sys.exit(0)
-            else:
-                print("Skipping package upgrades. Exiting.")
-                sys.exit(1)
+                yt = transcriber.create_youtube_object(url)
+                try:
+                    video_title = yt.title
+                    yt.check_availability()
+                except (AttributeError, OSError, VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
+                    print(f"\nError with URL '{url}': {str(e)}")
+                    print("The video is unavailable or inaccessible.")
+                    
+                    while True:
+                        url = input("\nEnter a different YouTube video URL, video ID, or local file path: ").strip()
+                        if transcriber.is_youtube_video_id(url):
+                            url = transcriber.construct_youtube_url(url)
+                            print(f"Detected video ID, using: {url}")
+                            break
+                        elif transcriber.is_web_url(url):
+                            if transcriber.is_youtube_url(url):
+                                break
+                            else:
+                                print("Error: Only YouTube URLs supported for web inputs")
+                                continue
+                        elif transcriber.is_valid_media_file(url):
+                            is_local_file = True
+                            break
+                        else:
+                            print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
+                            continue
+                    
+                    if is_local_file:
+                        break
+                    continue
+                break
+            except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
+                print(f"\nError with URL '{url}': {str(e)}")
+                print("The URL appears to be invalid or the video is unavailable.")
+                
+                while True:
+                    url = input("\nEnter a different YouTube video URL, video ID, or local file path: ").strip()
+                    if transcriber.is_youtube_video_id(url):
+                        url = transcriber.construct_youtube_url(url)
+                        print(f"Detected video ID, using: {url}")
+                        break
+                    elif transcriber.is_web_url(url):
+                        if transcriber.is_youtube_url(url):
+                            break
+                        else:
+                            print("Error: Only YouTube URLs supported for web inputs")
+                            continue
+                    elif transcriber.is_valid_media_file(url):
+                        is_local_file = True
+                        break
+                    else:
+                        print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
+                        continue
+                
+                if is_local_file:
+                    break
     else:
-        video_title = os.path.splitext(os.path.basename(url))[0]  # Get filename without extension
+        video_title = os.path.splitext(os.path.basename(url))[0]
 
     filename_base = transcriber.sanitize_filename(video_title)
     try:
@@ -1633,7 +1495,6 @@ def main():
                 print(f"Error: No suitable stream found for resolution {selected_res}. Exiting...")
                 exit()
 
-        # Set output path based on audio preference
         if no_audio_in_video:
             filename = filename_base + transcriber.MP4_EXT
             output_path = transcriber.VIDEO_WITHOUT_AUDIO_DIR
@@ -1660,12 +1521,11 @@ def main():
     else:
         print("Skipping video download...")
         
-    if download_audio:  # Download audio if needed for video or audio-only
+    if download_audio:
         audio_path, file_path = transcriber.download_audio_stream(yt, filename_base, is_temp=False)
 
     if download_video and not no_audio_in_video:
         if not download_audio:
-            # Download the audio stream
             audio_path, _ = transcriber.download_audio_stream(yt, filename_base, is_temp=True)
         else:
             audio_path = os.path.join(transcriber.AUDIO_DIR, audio_filename)
@@ -1676,18 +1536,17 @@ def main():
         
 
     if transcribe_audio:
-        if is_local_file:  # Check if it's a local file
-            if transcriber.is_valid_media_file(url):  # Check if it's a valid media file
-                audio_file = url  # Use the URL directly as the audio file
-            else:  # If it's not an MP3 file, assume it's an MP4
+        if is_local_file:
+            if transcriber.is_valid_media_file(url):
+                audio_file = url
+            else:
                 try:
-                    video = moviepy.editor.VideoFileClip(url)  # Create a VideoFileClip object from the URL
-                    audio_file = f"{filename_base}.mp3"  # Create a filename for the extracted audio
+                    video = moviepy.editor.VideoFileClip(url)
+                    audio_file = f"{filename_base}.mp3"
                     try:
-                        # Extract the audio from the video
                         video.audio.write_audiofile(audio_file)
                     finally:
-                        video.close()  # Ensure video file is closed to free resources
+                        video.close()
                 except (IOError, OSError, ValueError, moviepy.editor.VideoFileClip.Error) as e:
                     print(f"Error processing video file: {str(e)}")
                     sys.exit(1)
@@ -1700,13 +1559,11 @@ def main():
                 # Download the audio stream
                 audio_file, _ = transcriber.download_audio_stream(yt, filename_base, is_temp=True)
 
-        # Use the appropriate file path
         if is_local_file:
             file_path = url
         else:
             file_path = audio_file
             
-        # Use the new transcribe_audio_file function
         transcribed_text, language = transcriber.transcribe_audio_file(
             file_path, model_name, target_language
         )
@@ -1725,22 +1582,18 @@ def main():
             print(f"Saved transcript to {file_path}")
     else:
         print("Skipping transcription.")
-        transcribed_text = ""  # Assign an empty string
+        transcribed_text = ""
 
-    # Only try to remove temp audio files if they were actually created
-    # (which only happens for YouTube downloads, not for local files)
     temp_audio_path = os.path.join(transcriber.AUDIO_DIR, transcriber.TEMP_DIR)
     temp_audio_file = os.path.join(temp_audio_path, filename_base + transcriber.MP3_EXT)
     if not is_local_file and not download_audio and (transcribe_audio or download_video) and not no_audio_in_video and os.path.exists(temp_audio_file):
-        # Remove the audio residual file and directory
         os.remove(temp_audio_file)
-        if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):  # Only remove if empty
+        if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
             os.rmdir(temp_audio_path)
         print(f"Deleted audio residual in {temp_audio_file}")
 
     print("Tasks complete.")
 
-    # Decide repeat first so the choice can be stored in a profile
     did_something_useful = (download_audio or download_video or transcribe_audio)
     is_repeat = os.environ.get("_REPEAT_INVOCATION", "") == "1"
     repeat = False
@@ -1778,20 +1631,15 @@ def main():
         repeat = False
         repeat_value = ""
 
-    # Record repeat choice for potential profile creation
     used_fields["REPEAT"] = repeat_value
 
-    # Only ask to create a profile if we actually performed a useful operation
-    # AND this is not a repeat invocation (to avoid duplicate profiles on repeat runs)
     if not load_profile and did_something_useful and not is_repeat:
         create_profile_prompt = transcriber.get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n')
         if create_profile_prompt:
             transcriber.create_profile(used_fields)
 
-    # --- Repeat handling ---
     try:
         if repeat:
-            # For interactive mode, persist last non-URL choices so next run reuses them
             if not load_profile:
                 try:
                     os.environ["LAST_DOWNLOAD_VIDEO"] = "y" if download_video else "n"
@@ -1825,16 +1673,11 @@ def main():
                     os.environ["LAST_USE_EN_MODEL"] = "y" if use_en_model else "n"
                 except Exception:
                     pass
-            # Ensure next invocation prompts for a fresh URL while preserving these settings
             os.environ["_REPEAT_INVOCATION"] = "1"
-            # For safety, set the URL env var to the placeholder as well so the
-            # profile loading step won't accidentally override the intention to
-            # prompt the user for a new URL on the next invocation.
             try:
                 os.environ["URL"] = transcriber.URL_PLACEHOLDER
             except Exception:
                 pass
-            # If running from a profile, remember which profile to reuse on repeat
             if load_profile and 'profile_name' in locals():
                 try:
                     os.environ["_REPEAT_PROFILE_NAME"] = profile_name
@@ -1843,7 +1686,6 @@ def main():
             print("Repeating session as requested...")
             main()
         else:
-            # cleanup any repeat markers and stored LAST_ vars
             for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL"):
                 if k in os.environ:
                     try:
@@ -1851,7 +1693,6 @@ def main():
                     except Exception:
                         pass
     except Exception:
-        # If repeat logic fails for any reason, just exit gracefully and clean markers
         for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL"):
             if k in os.environ:
                 try:
@@ -1876,6 +1717,5 @@ def get_required_packages(requirements_path):
         print(f"Error reading requirements.txt: {e}")
     return packages
 
-# Change main script execution to use the main function
 if __name__ == "__main__":
     main()
