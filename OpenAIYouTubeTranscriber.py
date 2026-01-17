@@ -194,65 +194,18 @@ class YouTubeTranscriber:
             return False
 
     def is_youtube_video_id(self, text):
-        """
-        Check if text is a valid YouTube video ID.
-        
-        YouTube video IDs are exactly 11 characters and contain only:
-        - Letters (a-z, A-Z)
-        - Numbers (0-9)
-        - Hyphens (-)
-        - Underscores (_)
-        
-        Examples of valid IDs: jNQXAC9IVRw, dQw4w9WgXcQ
-        
-        Args:
-            text: String to validate as video ID
-            
-        Returns:
-            bool: True if valid video ID format, False otherwise
-        """
+        """Check if text is a valid 11-character YouTube video ID (letters, numbers, dash, underscore only)."""
         if len(text) != 11:
             return False
         import re
         return bool(re.match(r'^[a-zA-Z0-9_-]{11}$', text))
     
     def construct_youtube_url(self, video_id):
-        """
-        Build full YouTube URL from video ID.
-        
-        Only the 11-character video ID is needed for processing. Query 
-        parameters (timestamps like &t=30s, playlist info like &list=PLxyz) 
-        are automatically stripped out by pytubefix during download and 
-        don't affect transcription.
-        
-        Args:
-            video_id: 11-character YouTube video ID
-            
-        Returns:
-            str: Full YouTube URL in standard format
-        """
+        """Build full YouTube URL from video ID. Query params get stripped by pytubefix automatically."""
         return f"https://www.youtube.com/watch?v={video_id}"
 
     def is_youtube_url(self, url):
-        """
-        Validate YouTube URL using pytubefix.
-        
-        pytubefix automatically extracts the 11-character video ID from 
-        any YouTube URL format:
-        - Standard: https://www.youtube.com/watch?v=jNQXAC9IVRw
-        - Short: https://youtu.be/jNQXAC9IVRw
-        - Embed: https://www.youtube.com/embed/jNQXAC9IVRw
-        
-        Query parameters (timestamps, playlists, tracking info) are ignored 
-        during processing—only the video ID is used for downloading and 
-        transcription.
-        
-        Args:
-            url: YouTube URL to validate
-            
-        Returns:
-            bool: True if valid YouTube URL, False otherwise
-        """
+        """Validate YouTube URL using pytubefix. Extracts video ID from any format (standard, short, embed URLs)."""
         try:
             YouTube(url, "WEB")
             return True
@@ -395,6 +348,7 @@ class YouTubeTranscriber:
             raise
 
     def get_sorted_video_streams(self, yt):
+        """Get available video streams sorted by resolution (highest first)."""
         try:
             streams = yt.streams.filter(only_video=True)
             return sorted(
@@ -407,6 +361,7 @@ class YouTubeTranscriber:
             return []
 
     def get_sorted_audio_streams(self, yt):
+        """Get available audio streams sorted by bitrate (highest first)."""
         try:
             audio_streams = yt.streams.filter(only_audio=True)
             return sorted(
@@ -419,6 +374,7 @@ class YouTubeTranscriber:
             return []
 
     def get_unique_sorted_resolutions(self, streams):
+        """Extract unique resolutions from streams and sort by quality (highest first)."""
         resolutions = set([stream.resolution for stream in streams if stream.resolution])
         
         return sorted(
@@ -428,6 +384,7 @@ class YouTubeTranscriber:
         )
 
     def download_audio_stream(self, yt, filename_base, is_temp=False):
+        """Download highest quality audio stream (optionally to temp directory)."""
         print("Downloading the audio stream (highest quality)...")
         
         audio_streams = self.get_sorted_audio_streams(yt)
@@ -463,6 +420,7 @@ class YouTubeTranscriber:
         return relative_path, absolute_path
 
     def combine_audio_video(self, video_path, audio_path, output_path, cleanup_temp=True, temp_video_dir=None):
+        """Merge separate video and audio files using ffmpeg."""
         output_dir = os.path.dirname(output_path)
         if not self.ensure_directory_exists(output_dir):
             print(f"Error: Cannot create video output directory {output_dir}")
@@ -520,6 +478,7 @@ class YouTubeTranscriber:
         return output_path
 
     def transcribe_audio_file(self, file_path, model_name, target_language):
+        """Transcribe audio file using Whisper and detect the language."""
         if not os.path.exists(file_path):
             error_msg = f"Error: Audio file not found: {file_path}"
             print(error_msg)
@@ -576,6 +535,7 @@ class YouTubeTranscriber:
         return transcribed_text, detected_language
 
     def check_dependencies(self):
+        """Verify required system dependencies (ffmpeg) are installed."""
         # ffmpeg needed for format detection (ffprobe) and combining video/audio streams
         ffmpeg_available = shutil.which("ffmpeg") is not None
         if not ffmpeg_available:
@@ -589,6 +549,7 @@ class YouTubeTranscriber:
         return True
 
     def create_profile(self, profile_fields):
+        """Save current session settings as a reusable profile file."""
         if not os.path.exists(self.profile_dir):
             print(f"Creating profile directory: {self.profile_dir}")
             os.makedirs(self.profile_dir, exist_ok=True)
@@ -653,6 +614,7 @@ class YouTubeTranscriber:
         print(f"Created profile: {os.path.abspath(profile_path)}")
 
     def verify_file_writable(self, file_path):
+        """Check if file path is writable (creates parent dirs if needed)."""
         try:
             if os.path.exists(file_path):
                 return os.access(file_path, os.W_OK)
@@ -672,6 +634,7 @@ class YouTubeTranscriber:
             return False
 
     def get_free_disk_space(self, directory):
+        """Get available disk space in bytes for the given directory."""
         try:
             if os.path.exists(directory):
                 target_dir = directory
@@ -693,6 +656,7 @@ class YouTubeTranscriber:
 #########################################
 
 def main():
+    """Main entry point - handles user interaction and orchestrates transcription workflow."""
     transcriber = YouTubeTranscriber()
     
     used_fields = transcriber.DEFAULT_FIELDS.copy()
