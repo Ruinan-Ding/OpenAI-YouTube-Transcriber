@@ -39,7 +39,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-                "youtube-transcriber=yt_transcriber_entry:main",
+                "openai-youtube-transcriber=__main__:main",
         ],
     },
 )
