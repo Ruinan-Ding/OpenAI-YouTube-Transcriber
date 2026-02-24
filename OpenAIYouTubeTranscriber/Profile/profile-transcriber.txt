@@ -1,7 +1,7 @@
 #transcriber
 #Change values after the equals sign (=)
 
-URL=<Insert_YouTube_link_or_local_path_to_audio_or_video>
+URL=https://www.youtube.com/watch?v=jNQXAC9IVRw
 DOWNLOAD_VIDEO=n
 NO_AUDIO_IN_VIDEO=
 RESOLUTION=
@@ -10,4 +10,6 @@ TRANSCRIBE_AUDIO=y
 MODEL_CHOICE=base
 TARGET_LANGUAGE=en
 USE_EN_MODEL=n
+AI_ENHANCEMENT=local
+PROMPT=
 REPEAT=
