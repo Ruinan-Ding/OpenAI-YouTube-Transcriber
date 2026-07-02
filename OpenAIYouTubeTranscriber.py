@@ -669,13 +669,11 @@ class YouTubeTranscriber:
         try:
             torch_version = torch.__version__.split('+')[0]
             major, minor = (int(p) for p in torch_version.split('.')[:2])
-            if (major, minor) < (2, 4):
-                print(f"Warning: PyTorch >= 2.4 is required for local enhancement. Found {torch.__version__}.")
-                print("Please upgrade torch and try again.")
-                return text
+            if (major, minor) < (2, 2):
+                print(f"Note: PyTorch {torch.__version__} is older than the recommended 2.2+. "
+                      "Attempting local enhancement anyway; upgrade torch if model loading fails.")
         except Exception:
-            print("Warning: Unable to determine PyTorch version. Skipping local enhancement.")
-            return text
+            print("Note: Unable to determine PyTorch version. Attempting local enhancement anyway.")
         
         # Accept both LocalModel enum and plain string model IDs
         if isinstance(local_model, LocalModel):
@@ -835,10 +833,14 @@ class YouTubeTranscriber:
         try:
             streams = yt.streams.filter(only_video=True)
             return sorted(
-                streams, 
-                key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,  # [:-1] strips 'p' from '1080p' 
+                streams,
+                key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,  # [:-1] strips 'p' from '1080p'
                 reverse=True
             )
+        except RegexMatchError as e:
+            print(f"Error retrieving video streams: {str(e)}")
+            print("YouTube may have changed something. Try: pip install --upgrade pytubefix")
+            return []
         except (AttributeError, ValueError, OSError) as e:
             print(f"Error retrieving video streams: {str(e)}")
             return []
@@ -848,10 +850,14 @@ class YouTubeTranscriber:
         try:
             audio_streams = yt.streams.filter(only_audio=True)
             return sorted(
-                audio_streams, 
-                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,  # [:-4] strips 'kbps' from '128kbps' 
+                audio_streams,
+                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,  # [:-4] strips 'kbps' from '128kbps'
                 reverse=True
             )
+        except RegexMatchError as e:
+            print(f"Error retrieving audio streams: {str(e)}")
+            print("YouTube may have changed something. Try: pip install --upgrade pytubefix")
+            return []
         except (AttributeError, ValueError) as e:
             print(f"Error retrieving audio streams: {str(e)}")
             return []
@@ -1636,7 +1642,7 @@ def main():
                 if url != transcriber.URL_PLACEHOLDER:
                     print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                 while True:
-                    url = input("Enter the YouTube video URL, video ID,, video ID, or local file path: ").strip()
+                    url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
                     if transcriber.is_youtube_video_id(url):
                         url = transcriber.construct_youtube_url(url)
                         print(f"Detected video ID, using: {url}")

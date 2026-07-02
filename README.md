@@ -41,6 +41,7 @@ Then just follow the prompts. That's it.
 - [Installation](#-installation)
 - [How to Use It](#-usage)
 - [Profiles (save your settings)](#-profiles)
+- [AI Transcript Enhancement](#-ai-transcript-enhancement)
 - [Where Your Files Go](#-output-files)
 - [Stuck? Check Here](#-troubleshooting)
 - [Want to Help?](#-contributing)
@@ -74,6 +75,8 @@ The script automatically extracts just the video ID from URLs and ignores things
 **Cross-Platform** — Works on Windows, macOS, and Linux without any special tweaks.
 
 **Smart Audio Handling** — Automatically extracts audio from videos, combines them if needed, handles format conversions.
+
+**AI Transcript Enhancement** — Optionally clean up the raw transcript with AI after transcription. Use the OpenAI API (needs an API key) or a free local Hugging Face model, guided by a prompt file or a custom prompt you type in.
 
 <div align="center">
   <img src="https://skillicons.dev/icons?i=python,github" alt="Tech Stack" />
@@ -227,6 +230,8 @@ TRANSCRIBE_AUDIO=y
 MODEL_CHOICE=base
 TARGET_LANGUAGE=en
 USE_EN_MODEL=n
+AI_ENHANCEMENT=n
+PROMPT=
 REPEAT=n
 ```
 
@@ -248,6 +253,44 @@ We've included a few pre-configured profiles to get you started:
 - **profile1-video_downloader.txt** — Download video with audio and transcribe it
 - **profile2-audio_downloader.txt** — Download just the audio and transcribe
 - **profile0-translator.txt** — Transcribe in different languages
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
+</div>
+
+## ✨ AI Transcript Enhancement
+
+Whisper transcripts are good, but they can have wonky punctuation and grammar. After transcribing, the script can optionally run the transcript through an AI model to clean it up—no more copy-pasting into ChatGPT yourself.
+
+When asked `Enhance transcript with AI?`, you've got options:
+
+- **`y` or `openai`** — Use the OpenAI API (gpt-4o-mini). You'll need an API key: either set the `OPENAI_API_KEY` environment variable, add it to your profile, or just type it in when prompted.
+- **`local`** — Use a free local model (distilgpt2 by default). No API key, runs entirely on your machine. First run downloads the model.
+- **A model name** — Pick a specific local model (`distilgpt2`, `gpt2`, `gpt2-medium`, `phi-1_5`, `deepseek-1_5b`) or any Hugging Face model ID like `microsoft/phi-2`.
+- **`n`** — Skip it (the default).
+
+Local models need the `transformers` and `torch` packages (already in requirements.txt). Heads up: small local models like distilgpt2 are fast but rough—for quality cleanup, the OpenAI API or a larger local model works much better.
+
+### Prompts
+
+The enhancement is guided by a prompt that tells the AI what to do with your transcript. Drop `.txt` prompt files into `OpenAIYouTubeTranscriber/Prompt/` and the script will let you pick one, or choose `E` to type a custom prompt right in the console.
+
+Example prompt file:
+```
+Correct the grammatical and punctuation errors in this transcript.
+Keep all the original content—don't summarize or skip anything.
+```
+
+Long transcripts are automatically split into chunks, enhanced piece by piece, and merged back together.
+
+### In Profiles
+
+Set it and forget it with the `AI_ENHANCEMENT` and `PROMPT` fields:
+
+```ini
+AI_ENHANCEMENT=openai       # or: n, local, distilgpt2, gpt2, ...
+PROMPT=prompt.txt           # a file in OpenAIYouTubeTranscriber/Prompt/
+```
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
@@ -365,7 +408,7 @@ You can save time by copying just the ID instead of the whole URL.
 
 ### Improving Bad Transcripts
 
-If Whisper mangles something, you can feed the transcript to an LLM to fix it up:
+The built-in [AI Transcript Enhancement](#-ai-transcript-enhancement) can do this for you automatically. But if you'd rather do it manually, you can feed the transcript to an LLM to fix it up:
 
 **Fix grammar and punctuation:**
 ```
