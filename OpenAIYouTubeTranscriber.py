@@ -92,6 +92,59 @@ class ModelSize(Enum):
 class ModelChoice(Enum):
     OPTIONS = ('1', '2', '3', '4', '5', '6', '7') + tuple(ModelSize.all_model_values()) + ('',)
 
+class AIEnhancementMode(Enum):
+    """Modes for AI-powered transcript enhancement."""
+    OPENAI = ('y', 'yes', 'true', 't', '1', 'openai')
+    LOCAL = ('local',)
+    DISABLED = ('n', 'no', 'false', 'f', '0')
+
+    @classmethod
+    def from_string(cls, value):
+        """Parse a string into an AIEnhancementMode. Returns None if invalid."""
+        if not value:
+            return None
+        lower = value.lower().strip()
+        for mode in cls:
+            if lower in mode.value:
+                return mode
+        # Check if it matches a known local model name
+        if lower in LocalModel.all_model_values():
+            return cls.LOCAL
+        return None
+
+class LocalModel(Enum):
+    """Available local models for transcript enhancement."""
+    DISTILGPT2 = ('distilgpt2', 'distilgpt2')
+    GPT2 = ('gpt2', 'gpt2')
+    GPT2_MEDIUM = ('gpt2-medium', 'gpt2-medium')
+    PHI_1_5 = ('phi-1_5', 'microsoft/phi-1_5')
+    DEEPSEEK_1_5B = ('deepseek-1_5b', 'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B')
+
+    def __init__(self, display_name, hf_model_id):
+        self.display_name = display_name
+        self.hf_model_id = hf_model_id
+
+    @classmethod
+    def all_model_values(cls):
+        return [model.display_name for model in cls]
+
+    @classmethod
+    def get_by_name(cls, name):
+        """Look up a LocalModel by display name. Returns DISTILGPT2 as default."""
+        for model in cls:
+            if model.display_name == name.lower().strip():
+                return model
+        return cls.DISTILGPT2
+
+    @classmethod
+    def get_by_number(cls, number):
+        """Look up a LocalModel by 1-based index."""
+        models = list(cls)
+        idx = int(number) - 1
+        if 0 <= idx < len(models):
+            return models[idx]
+        return cls.DISTILGPT2
+
 #########################################
 ## TRANSCRIBER CLASS
 #########################################
@@ -107,6 +160,8 @@ class YouTubeTranscriber:
     TRANSCRIPT_DIR = os.path.join(DATA_DIR, "Transcript")
     VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
     profile_dir = os.path.join(DATA_DIR, "Profile")
+    PROMPT_DIR = os.path.join(DATA_DIR, "Prompt")
+    DEFAULT_PROMPT = "prompt.txt"
     MP3_EXT = ".mp3"
     MP4_EXT = ".mp4"
     TXT_EXT = ".txt"
@@ -129,6 +184,8 @@ class YouTubeTranscriber:
         "MODEL_CHOICE": "",
         "TARGET_LANGUAGE": "",
         "USE_EN_MODEL": "",
+        "AI_ENHANCEMENT": "",
+        "PROMPT": "",
         "REPEAT": ""
     }
     
@@ -155,6 +212,11 @@ class YouTubeTranscriber:
         self.target_language = self.DEFAULT_LANGUAGE
         self.use_en_model = False
         
+        # AI Enhancement options
+        self.ai_enhancement = None  # AIEnhancementMode enum
+        self.local_model = None  # LocalModel enum (only if ai_enhancement == LOCAL)
+        self.prompt_file = None  # Filename in Prompt/ dir
+        
         # Profile stuff
         self.profile_dir = os.path.join(self.DATA_DIR, "Profile")
         self.load_profile = False
@@ -171,7 +233,8 @@ class YouTubeTranscriber:
             self.AUDIO_DIR, 
             self.VIDEO_DIR, 
             self.TRANSCRIPT_DIR, 
-            self.VIDEO_WITHOUT_AUDIO_DIR
+            self.VIDEO_WITHOUT_AUDIO_DIR,
+            self.PROMPT_DIR
         ]
         for directory in required_dirs:
             os.makedirs(directory, exist_ok=True)
@@ -297,6 +360,424 @@ class YouTubeTranscriber:
                 print("Invalid language code or name. Please refer to the supported "
                       "languages list and try again.")
 
+    def _validate_hf_model(self, model_name):
+        """Check if a HuggingFace model exists and is accessible.
+        
+        Args:
+            model_name: HuggingFace model ID (e.g., 'distilgpt2', 'microsoft/phi-2').
+            
+        Returns:
+            bool: True if model exists, False otherwise.
+        """
+        try:
+            from huggingface_hub import model_info
+            model_info(model_name)
+            return True
+        except ImportError:
+            # Can't validate without huggingface_hub; allow it through
+            print("Note: Cannot validate model name (huggingface_hub not available). Proceeding anyway.")
+            return True
+        except Exception:
+            return False
+
+    def get_ai_enhancement_input(self):
+        """Prompt user for AI enhancement mode.
+        
+        Returns:
+            tuple: (AIEnhancementMode, model_id_string_or_None)
+            - (OPENAI, None) if user picks OpenAI API
+            - (LOCAL, 'model_id') if user picks a local model
+            - (None, None) if user declines
+        """
+        while True:
+            suggestions = ", ".join(m.display_name for m in LocalModel)
+            prompt = (
+                "Enhance transcript with AI?\n"
+                " - Enter 'y' or 'openai' for OpenAI API\n"
+                " - Enter 'local' to use default local model (distilgpt2)\n"
+                f" - Enter a model name (e.g., {suggestions})\n"
+                "   or any HuggingFace model ID (e.g., microsoft/phi-2)\n"
+                " - Enter 'n' to skip\n"
+                "Choice (default n): "
+            )
+            user_input = input(prompt).strip()
+            user_lower = user_input.lower()
+            
+            if not user_input or user_lower in AIEnhancementMode.DISABLED.value:
+                return None, None
+            
+            if user_lower in AIEnhancementMode.OPENAI.value:
+                return AIEnhancementMode.OPENAI, None
+            
+            if user_lower == 'local':
+                return AIEnhancementMode.LOCAL, 'distilgpt2'
+            
+            # Check if it's a known local model display name
+            if user_lower in LocalModel.all_model_values():
+                model = LocalModel.get_by_name(user_lower)
+                return AIEnhancementMode.LOCAL, model.hf_model_id
+            
+            # Treat as arbitrary HuggingFace model ID - validate it
+            model_id = user_input  # preserve original case for HF model IDs
+            print(f"Checking if model '{model_id}' exists on HuggingFace...")
+            if self._validate_hf_model(model_id):
+                print(f"Model '{model_id}' found.")
+                return AIEnhancementMode.LOCAL, model_id
+            else:
+                print(f"Model '{model_id}' not found on HuggingFace. Please try again.")
+
+    def get_prompt_input(self):
+        """Prompt user to select a prompt file or enter a custom prompt.
+        
+        Returns:
+            tuple: (prompt_filename, prompt_text)
+                - (filename, None) if a file was selected
+                - (None, text) if the user entered an inline prompt
+                - (None, None) if no prompts available or user cancelled
+        """
+        prompts = self.list_available_prompts()
+        if not prompts:
+            print("No prompt files found in Prompt/ directory.")
+            print("You can enter a custom prompt instead.")
+            print("  E. Enter custom prompt")
+            while True:
+                user_input = input("Select option (E to enter custom prompt, or press Enter to skip): ").strip()
+                if not user_input:
+                    return (None, None)
+                elif user_input.lower() == 'e':
+                    return self._get_inline_prompt()
+                else:
+                    print("Invalid selection. Please try again.")
+        
+        print("Available prompt files:")
+        for i, p in enumerate(prompts):
+            print(f"  {i+1}. {p}")
+        print(f"  E. Enter custom prompt")
+        
+        while True:
+            user_input = input(f"Select prompt file (number, name, or E for custom; default 1. {prompts[0]}): ").strip()
+            if not user_input:
+                return (prompts[0], None)
+            elif user_input.lower() == 'e':
+                return self._get_inline_prompt()
+            elif user_input.isdigit() and 1 <= int(user_input) <= len(prompts):
+                return (prompts[int(user_input) - 1], None)
+            elif user_input in prompts:
+                return (user_input, None)
+            elif user_input + self.TXT_EXT in prompts:
+                return (user_input + self.TXT_EXT, None)
+            else:
+                print("Invalid selection. Please try again.")
+
+    def _get_inline_prompt(self):
+        """Prompt the user to enter a custom prompt in the console.
+        
+        Returns:
+            tuple: (None, prompt_text) or (None, None) if empty.
+        """
+        print("Enter your custom prompt (press Enter twice to finish):")
+        lines = []
+        while True:
+            line = input()
+            if line == '':
+                break
+            lines.append(line)
+        prompt_text = '\n'.join(lines).strip()
+        if not prompt_text:
+            print("Empty prompt. Skipping AI enhancement.")
+            return (None, None)
+        print(f"Custom prompt set ({len(prompt_text)} chars).")
+        return (None, prompt_text)
+
+    def list_available_prompts(self):
+        """List .txt files in the Prompt/ directory."""
+        prompt_dir = os.path.join(os.path.dirname(__file__), self.PROMPT_DIR)
+        if not os.path.exists(prompt_dir):
+            return []
+        return sorted([
+            f for f in os.listdir(prompt_dir)
+            if f.endswith(self.TXT_EXT) and os.path.getsize(os.path.join(prompt_dir, f)) > 0
+        ])
+
+    def load_prompt_file(self, filename):
+        """Load prompt text from a file in the Prompt/ directory.
+        
+        Args:
+            filename: Name of the prompt file (e.g., 'prompt.txt').
+            
+        Returns:
+            str: The prompt text, or empty string if file not found/empty.
+        """
+        prompt_path = os.path.join(os.path.dirname(__file__), self.PROMPT_DIR, filename)
+        if not os.path.exists(prompt_path):
+            print(f"Warning: Prompt file not found: {prompt_path}")
+            return ""
+        try:
+            with open(prompt_path, "r", encoding='utf-8') as f:
+                content = f.read().strip()
+            if not content:
+                print(f"Warning: Prompt file is empty: {prompt_path}")
+                return ""
+            return content
+        except (PermissionError, OSError) as e:
+            print(f"Error reading prompt file: {str(e)}")
+            return ""
+
+    def chunk_text(self, text, max_tokens=800, overlap_tokens=50):
+        """Split text into chunks at sentence boundaries, respecting token limits.
+        
+        Args:
+            text: The full transcript text.
+            max_tokens: Max tokens per chunk (leave room for prompt/output).
+            overlap_tokens: Tokens to overlap between chunks for continuity.
+            
+        Returns:
+            list[str]: List of text chunks.
+        """
+        import re as _re
+        sentences = _re.split(r'(?<=[.!?])\s+', text)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            # Rough token estimate: 1 token ≈ 4 characters
+            estimated_tokens = len(current_chunk) // 4
+            sentence_tokens = len(sentence) // 4
+            
+            if estimated_tokens + sentence_tokens > max_tokens and current_chunk:
+                chunks.append(current_chunk.strip())
+                # Start new chunk with overlap from end of previous
+                overlap_chars = overlap_tokens * 4
+                if len(current_chunk) > overlap_chars:
+                    current_chunk = current_chunk[-overlap_chars:] + " " + sentence
+                else:
+                    current_chunk = sentence
+            else:
+                current_chunk = (current_chunk + " " + sentence).strip()
+        
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        return chunks if chunks else [text]
+
+    def merge_chunks(self, enhanced_chunks):
+        """Merge enhanced text chunks, deduplicating overlaps.
+        
+        Args:
+            enhanced_chunks: List of enhanced text strings.
+            
+        Returns:
+            str: Merged text.
+        """
+        if not enhanced_chunks:
+            return ""
+        if len(enhanced_chunks) == 1:
+            return enhanced_chunks[0]
+        
+        merged = enhanced_chunks[0]
+        for i in range(1, len(enhanced_chunks)):
+            chunk = enhanced_chunks[i]
+            # Try to find overlap between end of merged and start of chunk
+            # Check last 100 chars of merged against start of chunk
+            overlap_window = min(100, len(merged))
+            tail = merged[-overlap_window:]
+            
+            best_overlap = 0
+            for j in range(len(tail), 0, -1):
+                if chunk.startswith(tail[-j:]):
+                    best_overlap = j
+                    break
+            
+            if best_overlap > 10:  # Only deduplicate if overlap is meaningful
+                merged += " " + chunk[best_overlap:].strip()
+            else:
+                merged += " " + chunk.strip()
+        
+        return merged.strip()
+
+    def enhance_with_openai(self, text, prompt_text, api_key):
+        """Enhance transcript text using OpenAI API with chunking.
+        
+        Args:
+            text: The raw transcript text.
+            prompt_text: The enhancement prompt (from prompt file).
+            api_key: OpenAI API key.
+            
+        Returns:
+            str: Enhanced text, or original text on failure.
+        """
+        try:
+            import openai
+        except ImportError:
+            print("Warning: 'openai' package not installed. Skipping OpenAI enhancement.")
+            print("Install with: pip install openai")
+            return text
+        
+        client = openai.OpenAI(api_key=api_key)
+        chunks = self.chunk_text(text, max_tokens=3000, overlap_tokens=100)
+        enhanced_chunks = []
+        
+        print(f"Enhancing transcript with OpenAI API ({len(chunks)} chunk(s))...")
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                print(f"  Processing chunk {i+1}/{len(chunks)}...")
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": prompt_text},
+                        {"role": "user", "content": chunk}
+                    ],
+                    temperature=0.3
+                )
+                enhanced = response.choices[0].message.content.strip()
+                enhanced_chunks.append(enhanced)
+            except Exception as e:
+                print(f"  Warning: OpenAI API error on chunk {i+1}: {str(e)}")
+                enhanced_chunks.append(chunk)  # Fallback to original chunk
+        
+        result = self.merge_chunks(enhanced_chunks)
+        print("OpenAI enhancement complete.")
+        return result
+
+    def enhance_with_local(self, text, prompt_text, local_model):
+        """Enhance transcript text using a local model with chunking.
+        
+        Args:
+            text: The raw transcript text.
+            prompt_text: The enhancement prompt (from prompt file).
+            local_model: LocalModel enum with hf_model_id.
+            
+        Returns:
+            str: Enhanced text, or original text on failure.
+        """
+        try:
+            from transformers import pipeline, AutoTokenizer
+        except ImportError:
+            print("Warning: 'transformers' package not installed. Skipping local enhancement.")
+            print("Install with: pip install transformers torch")
+            return text
+
+        try:
+            import torch
+        except ImportError:
+            print("Warning: 'torch' package not installed or not available. Skipping local enhancement.")
+            print("Install with: pip install torch")
+            return text
+
+        try:
+            torch_version = torch.__version__.split('+')[0]
+            major, minor = (int(p) for p in torch_version.split('.')[:2])
+            if (major, minor) < (2, 2):
+                print(f"Note: PyTorch {torch.__version__} is older than the recommended 2.2+. "
+                      "Attempting local enhancement anyway; upgrade torch if model loading fails.")
+        except Exception:
+            print("Note: Unable to determine PyTorch version. Attempting local enhancement anyway.")
+        
+        # Accept both LocalModel enum and plain string model IDs
+        if isinstance(local_model, LocalModel):
+            model_id = local_model.hf_model_id
+        else:
+            model_id = str(local_model)
+        print(f"Loading local model: {model_id} (this may take a moment on first run)...")
+        
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            max_length = getattr(tokenizer, 'model_max_length', 1024)
+            # Use 60% of max length for input, leave room for generation
+            chunk_max = min(int(max_length * 0.6), 800)
+            
+            import importlib.util
+            accelerate_available = importlib.util.find_spec("accelerate") is not None
+            if not accelerate_available:
+                print("Warning: 'accelerate' not installed. Loading model without device_map.")
+
+            generator = pipeline(
+                'text-generation',
+                model=model_id,
+                tokenizer=tokenizer,
+                device_map="auto" if accelerate_available else None
+            )
+        except Exception as e:
+            print(f"Error loading local model '{model_id}': {str(e)}")
+            print("Skipping local enhancement.")
+            return text
+        
+        chunks = self.chunk_text(text, max_tokens=chunk_max, overlap_tokens=50)
+        enhanced_chunks = []
+        
+        print(f"Enhancing transcript with local model ({len(chunks)} chunk(s))...")
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                print(f"  Processing chunk {i+1}/{len(chunks)}...")
+                full_prompt = f"{prompt_text}\n\n{chunk}\n\nEnhanced version:"
+                
+                result = generator(
+                    full_prompt,
+                    max_new_tokens=len(chunk.split()) * 2,  # Allow roughly 2x input length
+                    do_sample=True,
+                    temperature=0.3,
+                    num_return_sequences=1
+                )
+                
+                generated = result[0]['generated_text']
+                # Strip the prompt from the output
+                if "Enhanced version:" in generated:
+                    enhanced = generated.split("Enhanced version:")[-1].strip()
+                else:
+                    enhanced = generated[len(full_prompt):].strip()
+                
+                # If model produced nothing useful, keep original
+                if not enhanced or len(enhanced) < len(chunk) * 0.3:
+                    enhanced_chunks.append(chunk)
+                else:
+                    enhanced_chunks.append(enhanced)
+            except Exception as e:
+                print(f"  Warning: Local model error on chunk {i+1}: {str(e)}")
+                enhanced_chunks.append(chunk)
+        
+        result = self.merge_chunks(enhanced_chunks)
+        print("Local model enhancement complete.")
+        return result
+
+    def enhance_text(self, text, mode, prompt_text, api_key=None, local_model=None):
+        """Main dispatcher for transcript enhancement.
+        
+        Args:
+            text: The raw transcript text.
+            mode: AIEnhancementMode enum (OPENAI or LOCAL).
+            prompt_text: The enhancement prompt text.
+            api_key: OpenAI API key (required if mode is OPENAI).
+            local_model: HuggingFace model ID string or LocalModel enum (required if mode is LOCAL).
+            
+        Returns:
+            str: Enhanced text, or original text if enhancement fails/skipped.
+        """
+        if not text or not text.strip():
+            print("Warning: No text to enhance.")
+            return text
+        
+        if not prompt_text:
+            print("Warning: No prompt loaded. Skipping enhancement.")
+            return text
+        
+        if mode == AIEnhancementMode.OPENAI:
+            if not api_key:
+                print("Warning: No OpenAI API key provided. Skipping enhancement.")
+                return text
+            return self.enhance_with_openai(text, prompt_text, api_key)
+        
+        elif mode == AIEnhancementMode.LOCAL:
+            if not local_model:
+                local_model = 'distilgpt2'
+            return self.enhance_with_local(text, prompt_text, local_model)
+        
+        else:
+            print("Warning: Unknown enhancement mode. Skipping.")
+            return text
+
     def startfile(self, fn):
         """Open file with system default app (cross-platform)."""
         if os.name == 'nt':  # Windows
@@ -352,10 +833,14 @@ class YouTubeTranscriber:
         try:
             streams = yt.streams.filter(only_video=True)
             return sorted(
-                streams, 
-                key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,  # [:-1] strips 'p' from '1080p' 
+                streams,
+                key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,  # [:-1] strips 'p' from '1080p'
                 reverse=True
             )
+        except RegexMatchError as e:
+            print(f"Error retrieving video streams: {str(e)}")
+            print("YouTube may have changed something. Try: pip install --upgrade pytubefix")
+            return []
         except (AttributeError, ValueError, OSError) as e:
             print(f"Error retrieving video streams: {str(e)}")
             return []
@@ -365,10 +850,14 @@ class YouTubeTranscriber:
         try:
             audio_streams = yt.streams.filter(only_audio=True)
             return sorted(
-                audio_streams, 
-                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,  # [:-4] strips 'kbps' from '128kbps' 
+                audio_streams,
+                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,  # [:-4] strips 'kbps' from '128kbps'
                 reverse=True
             )
+        except RegexMatchError as e:
+            print(f"Error retrieving audio streams: {str(e)}")
+            print("YouTube may have changed something. Try: pip install --upgrade pytubefix")
+            return []
         except (AttributeError, ValueError) as e:
             print(f"Error retrieving audio streams: {str(e)}")
             return []
@@ -603,6 +1092,8 @@ class YouTubeTranscriber:
                 "MODEL_CHOICE",
                 "TARGET_LANGUAGE",
                 "USE_EN_MODEL",
+                "AI_ENHANCEMENT",
+                "PROMPT",
                 "REPEAT"
             ]
             
@@ -1046,9 +1537,66 @@ def main():
                 used_fields["USE_EN_MODEL"] = "y" if use_en_model else "n"
             else:
                 use_en_model = False
+
+            # --- AI Enhancement (interactive) ---
+            ai_enhancement_mode = None
+            local_model = None
+            prompt_text = ""
+            api_key = None
+
+            last_ai = os.environ.get("LAST_AI_ENHANCEMENT")
+            if last_ai is not None:
+                mode_parsed = AIEnhancementMode.from_string(last_ai)
+                if mode_parsed == AIEnhancementMode.OPENAI:
+                    ai_enhancement_mode = AIEnhancementMode.OPENAI
+                    print(f"Using previous AI_ENHANCEMENT: {last_ai} (from last session)")
+                elif mode_parsed == AIEnhancementMode.LOCAL:
+                    ai_enhancement_mode = AIEnhancementMode.LOCAL
+                    local_model = 'distilgpt2'
+                    print(f"Using previous AI_ENHANCEMENT: {last_ai} (from last session)")
+                elif mode_parsed == AIEnhancementMode.DISABLED:
+                    ai_enhancement_mode = None
+                    print(f"Using previous AI_ENHANCEMENT: {last_ai} (from last session)")
+                else:
+                    # last_ai is a model name string from previous session
+                    ai_enhancement_mode = AIEnhancementMode.LOCAL
+                    local_model = last_ai
+                    print(f"Using previous AI_ENHANCEMENT: {last_ai} (from last session)")
+            else:
+                ai_enhancement_mode, local_model = transcriber.get_ai_enhancement_input()
+
+            if ai_enhancement_mode is not None:
+                prompt_filename, inline_prompt = transcriber.get_prompt_input()
+                if prompt_filename:
+                    prompt_text = transcriber.load_prompt_file(prompt_filename)
+                    used_fields["PROMPT"] = prompt_filename
+                elif inline_prompt:
+                    prompt_text = inline_prompt
+                    used_fields["PROMPT"] = "(inline)"
+                else:
+                    ai_enhancement_mode = None
+
+            if ai_enhancement_mode == AIEnhancementMode.OPENAI:
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    api_key = input("Enter your OpenAI API key: ").strip()
+                if not api_key:
+                    print("No API key provided. Disabling AI enhancement.")
+                    ai_enhancement_mode = None
+
+            if ai_enhancement_mode == AIEnhancementMode.OPENAI:
+                used_fields["AI_ENHANCEMENT"] = "openai"
+            elif ai_enhancement_mode == AIEnhancementMode.LOCAL:
+                used_fields["AI_ENHANCEMENT"] = local_model if local_model else "local"
+            else:
+                used_fields["AI_ENHANCEMENT"] = "n"
         else:
             model_name = ModelSize.BASE.value
             use_en_model = False
+            ai_enhancement_mode = None
+            local_model = None
+            prompt_text = ""
+            api_key = None
             
     # --- If loading from .env, get parameters from environment variables or prompt for missing ones ---
 
@@ -1094,7 +1642,7 @@ def main():
                 if url != transcriber.URL_PLACEHOLDER:
                     print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
                 while True:
-                    url = input("Enter the YouTube video URL, video ID,, video ID, or local file path: ").strip()
+                    url = input("Enter the YouTube video URL, video ID, or local file path: ").strip()
                     if transcriber.is_youtube_video_id(url):
                         url = transcriber.construct_youtube_url(url)
                         print(f"Detected video ID, using: {url}")
@@ -1347,6 +1895,82 @@ def main():
                     else:
                         use_en_model = False
 
+            # --- AI Enhancement (profile/env) ---
+            ai_enhancement_str = os.getenv("AI_ENHANCEMENT")
+            ai_enhancement_mode = None
+            local_model = None
+            prompt_text = ""
+            api_key = None
+
+            if ai_enhancement_str and transcribe_audio:
+                mode_parsed = AIEnhancementMode.from_string(ai_enhancement_str.strip().lower())
+                if mode_parsed == AIEnhancementMode.OPENAI:
+                    ai_enhancement_mode = AIEnhancementMode.OPENAI
+                    print(f"Loaded AI_ENHANCEMENT: {ai_enhancement_str} (from {profile_name})")
+                elif mode_parsed == AIEnhancementMode.LOCAL:
+                    ai_enhancement_mode = AIEnhancementMode.LOCAL
+                    val = ai_enhancement_str.strip()
+                    if val.lower() == 'local':
+                        local_model = 'distilgpt2'
+                    elif val.lower() in LocalModel.all_model_values():
+                        local_model = LocalModel.get_by_name(val.lower()).hf_model_id
+                    else:
+                        local_model = 'distilgpt2'
+                    print(f"Loaded AI_ENHANCEMENT: {ai_enhancement_str} (from {profile_name})")
+                elif mode_parsed == AIEnhancementMode.DISABLED:
+                    ai_enhancement_mode = None
+                    print(f"Loaded AI_ENHANCEMENT: {ai_enhancement_str} (from {profile_name})")
+                else:
+                    # Not a known keyword — treat as a model name/ID
+                    ai_enhancement_mode = AIEnhancementMode.LOCAL
+                    local_model = ai_enhancement_str.strip()
+                    print(f"Loaded AI_ENHANCEMENT: {ai_enhancement_str} (from {profile_name})")
+            elif transcribe_audio:
+                ai_enhancement_mode, local_model = transcriber.get_ai_enhancement_input()
+
+            if ai_enhancement_mode is not None and transcribe_audio:
+                prompt_env = os.getenv("PROMPT")
+                if prompt_env:
+                    prompt_env = prompt_env.strip()
+                    available_prompts = transcriber.list_available_prompts()
+                    if prompt_env in available_prompts:
+                        prompt_text = transcriber.load_prompt_file(prompt_env)
+                        print(f"Loaded PROMPT: {prompt_env} (from {profile_name})")
+                    elif prompt_env + transcriber.TXT_EXT in available_prompts:
+                        prompt_text = transcriber.load_prompt_file(prompt_env + transcriber.TXT_EXT)
+                        print(f"Loaded PROMPT: {prompt_env} (from {profile_name})")
+                    else:
+                        print(f"Prompt file not found: {prompt_env}")
+                        prompt_filename, inline_prompt = transcriber.get_prompt_input()
+                        if prompt_filename:
+                            prompt_text = transcriber.load_prompt_file(prompt_filename)
+                        elif inline_prompt:
+                            prompt_text = inline_prompt
+                        else:
+                            ai_enhancement_mode = None
+                else:
+                    prompt_filename, inline_prompt = transcriber.get_prompt_input()
+                    if prompt_filename:
+                        prompt_text = transcriber.load_prompt_file(prompt_filename)
+                    elif inline_prompt:
+                        prompt_text = inline_prompt
+                    else:
+                        ai_enhancement_mode = None
+
+            if ai_enhancement_mode == AIEnhancementMode.OPENAI and transcribe_audio:
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    api_key = input("Enter your OpenAI API key: ").strip()
+                if not api_key:
+                    print("No API key provided. Disabling AI enhancement.")
+                    ai_enhancement_mode = None
+
+            if not transcribe_audio:
+                ai_enhancement_mode = None
+                local_model = None
+                prompt_text = ""
+                api_key = None
+
     # --- Now, proceed with the rest of the script using the gathered parameters ---
     # Create a YouTube object from the URL only if it's not a local file
     if not is_local_file:
@@ -1568,6 +2192,17 @@ def main():
             file_path, model_name, target_language
         )
 
+        # --- AI Enhancement ---
+        if ai_enhancement_mode is not None and transcribed_text and transcribed_text.strip():
+            print(f"\nEnhancing transcript with AI ({ai_enhancement_mode.name.lower()})...")
+            transcribed_text = transcriber.enhance_text(
+                transcribed_text,
+                ai_enhancement_mode,
+                prompt_text,
+                api_key=api_key,
+                local_model=local_model
+            )
+
         # Create and open a txt file with the text
         if language == transcriber.DEFAULT_LANGUAGE:
             transcriber.create_and_open_txt(transcribed_text, f"{filename_base}{transcriber.TXT_EXT}")
@@ -1673,6 +2308,15 @@ def main():
                     os.environ["LAST_USE_EN_MODEL"] = "y" if use_en_model else "n"
                 except Exception:
                     pass
+                try:
+                    if ai_enhancement_mode == AIEnhancementMode.OPENAI:
+                        os.environ["LAST_AI_ENHANCEMENT"] = "openai"
+                    elif ai_enhancement_mode == AIEnhancementMode.LOCAL:
+                        os.environ["LAST_AI_ENHANCEMENT"] = local_model if local_model else "local"
+                    else:
+                        os.environ["LAST_AI_ENHANCEMENT"] = "n"
+                except Exception:
+                    pass
             os.environ["_REPEAT_INVOCATION"] = "1"
             try:
                 os.environ["URL"] = transcriber.URL_PLACEHOLDER
@@ -1686,14 +2330,14 @@ def main():
             print("Repeating session as requested...")
             main()
         else:
-            for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL"):
+            for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL", "LAST_AI_ENHANCEMENT"):
                 if k in os.environ:
                     try:
                         del os.environ[k]
                     except Exception:
                         pass
     except Exception:
-        for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL"):
+        for k in ("_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT", "LAST_DOWNLOAD_VIDEO", "LAST_NO_AUDIO_IN_VIDEO", "LAST_RESOLUTION", "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL", "LAST_AI_ENHANCEMENT"):
             if k in os.environ:
                 try:
                     del os.environ[k]
