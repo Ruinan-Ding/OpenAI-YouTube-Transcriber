@@ -94,7 +94,7 @@ class ModelChoice(Enum):
 
 class AIEnhancementMode(Enum):
     """Modes for AI-powered transcript enhancement."""
-    OPENAI = ('y', 'yes', 'true', 't', '1', 'openai')
+    OPENROUTER = ('y', 'yes', 'true', 't', '1', 'openrouter', 'openai')  # 'openai' kept as legacy alias
     LOCAL = ('local',)
     DISABLED = ('n', 'no', 'false', 'f', '0')
 
@@ -114,6 +114,8 @@ class AIEnhancementMode(Enum):
 
 class LocalModel(Enum):
     """Available local models for transcript enhancement."""
+    QWEN_1_5B = ('qwen2.5-1.5b', 'Qwen/Qwen2.5-1.5B-Instruct')
+    QWEN_0_5B = ('qwen2.5-0.5b', 'Qwen/Qwen2.5-0.5B-Instruct')
     DISTILGPT2 = ('distilgpt2', 'distilgpt2')
     GPT2 = ('gpt2', 'gpt2')
     GPT2_MEDIUM = ('gpt2-medium', 'gpt2-medium')
@@ -125,16 +127,21 @@ class LocalModel(Enum):
         self.hf_model_id = hf_model_id
 
     @classmethod
+    def default(cls):
+        """The default local model: small, instruction-tuned, CPU-friendly."""
+        return cls.QWEN_1_5B
+
+    @classmethod
     def all_model_values(cls):
         return [model.display_name for model in cls]
 
     @classmethod
     def get_by_name(cls, name):
-        """Look up a LocalModel by display name. Returns DISTILGPT2 as default."""
+        """Look up a LocalModel by display name. Returns the default if not found."""
         for model in cls:
             if model.display_name == name.lower().strip():
                 return model
-        return cls.DISTILGPT2
+        return cls.default()
 
     @classmethod
     def get_by_number(cls, number):
@@ -143,7 +150,7 @@ class LocalModel(Enum):
         idx = int(number) - 1
         if 0 <= idx < len(models):
             return models[idx]
-        return cls.DISTILGPT2
+        return cls.default()
 
 #########################################
 ## TRANSCRIBER CLASS
@@ -172,6 +179,11 @@ class YouTubeTranscriber:
     DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
     URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
     DEFAULT_LANGUAGE = 'en'
+    # Appended to the enhancement prompt so chat models don't add "Sure! Here's..." preambles
+    ENHANCEMENT_OUTPUT_DIRECTIVE = "Output only the enhanced text, with no preamble, headers, or commentary."
+    # OpenRouter proxies any model it hosts through the OpenAI-compatible API
+    OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+    DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini"
     
     # Default field values for profile creation
     DEFAULT_FIELDS = {
@@ -385,7 +397,7 @@ class YouTubeTranscriber:
         
         Returns:
             tuple: (AIEnhancementMode, model_id_string_or_None)
-            - (OPENAI, None) if user picks OpenAI API
+            - (OPENROUTER, None) if user picks the OpenRouter API
             - (LOCAL, 'model_id') if user picks a local model
             - (None, None) if user declines
         """
@@ -393,8 +405,8 @@ class YouTubeTranscriber:
             suggestions = ", ".join(m.display_name for m in LocalModel)
             prompt = (
                 "Enhance transcript with AI?\n"
-                " - Enter 'y' or 'openai' for OpenAI API\n"
-                " - Enter 'local' to use default local model (distilgpt2)\n"
+                " - Enter 'y' or 'openrouter' for the OpenRouter API\n"
+                f" - Enter 'local' to use default local model ({LocalModel.default().display_name})\n"
                 f" - Enter a model name (e.g., {suggestions})\n"
                 "   or any HuggingFace model ID (e.g., microsoft/phi-2)\n"
                 " - Enter 'n' to skip\n"
@@ -406,11 +418,11 @@ class YouTubeTranscriber:
             if not user_input or user_lower in AIEnhancementMode.DISABLED.value:
                 return None, None
             
-            if user_lower in AIEnhancementMode.OPENAI.value:
-                return AIEnhancementMode.OPENAI, None
+            if user_lower in AIEnhancementMode.OPENROUTER.value:
+                return AIEnhancementMode.OPENROUTER, None
             
             if user_lower == 'local':
-                return AIEnhancementMode.LOCAL, 'distilgpt2'
+                return AIEnhancementMode.LOCAL, LocalModel.default().hf_model_id
             
             # Check if it's a known local model display name
             if user_lower in LocalModel.all_model_values():
@@ -596,37 +608,42 @@ class YouTubeTranscriber:
         
         return merged.strip()
 
-    def enhance_with_openai(self, text, prompt_text, api_key):
-        """Enhance transcript text using OpenAI API with chunking.
-        
+    def enhance_with_openrouter(self, text, prompt_text, api_key):
+        """Enhance transcript text using the OpenRouter API with chunking.
+
+        OpenRouter is OpenAI-API-compatible and proxies any model it hosts,
+        so the model is selectable via the OPENROUTER_MODEL environment variable
+        (e.g., 'anthropic/claude-3.5-sonnet', 'deepseek/deepseek-chat').
+
         Args:
             text: The raw transcript text.
             prompt_text: The enhancement prompt (from prompt file).
-            api_key: OpenAI API key.
-            
+            api_key: OpenRouter API key.
+
         Returns:
             str: Enhanced text, or original text on failure.
         """
         try:
             import openai
         except ImportError:
-            print("Warning: 'openai' package not installed. Skipping OpenAI enhancement.")
+            print("Warning: 'openai' package not installed. Skipping OpenRouter enhancement.")
             print("Install with: pip install openai")
             return text
-        
-        client = openai.OpenAI(api_key=api_key)
+
+        model = os.getenv("OPENROUTER_MODEL") or self.DEFAULT_OPENROUTER_MODEL
+        client = openai.OpenAI(api_key=api_key, base_url=self.OPENROUTER_BASE_URL)
         chunks = self.chunk_text(text, max_tokens=3000, overlap_tokens=100)
         enhanced_chunks = []
-        
-        print(f"Enhancing transcript with OpenAI API ({len(chunks)} chunk(s))...")
-        
+
+        print(f"Enhancing transcript with OpenRouter ({model}, {len(chunks)} chunk(s))...")
+
         for i, chunk in enumerate(chunks):
             try:
                 print(f"  Processing chunk {i+1}/{len(chunks)}...")
                 response = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=model,
                     messages=[
-                        {"role": "system", "content": prompt_text},
+                        {"role": "system", "content": f"{prompt_text}\n\n{self.ENHANCEMENT_OUTPUT_DIRECTIVE}"},
                         {"role": "user", "content": chunk}
                     ],
                     temperature=0.3
@@ -634,11 +651,11 @@ class YouTubeTranscriber:
                 enhanced = response.choices[0].message.content.strip()
                 enhanced_chunks.append(enhanced)
             except Exception as e:
-                print(f"  Warning: OpenAI API error on chunk {i+1}: {str(e)}")
+                print(f"  Warning: OpenRouter API error on chunk {i+1}: {str(e)}")
                 enhanced_chunks.append(chunk)  # Fallback to original chunk
-        
+
         result = self.merge_chunks(enhanced_chunks)
-        print("OpenAI enhancement complete.")
+        print("OpenRouter enhancement complete.")
         return result
 
     def enhance_with_local(self, text, prompt_text, local_model):
@@ -697,38 +714,62 @@ class YouTubeTranscriber:
                 'text-generation',
                 model=model_id,
                 tokenizer=tokenizer,
+                dtype="auto",
                 device_map="auto" if accelerate_available else None
             )
         except Exception as e:
             print(f"Error loading local model '{model_id}': {str(e)}")
             print("Skipping local enhancement.")
             return text
-        
+
         chunks = self.chunk_text(text, max_tokens=chunk_max, overlap_tokens=50)
         enhanced_chunks = []
-        
+        # Instruct/chat models define a chat template; base models (gpt2 etc.) don't
+        has_chat_template = getattr(tokenizer, 'chat_template', None) is not None
+
         print(f"Enhancing transcript with local model ({len(chunks)} chunk(s))...")
-        
+
         for i, chunk in enumerate(chunks):
             try:
                 print(f"  Processing chunk {i+1}/{len(chunks)}...")
-                full_prompt = f"{prompt_text}\n\n{chunk}\n\nEnhanced version:"
-                
-                result = generator(
-                    full_prompt,
-                    max_new_tokens=len(chunk.split()) * 2,  # Allow roughly 2x input length
-                    do_sample=True,
-                    temperature=0.3,
-                    num_return_sequences=1
-                )
-                
-                generated = result[0]['generated_text']
-                # Strip the prompt from the output
-                if "Enhanced version:" in generated:
-                    enhanced = generated.split("Enhanced version:")[-1].strip()
+                max_new_tokens = max(len(chunk.split()) * 2, 256)  # Allow roughly 2x input length
+
+                if has_chat_template:
+                    messages = [
+                        {"role": "system", "content": f"{prompt_text}\n\n{self.ENHANCEMENT_OUTPUT_DIRECTIVE}"},
+                        {"role": "user", "content": chunk}
+                    ]
+                    full_prompt = tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                    result = generator(
+                        full_prompt,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=True,
+                        temperature=0.3,
+                        num_return_sequences=1,
+                        return_full_text=False
+                    )
+                    enhanced = result[0]['generated_text'].strip()
                 else:
-                    enhanced = generated[len(full_prompt):].strip()
-                
+                    full_prompt = f"{prompt_text}\n\n{chunk}\n\nEnhanced version:"
+                    result = generator(
+                        full_prompt,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=True,
+                        temperature=0.3,
+                        num_return_sequences=1
+                    )
+                    generated = result[0]['generated_text']
+                    # Strip the prompt from the output
+                    if "Enhanced version:" in generated:
+                        enhanced = generated.split("Enhanced version:")[-1].strip()
+                    else:
+                        enhanced = generated[len(full_prompt):].strip()
+
+                # Reasoning models (e.g., DeepSeek-R1 distills) emit <think> blocks; drop them
+                enhanced = re.sub(r'<think>.*?</think>', '', enhanced, flags=re.DOTALL).strip()
+
                 # If model produced nothing useful, keep original
                 if not enhanced or len(enhanced) < len(chunk) * 0.3:
                     enhanced_chunks.append(chunk)
@@ -747,9 +788,9 @@ class YouTubeTranscriber:
         
         Args:
             text: The raw transcript text.
-            mode: AIEnhancementMode enum (OPENAI or LOCAL).
+            mode: AIEnhancementMode enum (OPENROUTER or LOCAL).
             prompt_text: The enhancement prompt text.
-            api_key: OpenAI API key (required if mode is OPENAI).
+            api_key: OpenRouter API key (required if mode is OPENROUTER).
             local_model: HuggingFace model ID string or LocalModel enum (required if mode is LOCAL).
             
         Returns:
@@ -763,15 +804,15 @@ class YouTubeTranscriber:
             print("Warning: No prompt loaded. Skipping enhancement.")
             return text
         
-        if mode == AIEnhancementMode.OPENAI:
+        if mode == AIEnhancementMode.OPENROUTER:
             if not api_key:
-                print("Warning: No OpenAI API key provided. Skipping enhancement.")
+                print("Warning: No OpenRouter API key provided. Skipping enhancement.")
                 return text
-            return self.enhance_with_openai(text, prompt_text, api_key)
+            return self.enhance_with_openrouter(text, prompt_text, api_key)
         
         elif mode == AIEnhancementMode.LOCAL:
             if not local_model:
-                local_model = 'distilgpt2'
+                local_model = LocalModel.default().hf_model_id
             return self.enhance_with_local(text, prompt_text, local_model)
         
         else:
@@ -1547,12 +1588,12 @@ def main():
             last_ai = os.environ.get("LAST_AI_ENHANCEMENT")
             if last_ai is not None:
                 mode_parsed = AIEnhancementMode.from_string(last_ai)
-                if mode_parsed == AIEnhancementMode.OPENAI:
-                    ai_enhancement_mode = AIEnhancementMode.OPENAI
+                if mode_parsed == AIEnhancementMode.OPENROUTER:
+                    ai_enhancement_mode = AIEnhancementMode.OPENROUTER
                     print(f"Using previous AI_ENHANCEMENT: {last_ai} (from last session)")
                 elif mode_parsed == AIEnhancementMode.LOCAL:
                     ai_enhancement_mode = AIEnhancementMode.LOCAL
-                    local_model = 'distilgpt2'
+                    local_model = LocalModel.get_by_name(last_ai).hf_model_id if last_ai.lower() != 'local' else LocalModel.default().hf_model_id
                     print(f"Using previous AI_ENHANCEMENT: {last_ai} (from last session)")
                 elif mode_parsed == AIEnhancementMode.DISABLED:
                     ai_enhancement_mode = None
@@ -1576,16 +1617,16 @@ def main():
                 else:
                     ai_enhancement_mode = None
 
-            if ai_enhancement_mode == AIEnhancementMode.OPENAI:
-                api_key = os.getenv("OPENAI_API_KEY")
+            if ai_enhancement_mode == AIEnhancementMode.OPENROUTER:
+                api_key = os.getenv("OPENROUTER_API_KEY")
                 if not api_key:
-                    api_key = input("Enter your OpenAI API key: ").strip()
+                    api_key = input("Enter your OpenRouter API key: ").strip()
                 if not api_key:
                     print("No API key provided. Disabling AI enhancement.")
                     ai_enhancement_mode = None
 
-            if ai_enhancement_mode == AIEnhancementMode.OPENAI:
-                used_fields["AI_ENHANCEMENT"] = "openai"
+            if ai_enhancement_mode == AIEnhancementMode.OPENROUTER:
+                used_fields["AI_ENHANCEMENT"] = "openrouter"
             elif ai_enhancement_mode == AIEnhancementMode.LOCAL:
                 used_fields["AI_ENHANCEMENT"] = local_model if local_model else "local"
             else:
@@ -1904,18 +1945,18 @@ def main():
 
             if ai_enhancement_str and transcribe_audio:
                 mode_parsed = AIEnhancementMode.from_string(ai_enhancement_str.strip().lower())
-                if mode_parsed == AIEnhancementMode.OPENAI:
-                    ai_enhancement_mode = AIEnhancementMode.OPENAI
+                if mode_parsed == AIEnhancementMode.OPENROUTER:
+                    ai_enhancement_mode = AIEnhancementMode.OPENROUTER
                     print(f"Loaded AI_ENHANCEMENT: {ai_enhancement_str} (from {profile_name})")
                 elif mode_parsed == AIEnhancementMode.LOCAL:
                     ai_enhancement_mode = AIEnhancementMode.LOCAL
                     val = ai_enhancement_str.strip()
                     if val.lower() == 'local':
-                        local_model = 'distilgpt2'
+                        local_model = LocalModel.default().hf_model_id
                     elif val.lower() in LocalModel.all_model_values():
                         local_model = LocalModel.get_by_name(val.lower()).hf_model_id
                     else:
-                        local_model = 'distilgpt2'
+                        local_model = LocalModel.default().hf_model_id
                     print(f"Loaded AI_ENHANCEMENT: {ai_enhancement_str} (from {profile_name})")
                 elif mode_parsed == AIEnhancementMode.DISABLED:
                     ai_enhancement_mode = None
@@ -1957,10 +1998,10 @@ def main():
                     else:
                         ai_enhancement_mode = None
 
-            if ai_enhancement_mode == AIEnhancementMode.OPENAI and transcribe_audio:
-                api_key = os.getenv("OPENAI_API_KEY")
+            if ai_enhancement_mode == AIEnhancementMode.OPENROUTER and transcribe_audio:
+                api_key = os.getenv("OPENROUTER_API_KEY")
                 if not api_key:
-                    api_key = input("Enter your OpenAI API key: ").strip()
+                    api_key = input("Enter your OpenRouter API key: ").strip()
                 if not api_key:
                     print("No API key provided. Disabling AI enhancement.")
                     ai_enhancement_mode = None
@@ -2309,8 +2350,8 @@ def main():
                 except Exception:
                     pass
                 try:
-                    if ai_enhancement_mode == AIEnhancementMode.OPENAI:
-                        os.environ["LAST_AI_ENHANCEMENT"] = "openai"
+                    if ai_enhancement_mode == AIEnhancementMode.OPENROUTER:
+                        os.environ["LAST_AI_ENHANCEMENT"] = "openrouter"
                     elif ai_enhancement_mode == AIEnhancementMode.LOCAL:
                         os.environ["LAST_AI_ENHANCEMENT"] = local_model if local_model else "local"
                     else:
