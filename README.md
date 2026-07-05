@@ -76,7 +76,7 @@ The script automatically extracts just the video ID from URLs and ignores things
 
 **Smart Audio Handling** — Automatically extracts audio from videos, combines them if needed, handles format conversions.
 
-**AI Transcript Enhancement** — Optionally clean up the raw transcript with AI after transcription. Use the OpenRouter API (any model they host, needs an API key) or a free local Hugging Face model, guided by a prompt file or a custom prompt you type in.
+**AI Transcript Enhancement** — Optionally clean up the raw transcript with AI after transcription. Use OpenAI, OpenRouter, or Anthropic (any needs an API key) or a free local Hugging Face model, guided by a prompt file or a custom prompt you type in.
 
 <div align="center">
   <img src="https://skillicons.dev/icons?i=python,github" alt="Tech Stack" />
@@ -264,12 +264,25 @@ Whisper transcripts are good, but they can have wonky punctuation and grammar. A
 
 When asked `Enhance transcript with AI?`, you've got options:
 
-- **`y` or `openrouter`** — Use the [OpenRouter](https://openrouter.ai/) API (`openai/gpt-4o-mini` by default). You'll need an OpenRouter API key: either set the `OPENROUTER_API_KEY` environment variable, add it to `Profile/config.txt`, or just type it in when prompted. Since OpenRouter proxies hundreds of models, you can pick any of them by setting `OPENROUTER_MODEL` (e.g., `anthropic/claude-3.5-sonnet`, `deepseek/deepseek-chat`, or a free one like `meta-llama/llama-3.1-8b-instruct:free`).
+- **`y`** — Use the default cloud provider ([OpenRouter](https://openrouter.ai/), `openai/gpt-4o-mini` by default).
+- **A provider name** — Pick a specific cloud API: `openai`, `openrouter`, or `anthropic`.
 - **`local`** — Use a free local model (Qwen2.5-1.5B-Instruct by default). No API key, runs entirely on your machine. First run downloads the model (~3GB).
 - **A model name** — Pick a specific local model (`qwen2.5-1.5b`, `qwen2.5-0.5b`, `distilgpt2`, `gpt2`, `gpt2-medium`, `phi-1_5`, `deepseek-1_5b`) or any Hugging Face model ID like `microsoft/phi-2`.
 - **`n`** — Skip it (the default).
 
-Local models need the `transformers` and `torch` packages (already in requirements.txt). The default Qwen2.5-1.5B-Instruct is instruction-tuned, so it actually follows your prompt. Tiny base models like `distilgpt2` and `gpt2` download faster but produce rough results—they complete text rather than follow instructions. For the best quality, use the OpenRouter API.
+#### Cloud providers
+
+Any cloud provider needs an API key: set the matching environment variable, add it to `Profile/config.txt`, or just type it in when prompted.
+
+| Provider | Choice | API key env var | Model env var | Default model |
+|---|---|---|---|---|
+| OpenAI | `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` | `gpt-4o-mini` |
+| OpenRouter | `openrouter` (default) | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` | `claude-opus-4-8` |
+
+OpenAI and OpenRouter both speak the same OpenAI-compatible chat completions API, so you can also point either one at a different OpenAI-compatible endpoint (Groq, Together, Azure OpenAI, a local Ollama server, ...) by setting `OPENAI_BASE_URL` / `OPENROUTER_BASE_URL`. Since OpenRouter itself proxies hundreds of models, you can pick any of them via `OPENROUTER_MODEL` (e.g., `anthropic/claude-3.5-sonnet`, `deepseek/deepseek-chat`, or a free one like `meta-llama/llama-3.1-8b-instruct:free`). Anthropic uses its own native Messages API (`ANTHROPIC_BASE_URL` also works if you're routing through a compatible proxy).
+
+Local models need the `transformers` and `torch` packages (already in requirements.txt). The default Qwen2.5-1.5B-Instruct is instruction-tuned, so it actually follows your prompt. Tiny base models like `distilgpt2` and `gpt2` download faster but produce rough results—they complete text rather than follow instructions. For the best quality, use a cloud provider.
 
 ### Prompts
 
@@ -288,7 +301,7 @@ Long transcripts are automatically split into chunks, enhanced piece by piece, a
 Set it and forget it with the `AI_ENHANCEMENT` and `PROMPT` fields:
 
 ```ini
-AI_ENHANCEMENT=openrouter   # or: n, local, qwen2.5-1.5b, distilgpt2, ...
+AI_ENHANCEMENT=openrouter   # or: n, local, anthropic, openai, qwen2.5-1.5b, distilgpt2, ...
 PROMPT=prompt.txt           # a file in OpenAIYouTubeTranscriber/Prompt/
 ```
 

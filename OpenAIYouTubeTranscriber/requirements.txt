@@ -13,6 +13,7 @@ moviepy
 tenacity
 git+https://github.com/openai/whisper.git
 openai
+anthropic
 tiktoken
 transformers
 torch
