@@ -20,7 +20,10 @@ from urllib.parse import urlparse
 
 # Third-party imports
 import whisper
-import moviepy
+try:
+    from moviepy import VideoFileClip  # moviepy 2.x
+except ImportError:  # moviepy 1.x exposes it via the editor module
+    from moviepy.editor import VideoFileClip
 from langdetect import detect, LangDetectException
 from pytubefix import YouTube
 from pytubefix.exceptions import RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked
@@ -162,7 +165,7 @@ class AIEnhancementMode(Enum):
     """Modes for AI-powered transcript enhancement."""
     API = ('y', 'yes', 'true', 't', '1') + tuple(p.key for p in Provider)
     LOCAL = ('local',)
-    DISABLED = ('n', 'no', 'false', 'f', '0')
+    DISABLED = ('n', 'no', 'false', 'f', '0', 'skip', 's')
 
     @classmethod
     def from_string(cls, value):
@@ -210,15 +213,6 @@ class LocalModel(Enum):
                 return model
         return cls.default()
 
-    @classmethod
-    def get_by_number(cls, number):
-        """Look up a LocalModel by 1-based index."""
-        models = list(cls)
-        idx = int(number) - 1
-        if 0 <= idx < len(models):
-            return models[idx]
-        return cls.default()
-
 #########################################
 ## TRANSCRIBER CLASS
 #########################################
@@ -235,7 +229,6 @@ class YouTubeTranscriber:
     VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
     PROFILE_DIR = os.path.join(DATA_DIR, "Profile")
     PROMPT_DIR = os.path.join(DATA_DIR, "Prompt")
-    DEFAULT_PROMPT = "prompt.txt"
     MP3_EXT = ".mp3"
     MP4_EXT = ".mp4"
     TXT_EXT = ".txt"
@@ -363,7 +356,7 @@ class YouTubeTranscriber:
     def get_yes_no_input(self, prompt_text, default="y"):
         """Prompt user for yes/no input with validation."""
         while True:
-            user_input = input(prompt_text).lower()
+            user_input = input(prompt_text).strip().lower()
             if user_input in YesNo.YES.value:
                 return True
             elif user_input in YesNo.NO.value:
@@ -383,7 +376,8 @@ class YouTubeTranscriber:
             prompt_text = self.DEFAULT_SOURCE_PROMPT
         while True:
             url = input(prompt_text).strip()
-            if self.is_youtube_video_id(url):
+            # An existing local file wins over an ID-lookalike filename
+            if self.is_youtube_video_id(url) and not os.path.exists(url):
                 url = self.construct_youtube_url(url)
                 print(f"Detected video ID, using: {url}")
                 return url, False
@@ -407,7 +401,7 @@ class YouTubeTranscriber:
                                "5. Large-v1\n"
                                "6. Large-v2\n"
                                "7. Large-v3\n"
-                               "Enter your choice (1-7 or model name, default Base): ").lower()
+                               "Enter your choice (1-7 or model name, default Base): ").strip().lower()
             if model_choice in ModelSize.valid_choices() + ('',):
                 return model_choice
             else:
@@ -421,7 +415,7 @@ class YouTubeTranscriber:
                 f"default '{self.DEFAULT_LANGUAGE}'). See supported languages at "
                 "https://github.com/openai/whisper#supported-languages): "
             )
-            target_language = input(prompt).lower()
+            target_language = input(prompt).strip().lower()
 
             if not target_language:
                 return self.DEFAULT_LANGUAGE
@@ -584,7 +578,7 @@ class YouTubeTranscriber:
         """Load prompt text from a file in the Prompt/ directory.
 
         Args:
-            filename: Name of the prompt file (e.g., 'prompt.txt').
+            filename: Name of the prompt file (e.g., 'prompt-refinement.txt').
 
         Returns:
             str: The prompt text, or empty string if file not found/empty.
@@ -661,9 +655,10 @@ class YouTubeTranscriber:
 
         merged = enhanced_chunks[0]
         for chunk in enhanced_chunks[1:]:
-            # Try to find overlap between end of merged and start of chunk
-            # Check last 100 chars of merged against start of chunk
-            overlap_window = min(100, len(merged))
+            # Try to find overlap between end of merged and start of chunk.
+            # The window must cover the largest overlap chunk_text produces
+            # (100 overlap_tokens * 4 chars/token = 400 chars), with slack.
+            overlap_window = min(600, len(merged))
             tail = merged[-overlap_window:]
 
             best_overlap = 0
@@ -974,12 +969,14 @@ class YouTubeTranscriber:
             subprocess.run([opener, fn], check=True)
 
     def sanitize_filename(self, text):
-        """Strip invalid characters from filename."""
-        return "".join(c for c in text if c.isalnum() or c in "._- ")
+        """Strip invalid characters from filename; never returns an empty name."""
+        cleaned = "".join(c for c in text if c.isalnum() or c in "._- ").strip()
+        return cleaned or "untitled"
 
     def create_and_open_txt(self, text, filename):
         """Write transcript text to the Transcript/ directory and open it."""
-        output_dir = os.path.join(os.path.dirname(__file__), self.TRANSCRIPT_DIR)
+        # cwd-relative like the Audio/Video dirs, so all outputs land together
+        output_dir = self.TRANSCRIPT_DIR
 
         if not self.ensure_directory_exists(output_dir):
             print(f"Error: Cannot create transcript directory {output_dir}")
@@ -1469,7 +1466,7 @@ def _prompt_profile_selection(transcriber, profiles):
         profile_input = input(
             f"Select a profile (number or name, default 1. {profiles[0]}, "
             f"or 'no' / 'n' / 'false' / 'f' / '0' / 'skip' / 's' to skip): "
-        )
+        ).strip()
         lower_input = profile_input.lower()
         if profile_input == '' or lower_input == '1':
             return profiles[0]
@@ -1518,7 +1515,7 @@ def _prompt_resolution_input(transcriber, used_fields):
             "... enter desired resolution (e.g., 720p, 720, highest, lowest, "
             "default get the highest resolutions), or enter fetch or f to get "
             "a list of available resolutions: "
-        )
+        ).strip()
 
         if not resolution:
             # Default to highest if input is empty
@@ -1531,7 +1528,7 @@ def _prompt_resolution_input(transcriber, used_fields):
                 resolution = Resolution.FETCH.value
             used_fields["RESOLUTION"] = resolution
             return resolution
-        if resolution.endswith("p"):
+        if resolution.endswith("p") and resolution[:-1].isdigit() and int(resolution[:-1]) > 0:
             used_fields["RESOLUTION"] = resolution
             return resolution
         if resolution.isdigit():
@@ -1604,7 +1601,9 @@ def _select_profile(transcriber):
     with open(config_env_path, 'r', encoding='utf-8-sig') as cf:
         for line in cf:
             if line.strip().startswith("LOAD_PROFILE"):
-                _, val = line.split("=", 1)
+                _, sep, val = line.partition("=")
+                if not sep:
+                    continue  # malformed line (no '='); keep looking
                 load_profile_str = val.strip()
                 os.environ["LOAD_PROFILE"] = load_profile_str
                 break
@@ -1759,11 +1758,16 @@ def _configure_from_profile(transcriber, profile_name):
     cfg = SessionConfig(used_fields=transcriber.DEFAULT_FIELDS.copy())
 
     repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
-    # On repeat, ignore the profile URL so the user is asked for a fresh one
-    cfg.url = transcriber.URL_PLACEHOLDER if repeat_invocation else os.getenv("URL")
+    # On repeat, ignore the profile URL so the user is asked for a fresh one.
+    # A missing URL field behaves like the placeholder: prompt for it later.
+    if repeat_invocation:
+        cfg.url = transcriber.URL_PLACEHOLDER
+    else:
+        cfg.url = os.getenv("URL") or transcriber.URL_PLACEHOLDER
 
-    if cfg.url and cfg.url != transcriber.URL_PLACEHOLDER:
-        if transcriber.is_youtube_video_id(cfg.url):
+    if cfg.url != transcriber.URL_PLACEHOLDER:
+        # An existing local file wins over an ID-lookalike filename
+        if transcriber.is_youtube_video_id(cfg.url) and not os.path.exists(cfg.url):
             cfg.url = transcriber.construct_youtube_url(cfg.url)
             print(f"Detected video ID from profile, using: {cfg.url}")
             try:
@@ -1824,12 +1828,16 @@ def _configure_from_profile(transcriber, profile_name):
             cfg.resolution = resolution
 
     if cfg.download_video and not cfg.is_local_file and cfg.resolution == Resolution.FETCH.value:
-        try:
-            yt = YouTube(cfg.url, "WEB")
-        except RegexMatchError:
-            print("Error: Invalid YouTube URL.")
-            sys.exit()
-        cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
+        # Fetching resolutions needs a real URL; ask now if it's still the placeholder
+        if not cfg.url or cfg.url == transcriber.URL_PLACEHOLDER:
+            cfg.url, cfg.is_local_file = transcriber.prompt_for_source()
+        if not cfg.is_local_file:
+            try:
+                yt = YouTube(cfg.url, "WEB")
+            except RegexMatchError:
+                print("Error: Invalid YouTube URL.")
+                sys.exit()
+            cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
 
     if not cfg.is_local_file:
         cfg.download_audio = _bool_from_profile_env(
@@ -1956,7 +1964,7 @@ def _create_youtube_with_recovery(transcriber, cfg):
 
 def _run_pipeline(transcriber, cfg):
     """Execute the session: download streams, transcribe, enhance, and save."""
-    if not cfg.is_local_file and cfg.url == transcriber.URL_PLACEHOLDER:
+    if not cfg.is_local_file and (not cfg.url or cfg.url == transcriber.URL_PLACEHOLDER):
         cfg.url, cfg.is_local_file = transcriber.prompt_for_source()
 
     if not cfg.is_local_file:
@@ -2016,8 +2024,11 @@ def _run_pipeline(transcriber, cfg):
     else:
         print("Skipping video download...")
 
-    if cfg.download_audio:
+    if cfg.download_audio and not cfg.is_local_file:
         transcriber.download_audio_stream(cfg.yt, filename_base, is_temp=False)
+    elif cfg.download_audio:
+        # Source switched to a local file mid-run; there is no stream to download
+        print("Skipping audio download (source is a local file).")
 
     if cfg.download_video and not cfg.is_local_file and not cfg.no_audio_in_video:
         if not cfg.download_audio:
@@ -2036,16 +2047,19 @@ def _run_pipeline(transcriber, cfg):
             else:
                 # Extract the audio track from a local video file
                 try:
-                    video = moviepy.editor.VideoFileClip(cfg.url)
-                    audio_file = f"{filename_base}.mp3"
+                    video = VideoFileClip(cfg.url)
+                    audio_file = os.path.join(transcriber.AUDIO_DIR, filename_base + transcriber.MP3_EXT)
                     try:
+                        if video.audio is None:
+                            print("Error: Video file has no audio track.")
+                            sys.exit(1)
                         video.audio.write_audiofile(audio_file)
                     finally:
                         video.close()
-                except (IOError, OSError, ValueError) as e:
+                except (IOError, OSError, ValueError, AttributeError) as e:
                     print(f"Error processing video file: {str(e)}")
                     sys.exit(1)
-            file_path = cfg.url
+            file_path = audio_file
         else:  # If it's not a local file, it's a YouTube video
             audio_file = os.path.join(transcriber.AUDIO_DIR, audio_filename)
             if not cfg.download_audio:
@@ -2053,8 +2067,14 @@ def _run_pipeline(transcriber, cfg):
                 audio_file, _ = transcriber.download_audio_stream(cfg.yt, filename_base, is_temp=True)
             file_path = audio_file
 
+        # English-specific variants (e.g. base.en) exist for the standard sizes only
+        model_name = cfg.model_name
+        if (cfg.use_en_model and cfg.target_language == transcriber.DEFAULT_LANGUAGE
+                and model_name in tuple(size.value for size in ModelSize.standard_models())):
+            model_name += ".en"
+
         transcribed_text, language = transcriber.transcribe_audio_file(
-            file_path, cfg.model_name, cfg.target_language
+            file_path, model_name, cfg.target_language
         )
 
         # --- AI Enhancement ---
@@ -2084,7 +2104,7 @@ def _run_pipeline(transcriber, cfg):
     temp_audio_file = os.path.join(temp_audio_path, filename_base + transcriber.MP3_EXT)
     if (not cfg.is_local_file and not cfg.download_audio
             and (cfg.transcribe_audio or cfg.download_video)
-            and not cfg.no_audio_in_video and os.path.exists(temp_audio_file)):
+            and os.path.exists(temp_audio_file)):
         os.remove(temp_audio_file)
         if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
             os.rmdir(temp_audio_path)
@@ -2163,7 +2183,9 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
         else:
             _clear_session_env()
     except Exception:
+        # Clean up repeat state, but never hide the error from the user
         _clear_session_env()
+        raise
 
 
 #########################################

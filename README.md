@@ -302,7 +302,7 @@ Set it and forget it with the `AI_ENHANCEMENT` and `PROMPT` fields:
 
 ```ini
 AI_ENHANCEMENT=openrouter   # or: n, local, anthropic, openai, qwen2.5-1.5b, distilgpt2, ...
-PROMPT=prompt.txt           # a file in OpenAIYouTubeTranscriber/Prompt/
+PROMPT=prompt-refinement.txt   # a file in OpenAIYouTubeTranscriber/Prompt/
 ```
 
 <div align="center">
