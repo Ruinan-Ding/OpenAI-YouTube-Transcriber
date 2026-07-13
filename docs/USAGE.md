@@ -1,55 +1,53 @@
-# How to Use the Transcriber
+# Usage
 
 ## Basic Usage
-
-Just run it:
 
 ```bash
 python OpenAIYouTubeTranscriber.py
 ```
 
-The script will ask you some questions and then do its thing.
+The script walks through a series of prompts, then downloads and/or transcribes.
 
-## What It Asks You
+## The Prompts
 
-**1. Where's the audio?**
+**1. Source**
 
-You've got three input options:
+Three input options:
 - **YouTube URL**: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
-- **Video ID only**: `jNQXAC9IVRw` (just the 11-character code)
+- **Video ID only**: `jNQXAC9IVRw` (the 11-character code)
 - **Local file**: `/path/to/audio.mp3` or `/path/to/video.mp4`
 
-The script automatically extracts the video ID from whatever YouTube URL format you give it—full URLs, short links (`youtu.be/jNQXAC9IVRw`), or just the ID itself all work the same way. Query parameters like timestamps (`&t=30s`) or playlist info (`&list=PLxyz`) get stripped out automatically. Only the 11-character video ID matters for downloading and transcription.
+The video ID is extracted from any YouTube URL format — full URLs, short links (`youtu.be/...`), or the bare ID. Query parameters such as timestamps (`&t=30s`) or playlist info (`&list=...`) are stripped automatically.
 
 **2. Download options**
-- Want the video file? (yes/no)
-- If yes, what resolution?
-- Want just the audio file separately? (yes/no)
+- Download the video file? (yes/no)
+- If yes, which resolution?
+- Download the audio file separately? (yes/no)
 
 **3. Transcription settings**
-- Which Whisper model? (tiny through large-v3)
-- What language? (en, es, fr, etc.)
-- For English: want the English-specific model? Usually gives better results
+- Which Whisper model (tiny through large-v3)
+- Which language (en, es, fr, ...)
+- For English: whether to use the English-specific model (usually more accurate)
 
 **4. Run again?**
-- Do another transcription right away or exit?
+- Start another transcription immediately or exit
 
-## Using Profiles (The Smart Way)
+## Profiles
 
-If you find yourself running the same workflow repeatedly, use profiles.
+For workflows you run repeatedly, save the answers as a profile.
 
 ### Saving a Profile
 
-After running it once, it'll ask:
+After a run, the script asks:
 ```
 Do you want to save these settings as a profile? (y/N): y
 ```
 
-Say yes, and it creates a profile file you can reuse.
+Answering yes creates a reusable profile file.
 
 ### Loading a Profile
 
-Next time you run it, you'll see:
+On the next run:
 ```
 Available profiles:
 1. profile.txt
@@ -58,11 +56,9 @@ Available profiles:
 Pick one (1-2, or 'no' to skip): 1
 ```
 
-Just pick one and you're done—no more answering the same questions.
-
 ### Editing a Profile
 
-Profiles live in `OpenAIYouTubeTranscriber/Profile/` and are just plain text files. Open one in your editor:
+Profiles live in `OpenAIYouTubeTranscriber/Profile/` as plain text files:
 
 ```ini
 URL=https://www.youtube.com/watch?v=example
@@ -76,26 +72,20 @@ USE_EN_MODEL=n
 REPEAT=n
 ```
 
-Change whatever you want. Pretty self-explanatory.
-
-**The URL field accepts any format:**
+The `URL` field accepts any supported format:
 - Full URLs: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
 - Short URLs: `https://youtu.be/jNQXAC9IVRw`
-- Just the video ID: `jNQXAC9IVRw`
-- URLs with parameters: `https://www.youtube.com/watch?v=jNQXAC9IVRw&t=30s` (parameters get ignored)
+- The bare video ID: `jNQXAC9IVRw`
+- URLs with extra parameters: `https://www.youtube.com/watch?v=jNQXAC9IVRw&t=30s` (parameters are ignored)
 
-The script only cares about extracting the 11-character video ID—everything else gets stripped out during processing.
-
-## Where Stuff Gets Saved
-
-Everything goes into organized folders:
+## Output Locations
 
 - **Transcripts** — `OpenAIYouTubeTranscriber/Transcript/`
 - **Audio files** — `OpenAIYouTubeTranscriber/Audio/`
 - **Video files** — `OpenAIYouTubeTranscriber/Video/`
-- **Video without audio** (rare) — `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
+- **Video without audio** — `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
 
-## Real Examples
+## Examples
 
 **Transcribe using just the video ID:**
 ```bash
@@ -109,36 +99,21 @@ python OpenAIYouTubeTranscriber.py
 # Language? en
 ```
 
-**Use a full YouTube URL:**
-```bash
-python OpenAIYouTubeTranscriber.py
-# URL: https://www.youtube.com/watch?v=jNQXAC9IVRw
-# Works exactly the same—script extracts the ID automatically
-```
-
-**Use a short YouTube URL:**
-```bash
-python OpenAIYouTubeTranscriber.py
-# URL: https://youtu.be/jNQXAC9IVRw
-# Also works—ID gets extracted
-```
-
-**Just transcribe a YouTube video, don't download anything:**
+**Transcribe a YouTube video without downloading anything:**
 ```bash
 python OpenAIYouTubeTranscriber.py
 # URL: https://www.youtube.com/watch?v=jNQXAC9IVRw
 # Download video? n
 # Download audio? n
 # Transcribe? y
-# Model? 2 (base is solid)
+# Model? 2 (base)
 # Language? en
 ```
 
 **Download the video and transcribe it:**
 ```bash
 python OpenAIYouTubeTranscriber.py
-# Select a profile that has DOWNLOAD_VIDEO=y
-# Let it do its thing
+# Select a profile with DOWNLOAD_VIDEO=y
 ```
 
 **Transcribe a local file:**
@@ -147,8 +122,9 @@ python OpenAIYouTubeTranscriber.py
 # URL: /Users/you/Downloads/my_podcast.mp3
 # Download? n (it's already local)
 # Transcribe? y
-# Pick your settings
 ```
+
+Short URLs (`https://youtu.be/...`) work the same way as full URLs.
 
 ## Supported Languages
 
@@ -171,9 +147,9 @@ Install ffmpeg:
 - **Linux**: `sudo apt install ffmpeg`
 
 ### Out of memory
-Use smaller models (tiny, base) for lower-end systems.
+Use smaller models (tiny, base) on machines with limited RAM.
 
 ### Poor transcription quality
 - Try larger models (medium, large)
 - Ensure audio is clear and in the target language
-- Use English-specific model for English content
+- Use the English-specific model for English content

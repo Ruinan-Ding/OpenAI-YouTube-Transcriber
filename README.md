@@ -1,176 +1,132 @@
-<div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:FF6B6B,100:4ECDC4&height=120&section=header&text=YouTube%20Transcriber&fontSize=45&fontColor=fff&animation=fadeIn" width="100%"/>
-</div>
+# OpenAI YouTube Transcriber
 
-<div align="center">
-  
-  ![Python](https://img.shields.io/badge/Python-3.6+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-  ![OpenAI](https://img.shields.io/badge/OpenAI-Whisper-412991?style=for-the-badge&logo=openai&logoColor=white)
-  ![License](https://img.shields.io/badge/License-BSD%203--Clause-blue?style=for-the-badge)
-  ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)
-  
-</div>
+![Python](https://img.shields.io/badge/Python-3.6+-3776AB?logo=python&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI-Whisper-412991?logo=openai&logoColor=white)
+![License](https://img.shields.io/badge/License-BSD%203--Clause-blue)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
-<br>
+A command-line tool that downloads audio or video from YouTube (or takes a local media file) and transcribes it with [OpenAI Whisper](https://github.com/openai/whisper). Supports 99+ languages with automatic language detection, reusable settings profiles, and optional AI post-processing of the transcript.
 
-Ever wanted to grab a transcript from a YouTube video without doing it manually? This tool makes it dead simple. It downloads videos or audio from YouTube (or works with local files), then uses OpenAI's Whisper to transcribe everything. Supports 99+ languages with automatic language detection, and you can save your favorite settings as profiles so you don't have to reconfigure it every time.
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## 🚀 Quick Start
-
-Get up and running in about 30 seconds:
+## Quick Start
 
 ```bash
 pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
 python OpenAIYouTubeTranscriber.py
 ```
 
-Then just follow the prompts. That's it.
+Then follow the prompts.
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+## Contents
 
-## What's in Here
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Profiles](#profiles)
+- [AI Transcript Enhancement](#ai-transcript-enhancement)
+- [Output Files](#output-files)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Tips](#tips)
+- [Known Issues](#known-issues)
+- [Supported Languages](#supported-languages)
+- [License](#license)
 
-- [Features](#-features)
-- [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [How to Use It](#-usage)
-- [Profiles (save your settings)](#-profiles)
-- [AI Transcript Enhancement](#-ai-transcript-enhancement)
-- [Where Your Files Go](#-output-files)
-- [Stuck? Check Here](#-troubleshooting)
-- [Want to Help?](#-contributing)
-- [Pro Tips](#-tips--tricks)
-- [Known Quirks](#-known-issues)
+## Features
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+- **Interactive CLI** — answer a few prompts; no configuration files required.
+- **Flexible input** — accepts any of the following:
+  - Full URL: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
+  - Short URL: `https://youtu.be/jNQXAC9IVRw`
+  - Video ID: `jNQXAC9IVRw`
+  - Local file: `/path/to/audio.mp3`
 
-## ✨ What You Can Do
+  The 11-character video ID is extracted from any URL format; query parameters such as timestamps (`&t=30s`) or playlist info (`&list=...`) are ignored.
+- **99+ languages** with automatic language detection.
+- **Selectable Whisper model** — tiny, base, small, medium, large-v1, large-v2, or large-v3, trading speed for accuracy.
+- **Profiles** — save a session's settings to a file and reuse them.
+- **Resolution control** for video downloads, or automatic selection.
+- **Cross-platform** — Windows, macOS, and Linux.
+- **Audio handling** — extracts audio from video, merges separate audio/video streams, and converts formats via FFmpeg.
+- **AI transcript enhancement (optional)** — clean up the raw transcript with OpenAI, OpenRouter, or Anthropic (API key required), or a local Hugging Face model, guided by a prompt file or a custom prompt.
 
-**Simple Interface** — No complicated configuration. Just answer a few questions and it handles the rest.
+## Prerequisites
 
-**Flexible Input Options** — Give it a YouTube URL, just the 11-character video ID, or point it at a local media file. All of these work:
-- Full URL: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
-- Short URL: `https://youtu.be/jNQXAC9IVRw`
-- Just the video ID: `jNQXAC9IVRw`
-- Local file: `/path/to/audio.mp3`
+**Python 3.6+** — check with `python --version`. Installation guides:
+- [Windows](https://phoenixnap.com/kb/how-to-install-python-3-windows)
+- [macOS](https://docs.python-guide.org/starting/install3/osx/)
+- [Linux (Ubuntu)](https://phoenixnap.com/kb/how-to-install-python-3-ubuntu)
 
-The script automatically extracts just the video ID from URLs and ignores things like timestamps or playlist parameters.
+**pip** — usually bundled with Python; verify with `python -m pip --version`.
 
-**Handles 99+ Languages** — Whisper's got you covered whether it's English, Mandarin, Arabic, or something more obscure. Language detection is automatic.
+**FFmpeg** — required for all audio/video processing and must be on your PATH.
 
-**Pick Your Model** — Want speed? Use `tiny`. Need accuracy? Go with `large-v3`. Options are tiny, base, small, medium, large-v1, large-v2, and large-v3.
-
-**Save Profiles** — Running the same transcription task repeatedly? Save your settings as a profile and reuse them next time.
-
-**Video Quality Control** — Want 1080p or prefer smaller file sizes? You can choose, or let it auto-select.
-
-**Cross-Platform** — Works on Windows, macOS, and Linux without any special tweaks.
-
-**Smart Audio Handling** — Automatically extracts audio from videos, combines them if needed, handles format conversions.
-
-**AI Transcript Enhancement** — Optionally clean up the raw transcript with AI after transcription. Use OpenAI, OpenRouter, or Anthropic (any needs an API key) or a free local Hugging Face model, guided by a prompt file or a custom prompt you type in.
-
-<div align="center">
-  <img src="https://skillicons.dev/icons?i=python,github" alt="Tech Stack" />
-  <br><br>
-  <p><em>Powered by OpenAI Whisper, pytubefix, and FFmpeg</em></p>
-</div>
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## 📦 Before You Start
-
-You'll need a few things installed on your machine. Don't worry—none of this is complicated.
-
-**Python 3.6+** is required. Check if you have it by running `python --version`. If you need to install:
-- **Windows**: [phoenixnap.com guide](https://phoenixnap.com/kb/how-to-install-python-3-windows)
-- **macOS**: [docs.python-guide.org](https://docs.python-guide.org/starting/install3/osx/)
-- **Linux**: [phoenixnap.com Ubuntu guide](https://phoenixnap.com/kb/how-to-install-python-3-ubuntu)
-
-**pip** almost certainly came with Python, but verify it's there: `python -m pip --version`
-
-**FFmpeg** is the big one—it handles all the audio/video processing. This is what often trips people up, so pay attention:
-
-On **Windows**, open PowerShell as admin and run:
+Windows (PowerShell, using Scoop):
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 scoop install ffmpeg
 ```
-Or just grab it from [ffmpeg.org](https://ffmpeg.org/download.html) if you prefer the manual route.
+Or download it manually from [ffmpeg.org](https://ffmpeg.org/download.html).
 
-On **macOS**, if you have Homebrew: `brew install ffmpeg`. Don't have Homebrew? You should. Google it real quick.
+macOS (Homebrew):
+```bash
+brew install ffmpeg
+```
 
-On **Linux** (Ubuntu/Debian): `sudo apt update && sudo apt install ffmpeg`
+Linux (Ubuntu/Debian):
+```bash
+sudo apt update && sudo apt install ffmpeg
+```
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+## Installation
 
-## 💾 Getting Set Up
-
-First, clone the repo:
+Clone the repository:
 ```bash
 git clone https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber.git
 cd OpenAI-YouTube-Transcriber
 ```
 
-**Virtual environment** (highly recommended): This keeps your dependencies isolated from other Python projects.
+Optionally create a virtual environment to keep dependencies isolated:
 ```bash
 python -m venv venv
 
-# On Windows:
+# Windows:
 .\venv\Scripts\activate
 
-# On macOS/Linux:
+# macOS/Linux:
 source venv/bin/activate
 ```
 
-Now install the dependencies:
+Install the dependencies:
 ```bash
 pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
 ```
 
-That's the basic setup. If you want to use `youtube-transcriber` as a command from anywhere on your system:
+To install the package in editable mode and get the `openai-youtube-transcriber` console command:
 ```bash
 pip install -e .
 ```
 
-This installs the package in "editable mode" so you can run `youtube-transcriber` from the terminal without having to be in the repo directory.
+## Usage
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## 🎯 How to Use It
-
-Just run it:
+Run the script:
 ```bash
 python OpenAIYouTubeTranscriber.py
 ```
 
-The script will walk you through the process step-by-step. You'll be asked:
+You will be asked:
 
 1. Where to get the audio (YouTube link or local file)
-2. Whether you want to download the video
-3. Whether you want to download just the audio
-4. What video resolution (if downloading video)
+2. Whether to download the video
+3. Whether to download just the audio
+4. What video resolution to use (if downloading video)
 5. Which Whisper model to use for transcription
 6. What language to transcribe to
 7. Whether to use the English-specific Whisper model
-8. Whether you want to run again immediately
+8. Whether to run again immediately
 
-Here's what it looks like in action:
+Example session:
 
 ```bash
 $ python OpenAIYouTubeTranscriber.py
@@ -189,17 +145,9 @@ Saved transcript to OpenAIYouTubeTranscriber/Transcript/video_title.txt
 Run again? (y/N): n
 ```
 
-**Note:** You can enter the full YouTube URL, short URL (`youtu.be/...`), or just the 11-character video ID. The script extracts the ID automatically and ignores query parameters like timestamps (`&t=30s`) or playlist info (`&list=PLxyz`).
+## Profiles
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## 📁 Profiles: Save Your Setup
-
-If you find yourself running the same transcription over and over, profiles are your friend. They let you save all your settings so you don't have to answer the same questions every time.
-
-When you start the script, it automatically finds any saved profiles:
+Profiles save a full set of answers so recurring workflows don't require re-entering everything. On startup, the script lists any saved profiles:
 
 ```
 Available profiles:
@@ -210,15 +158,13 @@ Available profiles:
 Select a profile (number or name, default 1. profile.txt, or 'no' to skip):
 ```
 
-Just pick one and it'll load all your saved settings. Way faster than answering prompts every time.
+### Creating a Profile
 
-### Creating Your Own Profile
+After a successful run, the script offers to save the session as a profile. The resulting file contains the settings you just used.
 
-After running the script successfully, you'll get asked if you want to save that session as a profile. Say yes, and it'll create a new profile file with whatever settings you just used. Next time you run the same workflow, you can just pick that profile instead of reconfiguring everything.
+### Profile Format
 
-### What's Inside a Profile
-
-Profiles are just text files in `OpenAIYouTubeTranscriber/Profile/`. You can edit them directly if you want:
+Profiles are plain text files in `OpenAIYouTubeTranscriber/Profile/` and can be edited directly:
 
 ```ini
 URL=https://www.youtube.com/watch?v=example
@@ -235,44 +181,30 @@ PROMPT=
 REPEAT=n
 ```
 
-Pretty straightforward. Most of it is self-explanatory.
+The `URL` field accepts any of the supported input formats (full URL, short URL, bare video ID, or URL with extra query parameters — only the video ID is used).
 
-**For the URL field**, you can use any of these formats:
-- Full URL: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
-- Short URL: `https://youtu.be/jNQXAC9IVRw`
-- Just the video ID: `jNQXAC9IVRw`
-- With timestamp/playlist params: `https://www.youtube.com/watch?v=jNQXAC9IVRw&t=30s` (params ignored)
+### Included Profiles
 
-The script only cares about the 11-character video ID—everything else gets stripped out.
+- **profile-transcriber.txt** — transcribe only (no downloads)
+- **profile1-video_downloader.txt** — download video with audio
+- **profile2-audio_downloader.txt** — download audio only
+- **profile0-translator.txt** — transcribe into other languages
 
-### Built-In Profiles
+## AI Transcript Enhancement
 
-We've included a few pre-configured profiles to get you started:
+Whisper output can have inconsistent punctuation and grammar. After transcription, the script can optionally run the transcript through an AI model to clean it up.
 
-- **profile.txt** — Just transcribe (no downloads)
-- **profile1-video_downloader.txt** — Download video with audio and transcribe it
-- **profile2-audio_downloader.txt** — Download just the audio and transcribe
-- **profile0-translator.txt** — Transcribe in different languages
+When asked `Enhance transcript with AI?`, the options are:
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+- **`y`** — use the default cloud provider ([OpenRouter](https://openrouter.ai/), `openai/gpt-4o-mini` by default).
+- **A provider name** — `openai`, `openrouter`, or `anthropic`.
+- **`local`** — use a free local model (Qwen2.5-1.5B-Instruct by default). No API key; runs entirely on your machine. The first run downloads the model (~3GB).
+- **A model name** — a specific local model (`qwen2.5-1.5b`, `qwen2.5-0.5b`, `distilgpt2`, `gpt2`, `gpt2-medium`, `phi-1_5`, `deepseek-1_5b`) or any Hugging Face model ID such as `microsoft/phi-2`.
+- **`n`** — skip (the default).
 
-## ✨ AI Transcript Enhancement
+### Cloud Providers
 
-Whisper transcripts are good, but they can have wonky punctuation and grammar. After transcribing, the script can optionally run the transcript through an AI model to clean it up—no more copy-pasting into ChatGPT yourself.
-
-When asked `Enhance transcript with AI?`, you've got options:
-
-- **`y`** — Use the default cloud provider ([OpenRouter](https://openrouter.ai/), `openai/gpt-4o-mini` by default).
-- **A provider name** — Pick a specific cloud API: `openai`, `openrouter`, or `anthropic`.
-- **`local`** — Use a free local model (Qwen2.5-1.5B-Instruct by default). No API key, runs entirely on your machine. First run downloads the model (~3GB).
-- **A model name** — Pick a specific local model (`qwen2.5-1.5b`, `qwen2.5-0.5b`, `distilgpt2`, `gpt2`, `gpt2-medium`, `phi-1_5`, `deepseek-1_5b`) or any Hugging Face model ID like `microsoft/phi-2`.
-- **`n`** — Skip it (the default).
-
-#### Cloud providers
-
-Any cloud provider needs an API key: set the matching environment variable, add it to `Profile/config.txt`, or just type it in when prompted.
+Cloud providers require an API key: set the matching environment variable, add it to `Profile/config.txt`, or enter it when prompted.
 
 | Provider | Choice | API key env var | Model env var | Default model |
 |---|---|---|---|---|
@@ -280,13 +212,13 @@ Any cloud provider needs an API key: set the matching environment variable, add 
 | OpenRouter | `openrouter` (default) | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` | `claude-opus-4-8` |
 
-OpenAI and OpenRouter both speak the same OpenAI-compatible chat completions API, so you can also point either one at a different OpenAI-compatible endpoint (Groq, Together, Azure OpenAI, a local Ollama server, ...) by setting `OPENAI_BASE_URL` / `OPENROUTER_BASE_URL`. Since OpenRouter itself proxies hundreds of models, you can pick any of them via `OPENROUTER_MODEL` (e.g., `anthropic/claude-3.5-sonnet`, `deepseek/deepseek-chat`, or a free one like `meta-llama/llama-3.1-8b-instruct:free`). Anthropic uses its own native Messages API (`ANTHROPIC_BASE_URL` also works if you're routing through a compatible proxy).
+OpenAI and OpenRouter both use the OpenAI-compatible chat completions API, so either can be pointed at another compatible endpoint (Groq, Together, Azure OpenAI, a local Ollama server, ...) via `OPENAI_BASE_URL` / `OPENROUTER_BASE_URL`. OpenRouter proxies many models, selectable via `OPENROUTER_MODEL` (e.g. `anthropic/claude-3.5-sonnet`, `deepseek/deepseek-chat`, or a free tier model like `meta-llama/llama-3.1-8b-instruct:free`). Anthropic uses its native Messages API; `ANTHROPIC_BASE_URL` works if you route through a compatible proxy.
 
-Local models need the `transformers` and `torch` packages (already in requirements.txt). The default Qwen2.5-1.5B-Instruct is instruction-tuned, so it actually follows your prompt. Tiny base models like `distilgpt2` and `gpt2` download faster but produce rough results—they complete text rather than follow instructions. For the best quality, use a cloud provider.
+Local models require the `transformers` and `torch` packages (included in requirements.txt). The default Qwen2.5-1.5B-Instruct is instruction-tuned and follows prompts reliably. Small base models such as `distilgpt2` and `gpt2` download faster but only complete text rather than follow instructions, so results are rough. Cloud providers give the best quality.
 
 ### Prompts
 
-The enhancement is guided by a prompt that tells the AI what to do with your transcript. Drop `.txt` prompt files into `OpenAIYouTubeTranscriber/Prompt/` and the script will let you pick one, or choose `E` to type a custom prompt right in the console.
+Enhancement is guided by a prompt that tells the model what to do with the transcript. Put `.txt` prompt files in `OpenAIYouTubeTranscriber/Prompt/` and the script will offer them for selection, or choose `E` to type a custom prompt in the console.
 
 Example prompt file:
 ```
@@ -294,210 +226,162 @@ Correct the grammatical and punctuation errors in this transcript.
 Keep all the original content—don't summarize or skip anything.
 ```
 
-Long transcripts are automatically split into chunks, enhanced piece by piece, and merged back together.
+Long transcripts are split into chunks, enhanced separately, and merged back together.
 
 ### In Profiles
 
-Set it and forget it with the `AI_ENHANCEMENT` and `PROMPT` fields:
+Set the `AI_ENHANCEMENT` and `PROMPT` fields:
 
 ```ini
 AI_ENHANCEMENT=openrouter   # or: n, local, anthropic, openai, qwen2.5-1.5b, distilgpt2, ...
 PROMPT=prompt-refinement.txt   # a file in OpenAIYouTubeTranscriber/Prompt/
 ```
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+## Output Files
 
-## 📤 Where Your Files End Up
-
-Everything gets organized into separate folders:
-
-- **Transcripts** go here: `OpenAIYouTubeTranscriber/Transcript/`
+- **Transcripts**: `OpenAIYouTubeTranscriber/Transcript/`
 - **Downloaded audio**: `OpenAIYouTubeTranscriber/Audio/`
 - **Downloaded video**: `OpenAIYouTubeTranscriber/Video/`
-- **Video without audio** (rare edge case): `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
+- **Video without audio**: `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
 
-The transcript filenames include the detected language in brackets, so you can tell at a glance what language it is:
+Transcript filenames include the detected language in brackets for non-English content:
 
 - `video_title.txt` (English)
 - `video_title [es].txt` (Spanish)
 - `video_title [fr].txt` (French)
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+## Troubleshooting
 
-## 🔧 Running Into Issues?
+### FFmpeg not found
 
-### FFmpeg Not Found
-
-If you see this:
 ```
 ERROR: ffmpeg is not found in the system PATH.
 ```
 
-FFmpeg isn't installed or isn't accessible. Go back to the Prerequisites section and install it. Then verify it's working: `ffmpeg -version`
+FFmpeg isn't installed or isn't on your PATH. See [Prerequisites](#prerequisites), then verify with `ffmpeg -version`.
 
-### YouTube Downloads Are Failing
+### YouTube downloads failing
 
-YouTube changes how it works pretty often, and sometimes the downloader needs an update. Try this:
+YouTube changes its internals regularly and the downloader occasionally needs an update:
 ```bash
 pip install --upgrade pytubefix
 ```
 
-Then try again. If it still fails, YouTube may have changed something major. Check the [issue tracker](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues) to see if others are having the same problem.
+If it still fails, check the [issue tracker](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues) to see whether it's a known problem.
 
-### Running Out of Memory
+### Out of memory
 
-If the transcription crashes or your system gets sluggish, you're probably hitting memory limits. The different Whisper models have different resource needs:
+Whisper models have different memory requirements:
 
-- `tiny` — ~1GB RAM (fastest, but less accurate)
-- `base` — ~2GB RAM (good middle ground)
+- `tiny` — ~1GB RAM (fastest, least accurate)
+- `base` — ~2GB RAM (good default)
 - `small` — ~3GB RAM (noticeably better)
 
-If you're on a older machine with limited RAM, stick with `tiny` or `base`. The quality difference usually isn't huge unless you're dealing with accents or low-quality audio.
+On machines with limited RAM, stick with `tiny` or `base`.
 
-### The Transcription Doesn't Sound Right
+### Poor transcription quality
 
-A few things to check:
+1. Try a larger model — accuracy improves at the cost of speed
+2. Check the audio quality; heavy background noise degrades results
+3. Make sure the language setting matches the content
+4. For English content, try the English-specific model option
 
-1. Did you pick the right model? Larger models = better accuracy but slower
-2. Is the audio clear? Lots of background noise = worse transcription
-3. Make sure the language is set correctly
-4. For English content, try the English-specific model option—it usually does better
+### Not enough disk space
 
-### Not Enough Disk Space
+- 1080p video: 500MB–2GB depending on length
+- Audio: roughly 5–50MB per minute
+- Whisper models: 140MB (tiny) to ~3GB (large), downloaded once
 
-Large videos take up a lot of disk space:
+If space is tight, skip the video download — audio is all that's needed for transcription.
 
-- 1080p video: 500MB to 2GB depending on length
-- Audio file: about 5-50MB per minute
-- Whisper models: 140MB (tiny) up to 3GB (large) — only downloaded once though
+## Contributing
 
-If you're tight on space, don't download the video, just the audio. That's usually what you need for transcription anyway.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## 🤝 Contributing
-
-Found a bug? Have a cool feature idea? Want to improve the code? Awesome, check out [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
-
-If you want to contribute code, you'll need to set up the dev environment:
+Development setup:
 
 ```bash
 make dev
 ```
 
-Or if you don't have `make`:
+Or without `make`:
 ```bash
 pip install -r requirements-dev.txt
 ```
 
-Then you can lint your code and make sure it's formatted properly:
+Common tasks:
 ```bash
 make lint    # Check for code quality issues
 make format  # Auto-fix formatting
-make run     # Test the app
+make run     # Run the app
 ```
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+## Tips
 
-## 💡 Tips for Better Results
+### Video IDs
 
-### Quick Video ID Tips
+YouTube video IDs are exactly 11 characters (letters, numbers, dashes, underscores). The script extracts the ID from any URL format:
 
-YouTube video IDs are always exactly 11 characters made up of letters, numbers, dashes, and underscores. When you give the script a URL, it automatically extracts just the ID:
+- `youtube.com/watch?v=jNQXAC9IVRw` → `jNQXAC9IVRw`
+- `youtu.be/jNQXAC9IVRw` → `jNQXAC9IVRw`
+- `youtube.com/watch?v=jNQXAC9IVRw&t=30s` → `jNQXAC9IVRw`
 
-- `youtube.com/watch?v=jNQXAC9IVRw` → uses `jNQXAC9IVRw`
-- `youtu.be/jNQXAC9IVRw` → uses `jNQXAC9IVRw`
-- `youtube.com/watch?v=jNQXAC9IVRw&t=30s` → still just uses `jNQXAC9IVRw`
+You can also paste just the ID.
 
-You can save time by copying just the ID instead of the whole URL.
+### Cleaning up transcripts manually
 
-### Improving Bad Transcripts
+The built-in [AI Transcript Enhancement](#ai-transcript-enhancement) automates this, but a transcript can also be pasted into any LLM with a prompt like:
 
-The built-in [AI Transcript Enhancement](#-ai-transcript-enhancement) can do this for you automatically. But if you'd rather do it manually, you can feed the transcript to an LLM to fix it up:
-
-**Fix grammar and punctuation:**
 ```
 Correct the grammatical and punctuation errors in this transcript.
 Keep all the original content—don't summarize or skip anything.
-[paste your transcript here]
+[transcript]
 ```
 
-**Clean up structure:**
 ```
 Turn this transcript into a nicely formatted document with section headers.
 Fix grammar but keep everything else the same.
-[paste your transcript here]
+[transcript]
 ```
 
-**Pull out key points:**
 ```
-What are the main takeaways from this transcript? 
+What are the main takeaways from this transcript?
 List the most important points.
-[paste your transcript here]
+[transcript]
 ```
 
-This is super useful for lectures or meetings where you want a clean version later.
+### Profiles for recurring workflows
 
-### Multiple Profiles for Different Situations
+Create one profile per use case, for example:
 
-Think about the different things you transcribe regularly. Make a profile for each:
+- Meetings: base model, English
+- Podcasts: medium model, auto-detect language
+- Lectures: large model, specific language
+- Short clips: tiny model, English
 
-- **Meetings**: base model, English
-- **Podcasts**: medium model, auto-detect language  
-- **Classes/Lectures**: large model, specific language
-- **Social Media**: tiny model (fast), English
-
-Then you just pick the right one instead of reconfiguring every time.
-
-### What File Formats Work
-
-Local files you can transcribe:
+### Supported file formats
 
 - **Audio**: MP3, WAV, FLAC, OGG, M4A
 - **Video**: MP4, AVI, MOV, MKV, WebM
 
-Basically anything that has audio should work. If it doesn't, FFmpeg probably doesn't support it.
+Anything FFmpeg can read should work.
 
-### Using from Command Line
+### Console command
 
-If you installed with `pip install -e .`:
+If installed with `pip install -e .`:
 ```bash
-youtube-transcriber
+openai-youtube-transcriber
 ```
 
-Much cleaner than typing out the whole `python OpenAIYouTubeTranscriber.py` every time.
+## Known Issues
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+- **Punctuation** — Whisper doesn't always place commas and periods correctly; AI enhancement usually fixes this.
+- **Uncommon words** — domain-specific jargon and unusual names may be transcribed incorrectly and can need manual review.
+- **Very long videos** — content over ~3 hours may produce fragmented transcriptions that need cleanup.
 
-## ⚠️ Known Quirks
+## Supported Languages
 
-A few things to be aware of:
-
-**Punctuation sometimes gets weird.** Whisper doesn't always nail comma placement or period locations. An LLM cleanup usually fixes this though.
-
-**Uncommon words might be wrong.** Domain-specific jargon, unusual names, or industry terms sometimes get transcribed incorrectly. If you're transcribing something specialized, you might need to do a manual review.
-
-**Really long videos can get choppy.** Anything over 3+ hours might have fragmented transcriptions. Usually still usable though, just needs some cleanup.
-
-All of these are fixable by editing the transcript yourself or running it through an LLM for post-processing.
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## 🌍 Languages Supported
-
-Whisper handles [99+ languages](https://github.com/openai/whisper#supported-languages). Here are the common ones:
+Whisper handles [99+ languages](https://github.com/openai/whisper#supported-languages). Common codes:
 
 | Language | Code | Language | Code |
 |----------|------|----------|------|
@@ -507,44 +391,14 @@ Whisper handles [99+ languages](https://github.com/openai/whisper#supported-lang
 | Russian | `ru` | Arabic | `ar` |
 | Portuguese | `pt` | Hindi | `hi` |
 
-Check [Whisper's docs](https://github.com/openai/whisper#supported-languages) for the full list if you need something else.
+See [Whisper's documentation](https://github.com/openai/whisper#supported-languages) for the full list.
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
+## License
 
-## 📜 License
+BSD 3-Clause License. See [LICENSE](LICENSE).
 
-BSD 3-Clause License. See [LICENSE](LICENSE) for the full legal stuff.
+## Acknowledgments
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-</div>
-
-## Thanks
-
-Big thanks to:
-
-- **OpenAI** for Whisper—seriously impressive speech recognition
-- **pytubefix** for keeping YouTube downloading reliable
-- **langdetect** for the language detection magic
-
-## 📞 Something Broken or Have Ideas?
-
-Found a bug? [Open an issue](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues).
-
-Got questions? [Start a discussion](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/discussions).
-
-Want to contribute? Check out [CONTRIBUTING.md](CONTRIBUTING.md).
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/colored.png" width="100%"/>
-  
-  <br>
-  
-  **Made with ❤️ for easier transcriptions**
-  
-  <br>
-  
-  <sub>Happy transcribing! 🎉</sub>
-</div>
+- [OpenAI Whisper](https://github.com/openai/whisper) for speech recognition
+- [pytubefix](https://github.com/JuanBindez/pytubefix) for YouTube downloading
+- [langdetect](https://github.com/Mimino666/langdetect) for language detection

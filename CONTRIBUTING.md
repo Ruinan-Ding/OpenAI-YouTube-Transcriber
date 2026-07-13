@@ -1,65 +1,59 @@
 # Contributing
 
-Thanks for wanting to help! Whether you're fixing bugs, adding features, or just improving docs, it's all appreciated.
+Bug fixes, features, and documentation improvements are all welcome.
 
-## Want to Contribute?
-
-### First Time?
+## Getting Started
 
 1. Fork the repo on GitHub
-2. Clone your fork to your machine
+2. Clone your fork
 3. Create a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate  # Windows: venv\Scripts\activate
    ```
-4. Install what you need:
+4. Install dependencies:
    ```bash
    pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
-   pip install -r requirements-dev.txt  # For dev tools
+   pip install -r requirements-dev.txt
    ```
 
-### Making Your Changes
+## Making Changes
 
-**Code style** — Keep it readable. Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) as a general guide. Use clear variable names. Don't make lines unnecessarily long (aim for under 100 characters). If you're adding a function, throw in a docstring explaining what it does.
+**Code style** — Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) as a general guide. Use clear variable names, keep lines under 100 characters, and add a docstring to any new function.
 
-**Test it before you submit** — Run the script with different scenarios:
-- Try it with different YouTube URLs
-- Test with local files
-- Try both downloading and just transcribing
-- Make sure different models work
-- Check different languages if you changed language handling
+**Test before submitting** — There is no automated test suite, so exercise your changes manually:
+- Different YouTube URLs
+- Local files
+- Downloading as well as transcribe-only
+- Different models
+- Different languages, if you changed language handling
 
-**Commit messages** should be straightforward:
+**Commit messages** should be short and descriptive:
 ```
 Fix: Correct URL validation issue
 Feature: Support for local subtitle files
 Docs: Update installation guide
 ```
 
-## Submitting Your Work
+## Submitting a Pull Request
 
 1. Push to your fork
 2. Open a pull request with:
    - A title that explains what you changed
    - A description of why you changed it
-   - Reference any issue it fixes (like "Fixes #42")
-3. We'll review and might ask for changes—that's normal
-4. Once it looks good, it gets merged
+   - A reference to any issue it fixes (e.g. "Fixes #42")
+3. Expect review feedback; requested changes are normal
+4. Once approved, it gets merged
 
-## Found a Bug?
+## Reporting Bugs
 
-Check if someone already reported it first. If not:
+Check whether the bug has already been reported first. If not, include:
 
-- Explain what happened
-- How to reproduce it
-- What OS and Python version you're using
-- The error message if there was one
+- What happened
+- Steps to reproduce
+- OS and Python version
+- The error message, if any
 
-## Be Cool
+## Code of Conduct
 
-- Respect other people
-- If someone disagrees with an idea, keep it constructive
-- Help others out if you can
-
-That's it. Appreciate you! 🙌
+Be respectful and keep disagreements constructive.

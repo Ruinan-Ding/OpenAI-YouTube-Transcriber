@@ -3,11 +3,7 @@
 
 # Run with: python OpenAIYouTubeTranscriber.py
 
-#########################################
-## IMPORTS
-#########################################
 
-# Standard library imports
 import importlib.util
 import os
 import re
@@ -18,7 +14,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlparse
 
-# Third-party imports
 import whisper
 try:
     from moviepy import VideoFileClip  # moviepy 2.x
@@ -30,9 +25,6 @@ from pytubefix.exceptions import RegexMatchError, VideoUnavailable, VideoPrivate
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
-#########################################
-## ENUMS
-#########################################
 
 class YesNo(Enum):
     """Accepted spellings for yes/no/skip answers."""
@@ -103,7 +95,7 @@ class ModelSize(Enum):
         for model in cls:
             if model.value == name:
                 return model
-        return cls.BASE  # Default to BASE if not found
+        return cls.BASE
 
     @classmethod
     def from_choice(cls, choice):
@@ -176,7 +168,6 @@ class AIEnhancementMode(Enum):
         for mode in cls:
             if lower in mode.value:
                 return mode
-        # Check if it matches a known local model name
         if lower in LocalModel.all_model_values():
             return cls.LOCAL
         return None
@@ -213,9 +204,6 @@ class LocalModel(Enum):
                 return model
         return cls.default()
 
-#########################################
-## TRANSCRIBER CLASS
-#########################################
 
 class YouTubeTranscriber:
     """Handles YouTube downloads, Whisper transcription, and AI enhancement."""
@@ -286,9 +274,6 @@ class YouTubeTranscriber:
             print(f"Error creating directory {directory_path}: {str(e)}")
             return False
 
-    #####################################
-    ## Input validation
-    #####################################
 
     def is_web_url(self, input_str):
         """Check if string is a valid http/https URL (no network calls)."""
@@ -349,9 +334,6 @@ class YouTubeTranscriber:
             print(f"Error with ffprobe: {str(e)}")
             return None
 
-    #####################################
-    ## Interactive prompts
-    #####################################
 
     def get_yes_no_input(self, prompt_text, default="y"):
         """Prompt user for yes/no input with validation."""
@@ -487,12 +469,10 @@ class YouTubeTranscriber:
             if user_lower == 'local':
                 return AIEnhancementMode.LOCAL, None, LocalModel.default().hf_model_id
 
-            # Check if it's a known local model display name
             if user_lower in LocalModel.all_model_values():
                 model = LocalModel.get_by_name(user_lower)
                 return AIEnhancementMode.LOCAL, None, model.hf_model_id
 
-            # Treat as arbitrary HuggingFace model ID - validate it
             model_id = user_input  # preserve original case for HF model IDs
             print(f"Checking if model '{model_id}' exists on HuggingFace...")
             if self._validate_hf_model(model_id):
@@ -598,9 +578,6 @@ class YouTubeTranscriber:
             print(f"Error reading prompt file: {str(e)}")
             return ""
 
-    #####################################
-    ## AI transcript enhancement
-    #####################################
 
     def chunk_text(self, text, max_tokens=800, overlap_tokens=50):
         """Split text into chunks at sentence boundaries, respecting token limits.
@@ -625,7 +602,6 @@ class YouTubeTranscriber:
 
             if estimated_tokens + sentence_tokens > max_tokens and current_chunk:
                 chunks.append(current_chunk.strip())
-                # Start new chunk with overlap from end of previous
                 overlap_chars = overlap_tokens * 4
                 if len(current_chunk) > overlap_chars:
                     current_chunk = current_chunk[-overlap_chars:] + " " + sentence
@@ -702,7 +678,7 @@ class YouTubeTranscriber:
                 enhanced_chunks.append(enhanced if enhanced else chunk)
             except Exception as e:
                 print(f"  Warning: {backend_label} error on chunk {i+1}: {str(e)}")
-                enhanced_chunks.append(chunk)  # Fallback to original chunk
+                enhanced_chunks.append(chunk)
         return self.merge_chunks(enhanced_chunks)
 
     def enhance_with_openai_compatible(self, text, prompt_text, api_key, provider):
@@ -836,7 +812,6 @@ class YouTubeTranscriber:
         except Exception:
             print("Note: Unable to determine PyTorch version. Attempting local enhancement anyway.")
 
-        # Accept both LocalModel enum and plain string model IDs
         if isinstance(local_model, LocalModel):
             model_id = local_model.hf_model_id
         else:
@@ -898,7 +873,6 @@ class YouTubeTranscriber:
                     num_return_sequences=1
                 )
                 generated = result[0]['generated_text']
-                # Strip the prompt from the output
                 if "Enhanced version:" in generated:
                     enhanced = generated.split("Enhanced version:")[-1].strip()
                 else:
@@ -907,7 +881,6 @@ class YouTubeTranscriber:
             # Reasoning models (e.g., DeepSeek-R1 distills) emit <think> blocks; drop them
             enhanced = re.sub(r'<think>.*?</think>', '', enhanced, flags=re.DOTALL).strip()
 
-            # If model produced nothing useful, signal the caller to keep the original
             if not enhanced or len(enhanced) < len(chunk) * 0.3:
                 return ""
             return enhanced
@@ -956,15 +929,12 @@ class YouTubeTranscriber:
             print("Warning: Unknown enhancement mode. Skipping.")
             return text
 
-    #####################################
-    ## Files and transcripts
-    #####################################
 
     def startfile(self, fn):
         """Open file with system default app (cross-platform)."""
-        if os.name == 'nt':  # Windows
+        if os.name == 'nt':
             os.startfile(fn)
-        elif os.name == 'posix':  # macOS or Linux
+        elif os.name == 'posix':
             opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
             subprocess.run([opener, fn], check=True)
 
@@ -1003,9 +973,6 @@ class YouTubeTranscriber:
             print(f"Error writing transcript file: {str(e)}")
             return False
 
-    #####################################
-    ## YouTube streams
-    #####################################
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2),
            retry=retry_if_exception_type(Exception))
@@ -1222,9 +1189,6 @@ class YouTubeTranscriber:
 
         return True
 
-    #####################################
-    ## Profiles
-    #####################################
 
     def list_profiles(self):
         """List profile files in the Profile/ directory, sorted by name.
@@ -1323,9 +1287,6 @@ class YouTubeTranscriber:
             print(f"Error checking disk space: {str(e)}")
             return None
 
-#########################################
-## SESSION CONFIGURATION
-#########################################
 
 @dataclass
 class SessionConfig:
@@ -1500,7 +1461,7 @@ def _prompt_resolution_selection(transcriber, yt):
     while True:
         user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
         if not user_input:
-            return available_resolutions[0]  # Default to highest
+            return available_resolutions[0]
         if user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
             return available_resolutions[int(user_input) - 1]
         if user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
@@ -1518,7 +1479,6 @@ def _prompt_resolution_input(transcriber, used_fields):
         ).strip()
 
         if not resolution:
-            # Default to highest if input is empty
             return Resolution.HIGHEST.value
 
         resolution = resolution.lower()
@@ -1541,10 +1501,6 @@ def _prompt_resolution_input(transcriber, used_fields):
             print("Invalid resolution. Please enter a valid resolution "
                   "(e.g., 720p, 720, highest, lowest).")
 
-
-#########################################
-## PROFILE SELECTION
-#########################################
 
 def _select_profile(transcriber):
     """Determine whether to run from a profile and load it if so.
@@ -1644,10 +1600,6 @@ def _select_profile(transcriber):
     return True, profile_name
 
 
-#########################################
-## INTERACTIVE CONFIGURATION
-#########################################
-
 def _configure_interactive(transcriber):
     """Gather all session settings by prompting the user.
 
@@ -1716,7 +1668,6 @@ def _configure_interactive(transcriber):
                 default='n'))
         used_fields["USE_EN_MODEL"] = "y" if cfg.use_en_model else "n"
 
-    # --- AI Enhancement ---
     last_ai = os.environ.get("LAST_AI_ENHANCEMENT")
     if last_ai is not None:
         cfg.ai_mode, cfg.provider, cfg.local_model = _ai_mode_from_setting(last_ai)
@@ -1746,9 +1697,6 @@ def _configure_interactive(transcriber):
 
     return cfg
 
-#########################################
-## PROFILE-DRIVEN CONFIGURATION
-#########################################
 
 def _configure_from_profile(transcriber, profile_name):
     """Gather all session settings from the loaded profile's environment variables.
@@ -1811,7 +1759,7 @@ def _configure_from_profile(transcriber, profile_name):
 
             resolution = os.getenv("RESOLUTION")
             if resolution:
-                resolution = resolution.lower()  # Convert to lowercase for easier comparison
+                resolution = resolution.lower()
                 if resolution not in Resolution.values():
                     if resolution.isdigit():
                         if int(resolution) > 0:
@@ -1850,10 +1798,9 @@ def _configure_from_profile(transcriber, profile_name):
 
     model_choice = os.getenv("MODEL_CHOICE")
     if model_choice and cfg.transcribe_audio:
-        # Validate model_choice from .env
         if model_choice.lower() not in ModelSize.valid_choices():
             print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
-            model_choice = transcriber.get_model_choice_input()  # Prompt for valid input
+            model_choice = transcriber.get_model_choice_input()
         else:
             print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")
     elif cfg.transcribe_audio:
@@ -1893,7 +1840,6 @@ def _configure_from_profile(transcriber, profile_name):
                         "Use English-specific model? (Recommended only if the video is originally in English) (y/N): ",
                         default='n')
 
-    # --- AI Enhancement ---
     ai_enhancement_str = os.getenv("AI_ENHANCEMENT")
     if ai_enhancement_str and cfg.transcribe_audio:
         cfg.ai_mode, cfg.provider, cfg.local_model = _ai_mode_from_setting(ai_enhancement_str)
@@ -1926,10 +1872,6 @@ def _configure_from_profile(transcriber, profile_name):
 
     return cfg
 
-
-#########################################
-## PIPELINE EXECUTION
-#########################################
 
 def _create_youtube_with_recovery(transcriber, cfg):
     """Create the YouTube object for cfg.url, re-prompting on failure.
@@ -2001,7 +1943,6 @@ def _run_pipeline(transcriber, cfg):
                     yt.streams.filter(only_video=True, resolution=cfg.resolution))
                 stream = streams[0] if streams else None
 
-        # If the requested resolution is not found, prompt the user
         if stream is None:
             print("Requested resolution not found, left null, or invalid.")
             cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
@@ -2060,10 +2001,9 @@ def _run_pipeline(transcriber, cfg):
                     print(f"Error processing video file: {str(e)}")
                     sys.exit(1)
             file_path = audio_file
-        else:  # If it's not a local file, it's a YouTube video
+        else:
             audio_file = os.path.join(transcriber.AUDIO_DIR, audio_filename)
             if not cfg.download_audio:
-                # Download the audio stream to a temp location for transcription
                 audio_file, _ = transcriber.download_audio_stream(cfg.yt, filename_base, is_temp=True)
             file_path = audio_file
 
@@ -2077,7 +2017,6 @@ def _run_pipeline(transcriber, cfg):
             file_path, model_name, cfg.target_language
         )
 
-        # --- AI Enhancement ---
         if cfg.ai_mode is not None and transcribed_text and transcribed_text.strip():
             print(f"\nEnhancing transcript with AI ({cfg.ai_mode.name.lower()})...")
             transcribed_text = transcriber.enhance_text(
@@ -2089,7 +2028,6 @@ def _run_pipeline(transcriber, cfg):
                 local_model=cfg.local_model
             )
 
-        # Create and open a txt file with the text
         if language == transcriber.DEFAULT_LANGUAGE:
             transcript_name = f"{filename_base}{transcriber.TXT_EXT}"
         else:
@@ -2113,14 +2051,9 @@ def _run_pipeline(transcriber, cfg):
     print("Tasks complete.")
 
 
-#########################################
-## SESSION WRAP-UP AND REPEAT
-#########################################
-
 def _ask_repeat(transcriber):
     """Ask the user whether to run again; the default flips to yes after the first repeat."""
     repeat_ask_count = int(os.environ.get("_REPEAT_ASK_COUNT", "0"))
-    # On first ask (count 0), default to 'n'; on subsequent asks, default to 'y'
     default_repeat = 'y' if repeat_ask_count > 0 else 'n'
     prompt_text = "Run again? (Y/n): " if default_repeat == 'y' else "Run again? Hit Enter to repeat (y/N): "
     repeat = transcriber.get_yes_no_input(prompt_text, default=default_repeat)
@@ -2187,10 +2120,6 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
         _clear_session_env()
         raise
 
-
-#########################################
-## MAIN EXECUTION
-#########################################
 
 def main():
     """Main entry point - handles user interaction and orchestrates the transcription workflow."""

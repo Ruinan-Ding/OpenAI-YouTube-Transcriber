@@ -2,37 +2,31 @@
 
 ## [1.0.0] - 2024
 
-**Initial Release**
+Initial release.
 
-First stable version of the transcriber. Everything you need to grab transcripts from YouTube videos or local files.
-
-### What's Included
+### Features
 
 - Download audio and video from YouTube
-- Transcribe with OpenAI's Whisper (7 model options)
+- Transcription with OpenAI Whisper (7 model options)
 - Automatic language detection
-- Save your settings as reusable profiles
+- Reusable settings profiles
 - Local file transcription (MP3, MP4, WAV, etc.)
 - Support for 99+ languages
-- Works on Windows, macOS, and Linux
+- Windows, macOS, and Linux support
 
-### The Nitty Gritty
+### Dependencies
 
-- **pytubefix** for reliable YouTube downloads
-- **OpenAI Whisper** for the actual transcription
-- **langdetect** to figure out what language you're transcribing
-- **moviepy** for handling video stuff
-- **python-dotenv** for configuration
-- **tenacity** for retrying when things go wrong
+- **pytubefix** — YouTube downloads
+- **OpenAI Whisper** — transcription
+- **langdetect** — language detection
+- **moviepy** — video handling
+- **python-dotenv** — configuration
+- **tenacity** — retry logic
 
----
+## Planned
 
-## What's Next
-
-We're thinking about:
-- Downloading whole playlists at once
-- Processing multiple files in batch
-- Translating transcripts to other languages
-- Generating subtitle files (.srt, .vtt formats)
-- Maybe a web interface down the road
-- API access if enough people want it
+- Playlist downloads
+- Batch processing of multiple files
+- Transcript translation
+- Subtitle file generation (.srt, .vtt)
+- Web interface
