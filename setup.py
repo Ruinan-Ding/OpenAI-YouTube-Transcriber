@@ -1,11 +1,11 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
     name="openai-youtube-transcriber",
-    version="1.0.0",
+    version="1.1.0",
     author="Ruinan Ding",
     description="Extract and transcribe YouTube audio using OpenAI Whisper",
     long_description=long_description,
@@ -14,19 +14,17 @@ setup(
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: BSD License",
         "Operating System :: OS Independent",
         "Intended Audience :: End Users/Desktop",
         "Topic :: Multimedia :: Sound/Audio",
         "Topic :: Office/Business",
     ],
-    python_requires=">=3.6",
+    # 3.10+ is required by the match/case in _run_pipeline
+    python_requires=">=3.10",
     install_requires=[
         "requests",
         "py_mini_racer",
@@ -35,11 +33,11 @@ setup(
         "python-dotenv",
         "moviepy",
         "tenacity",
-           "openai-whisper @ git+https://github.com/openai/whisper.git",
+        "openai-whisper @ git+https://github.com/openai/whisper.git",
     ],
     entry_points={
         "console_scripts": [
-                "openai-youtube-transcriber=__main__:main",
+            "openai-youtube-transcriber=__main__:main",
         ],
     },
 )

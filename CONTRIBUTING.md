@@ -19,9 +19,11 @@ Bug fixes, features, and documentation improvements are all welcome.
 
 ## Making Changes
 
-**Code style** — Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) as a general guide. Use clear variable names, keep lines under 100 characters, and add a docstring to any new function.
+**Code style**: Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) as a general guide. Use clear variable names, keep lines under 100 characters, and add a docstring to any new function.
 
-**Test before submitting** — There is no automated test suite, so exercise your changes manually:
+**Test before submitting**: Run `make test` (or `python test_transcriber.py`) and `make lint`;
+both must pass. The suite covers the pure parsing/chunking logic only, so also exercise your
+changes manually:
 - Different YouTube URLs
 - Local files
 - Downloading as well as transcribe-only

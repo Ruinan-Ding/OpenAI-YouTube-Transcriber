@@ -10,20 +10,25 @@ import re
 import shutil
 import subprocess
 import sys
+import textwrap
 from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlparse
 
 import whisper
+
 try:
     from moviepy import VideoFileClip  # moviepy 2.x
 except ImportError:  # moviepy 1.x exposes it via the editor module
     from moviepy.editor import VideoFileClip
-from langdetect import detect, LangDetectException
-from pytubefix import YouTube
-from pytubefix.exceptions import RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked
+
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from langdetect import LangDetectException, detect
+from pytubefix import YouTube
+from pytubefix.exceptions import (RegexMatchError, VideoPrivate,
+                                  VideoRegionBlocked, VideoUnavailable)
+from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
+                      wait_fixed)
 
 
 class YesNo(Enum):
@@ -48,6 +53,12 @@ class Resolution(Enum):
     def values(cls):
         return [item.value for item in cls]
 
+    @classmethod
+    def normalize(cls, value):
+        """Lowercase a resolution answer and expand the 'f' shorthand to 'fetch'."""
+        value = value.strip().lower()
+        return cls.FETCH.value if value == cls.F.value else value
+
 
 class ModelSize(Enum):
     """Whisper model sizes."""
@@ -62,10 +73,6 @@ class ModelSize(Enum):
     @classmethod
     def standard_models(cls):
         return [cls.TINY, cls.BASE, cls.SMALL, cls.MEDIUM]
-
-    @classmethod
-    def large_models(cls):
-        return [cls.LARGE_V1, cls.LARGE_V2, cls.LARGE_V3]
 
     @classmethod
     def all_model_values(cls):
@@ -100,6 +107,7 @@ class ModelSize(Enum):
     @classmethod
     def from_choice(cls, choice):
         """Resolve a menu number, model name, or blank string to a ModelSize."""
+        choice = choice.strip().lower() if choice else choice
         if not choice:
             return cls.BASE
         if choice in cls.choice_numbers():
@@ -118,7 +126,8 @@ class Provider(Enum):
     OPENAI = ('openai', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', None, 'gpt-4o-mini')
     OPENROUTER = ('openrouter', 'OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL', 'OPENROUTER_MODEL',
                   'https://openrouter.ai/api/v1', 'openai/gpt-4o-mini')
-    ANTHROPIC = ('anthropic', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', None, 'claude-opus-4-8')
+    ANTHROPIC = ('anthropic', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL',
+                 None, 'claude-opus-4-8')
 
     def __init__(self, key, api_key_env, base_url_env, model_env, default_base_url, default_model):
         self.key = key
@@ -145,7 +154,7 @@ class Provider(Enum):
         return None
 
     def resolve_base_url(self):
-        """Base URL for this provider: env override, else the built-in default (None = SDK default)."""
+        """Base URL: env override, else the built-in default (None = SDK default)."""
         return os.getenv(self.base_url_env) or self.default_base_url
 
     def resolve_model(self):
@@ -208,7 +217,6 @@ class LocalModel(Enum):
 class YouTubeTranscriber:
     """Handles YouTube downloads, Whisper transcription, and AI enhancement."""
 
-    # Data directories
     DATA_DIR = "OpenAIYouTubeTranscriber"
     AUDIO_DIR = os.path.join(DATA_DIR, "Audio")
     TEMP_DIR = "Temp"
@@ -229,7 +237,8 @@ class YouTubeTranscriber:
     DEFAULT_LANGUAGE = 'en'
     DEFAULT_SOURCE_PROMPT = "Enter the YouTube video URL, video ID, or local file path: "
     # Appended to the enhancement prompt so chat models don't add "Sure! Here's..." preambles
-    ENHANCEMENT_OUTPUT_DIRECTIVE = "Output only the enhanced text, with no preamble, headers, or commentary."
+    ENHANCEMENT_OUTPUT_DIRECTIVE = (
+        "Output only the enhanced text, with no preamble, headers, or commentary.")
     # max_tokens is required by the Anthropic API (no SDK default); per-chunk value
     # is sized off the chunk itself (see enhance_with_anthropic), capped here
     ANTHROPIC_MAX_OUTPUT_TOKENS = 8192
@@ -270,10 +279,9 @@ class YouTubeTranscriber:
         try:
             os.makedirs(directory_path, exist_ok=True)
             return True
-        except (PermissionError, OSError) as e:
+        except OSError as e:
             print(f"Error creating directory {directory_path}: {str(e)}")
             return False
-
 
     def is_web_url(self, input_str):
         """Check if string is a valid http/https URL (no network calls)."""
@@ -284,17 +292,17 @@ class YouTubeTranscriber:
             return False
 
     def is_youtube_video_id(self, text):
-        """Check if text is a valid 11-character YouTube video ID (letters, numbers, dash, underscore only)."""
+        """Check for a valid 11-character video ID (alphanumerics, dash, underscore)."""
         if len(text) != 11:
             return False
         return bool(re.match(r'^[a-zA-Z0-9_-]{11}$', text))
 
     def construct_youtube_url(self, video_id):
-        """Build full YouTube URL from video ID. Query params get stripped by pytubefix automatically."""
+        """Build a full YouTube URL from a video ID; pytubefix strips query params itself."""
         return f"https://www.youtube.com/watch?v={video_id}"
 
     def is_youtube_url(self, url):
-        """Validate YouTube URL using pytubefix. Extracts video ID from any format (standard, short, embed URLs)."""
+        """Validate a YouTube URL via pytubefix (standard, short, and embed forms)."""
         try:
             YouTube(url, "WEB")
             return True
@@ -313,7 +321,8 @@ class YouTubeTranscriber:
         if format_name is not None:
             return True
 
-        valid_extensions = ['.mp3', '.mp4', '.wav', '.avi', '.mov', '.mkv', '.flac', '.ogg', '.m4a', '.webm']
+        valid_extensions = ['.mp3', '.mp4', '.wav', '.avi', '.mov',
+                            '.mkv', '.flac', '.ogg', '.m4a', '.webm']
         file_ext = os.path.splitext(path)[1].lower()
         return file_ext in valid_extensions
 
@@ -334,7 +343,6 @@ class YouTubeTranscriber:
             print(f"Error with ffprobe: {str(e)}")
             return None
 
-
     def get_yes_no_input(self, prompt_text, default="y"):
         """Prompt user for yes/no input with validation."""
         while True:
@@ -349,11 +357,7 @@ class YouTubeTranscriber:
                 print(f"Invalid input. Please enter one of {YesNo.YES.value + YesNo.NO.value}.")
 
     def prompt_for_source(self, prompt_text=None):
-        """Prompt until the user enters a valid YouTube URL, video ID, or local media path.
-
-        Returns:
-            tuple: (url, is_local_file)
-        """
+        """Prompt until valid. Returns (url, is_local_file)."""
         if prompt_text is None:
             prompt_text = self.DEFAULT_SOURCE_PROMPT
         while True:
@@ -375,19 +379,41 @@ class YouTubeTranscriber:
     def get_model_choice_input(self):
         """Prompt for Whisper model selection (1-7 or name)."""
         while True:
-            model_choice = input("Select Whisper model:\n"
-                               "1. Tiny\n"
-                               "2. Base\n"
-                               "3. Small\n"
-                               "4. Medium\n"
-                               "5. Large-v1\n"
-                               "6. Large-v2\n"
-                               "7. Large-v3\n"
-                               "Enter your choice (1-7 or model name, default Base): ").strip().lower()
+            prompt = (
+                "Select Whisper model:\n"
+                "1. Tiny\n"
+                "2. Base\n"
+                "3. Small\n"
+                "4. Medium\n"
+                "5. Large-v1\n"
+                "6. Large-v2\n"
+                "7. Large-v3\n"
+                "Enter your choice (1-7 or model name, default Base): "
+            )
+            model_choice = input(prompt).strip().lower()
             if model_choice in ModelSize.valid_choices() + ('',):
                 return model_choice
             else:
                 print("Invalid input. Please enter a valid model choice or number (1-7).")
+
+    @staticmethod
+    def resolve_transcript_language(detected, fallback):
+        """Reduce a langdetect code to one Whisper knows, else `fallback`.
+
+        Keeps region tags ('zh-cn') and detection failures out of the filename.
+        """
+        base = (detected or "").split('-')[0]
+        return base if base in whisper.tokenizer.LANGUAGES else fallback
+
+    @staticmethod
+    def normalize_language(text):
+        """Resolve a language code or name to Whisper's 2-letter code, or None.
+
+        Must return a code: callers compare against DEFAULT_LANGUAGE to pick .en models.
+        """
+        lower = text.strip().lower()
+        code = whisper.tokenizer.TO_LANGUAGE_CODE.get(lower, lower)
+        return code if code in whisper.tokenizer.LANGUAGES else None
 
     def get_target_language_input(self):
         """Prompt for target language (validates against Whisper's supported list)."""
@@ -402,43 +428,31 @@ class YouTubeTranscriber:
             if not target_language:
                 return self.DEFAULT_LANGUAGE
 
-            in_codes = target_language in whisper.tokenizer.LANGUAGES
-            in_names = target_language in whisper.tokenizer.LANGUAGES.values()
-
-            if in_codes or in_names:
-                return target_language
-            else:
-                print("Invalid language code or name. Please refer to the supported "
-                      "languages list and try again.")
+            code = self.normalize_language(target_language)
+            if code:
+                return code
+            print("Invalid language code or name. Please refer to the supported "
+                  "languages list and try again.")
 
     def _validate_hf_model(self, model_name):
-        """Check if a HuggingFace model exists and is accessible.
-
-        Args:
-            model_name: HuggingFace model ID (e.g., 'distilgpt2', 'microsoft/phi-2').
-
-        Returns:
-            bool: True if model exists, False otherwise.
-        """
+        """Check whether a HuggingFace model ID (e.g. 'microsoft/phi-2') exists."""
         try:
             from huggingface_hub import model_info
             model_info(model_name)
             return True
         except ImportError:
             # Can't validate without huggingface_hub; allow it through
-            print("Note: Cannot validate model name (huggingface_hub not available). Proceeding anyway.")
+            print("Note: Cannot validate model name (huggingface_hub not available). "
+                  "Proceeding anyway.")
             return True
         except Exception:
             return False
 
     def get_ai_enhancement_input(self):
-        """Prompt user for AI enhancement mode.
+        """Prompt for AI enhancement mode.
 
-        Returns:
-            tuple: (AIEnhancementMode, Provider_or_None, model_id_string_or_None)
-            - (API, Provider, None) if user picks a cloud provider
-            - (LOCAL, None, 'model_id') if user picks a local model
-            - (None, None, None) if user declines
+        Returns (API, provider, None), (LOCAL, None, model_id), or (None, None, None)
+        if the user declines.
         """
         while True:
             suggestions = ", ".join(m.display_name for m in LocalModel)
@@ -447,7 +461,8 @@ class YouTubeTranscriber:
                 "Enhance transcript with AI?\n"
                 f" - Enter 'y' for the default cloud API ({Provider.default().key})\n"
                 f" - Enter a provider name for a specific cloud API: {provider_names}\n"
-                f" - Enter 'local' to use default local model ({LocalModel.default().display_name})\n"
+                f" - Enter 'local' for the default local model "
+                f"({LocalModel.default().display_name})\n"
                 f" - Enter a model name (e.g., {suggestions})\n"
                 "   or any HuggingFace model ID (e.g., microsoft/phi-2)\n"
                 " - Enter 'n' to skip\n"
@@ -482,13 +497,10 @@ class YouTubeTranscriber:
                 print(f"Model '{model_id}' not found on HuggingFace. Please try again.")
 
     def get_prompt_input(self):
-        """Prompt user to select a prompt file or enter a custom prompt.
+        """Prompt for a prompt file or a custom prompt.
 
-        Returns:
-            tuple: (prompt_filename, prompt_text)
-                - (filename, None) if a file was selected
-                - (None, text) if the user entered an inline prompt
-                - (None, None) if no prompts available or user cancelled
+        Returns (filename, None) for a file, (None, text) for an inline prompt,
+        or (None, None) if cancelled.
         """
         prompts = self.list_available_prompts()
         if not prompts:
@@ -496,7 +508,8 @@ class YouTubeTranscriber:
             print("You can enter a custom prompt instead.")
             print("  E. Enter custom prompt")
             while True:
-                user_input = input("Select option (E to enter custom prompt, or press Enter to skip): ").strip()
+                user_input = input(
+                    "Select option (E to enter custom prompt, or press Enter to skip): ").strip()
                 if not user_input:
                     return (None, None)
                 elif user_input.lower() == 'e':
@@ -510,7 +523,8 @@ class YouTubeTranscriber:
         print("  E. Enter custom prompt")
 
         while True:
-            user_input = input(f"Select prompt file (number, name, or E for custom; default 1. {prompts[0]}): ").strip()
+            user_input = input(f"Select prompt file (number, name, or E for custom; "
+                               f"default 1. {prompts[0]}): ").strip()
             if not user_input:
                 return (prompts[0], None)
             elif user_input.lower() == 'e':
@@ -525,11 +539,7 @@ class YouTubeTranscriber:
                 print("Invalid selection. Please try again.")
 
     def _get_inline_prompt(self):
-        """Prompt the user to enter a custom prompt in the console.
-
-        Returns:
-            tuple: (None, prompt_text) or (None, None) if empty.
-        """
+        """Read a multi-line prompt from the console; (None, text) or (None, None)."""
         print("Enter your custom prompt (press Enter twice to finish):")
         lines = []
         while True:
@@ -555,14 +565,7 @@ class YouTubeTranscriber:
         ])
 
     def load_prompt_file(self, filename):
-        """Load prompt text from a file in the Prompt/ directory.
-
-        Args:
-            filename: Name of the prompt file (e.g., 'prompt-refinement.txt').
-
-        Returns:
-            str: The prompt text, or empty string if file not found/empty.
-        """
+        """Load prompt text from Prompt/<filename>; empty string if missing or unreadable."""
         prompt_path = os.path.join(os.path.dirname(__file__), self.PROMPT_DIR, filename)
         if not os.path.exists(prompt_path):
             print(f"Warning: Prompt file not found: {prompt_path}")
@@ -574,23 +577,22 @@ class YouTubeTranscriber:
                 print(f"Warning: Prompt file is empty: {prompt_path}")
                 return ""
             return content
-        except (PermissionError, OSError) as e:
+        except OSError as e:
             print(f"Error reading prompt file: {str(e)}")
             return ""
 
-
-    def chunk_text(self, text, max_tokens=800, overlap_tokens=50):
-        """Split text into chunks at sentence boundaries, respecting token limits.
-
-        Args:
-            text: The full transcript text.
-            max_tokens: Max tokens per chunk (leave room for prompt/output).
-            overlap_tokens: Tokens to overlap between chunks for continuity.
-
-        Returns:
-            list[str]: List of text chunks.
-        """
+    @staticmethod
+    def chunk_text(text, max_tokens=800, overlap_tokens=50):
+        """Split text into overlapping chunks at sentence boundaries, under max_tokens each."""
+        overlap_tokens = min(overlap_tokens, max_tokens // 2)
         sentences = re.split(r'(?<=[.!?])\s+', text)
+        # Unpunctuated audio yields one giant "sentence"; wrap those on word boundaries,
+        # leaving room for the overlap prefix prepended below.
+        max_chars = max(1, (max_tokens - overlap_tokens) * 4)
+        sentences = [
+            piece for s in sentences
+            for piece in (textwrap.wrap(s, max_chars) if len(s) > max_chars else [s])
+        ]
 
         chunks = []
         current_chunk = ""
@@ -615,15 +617,9 @@ class YouTubeTranscriber:
 
         return chunks if chunks else [text]
 
-    def merge_chunks(self, enhanced_chunks):
-        """Merge enhanced text chunks, deduplicating overlaps.
-
-        Args:
-            enhanced_chunks: List of enhanced text strings.
-
-        Returns:
-            str: Merged text.
-        """
+    @staticmethod
+    def merge_chunks(enhanced_chunks):
+        """Merge enhanced chunks back together, dropping duplicated overlap text."""
         if not enhanced_chunks:
             return ""
         if len(enhanced_chunks) == 1:
@@ -631,9 +627,8 @@ class YouTubeTranscriber:
 
         merged = enhanced_chunks[0]
         for chunk in enhanced_chunks[1:]:
-            # Try to find overlap between end of merged and start of chunk.
-            # The window must cover the largest overlap chunk_text produces
-            # (100 overlap_tokens * 4 chars/token = 400 chars), with slack.
+            # Window must cover the largest overlap chunk_text produces
+            # (100 overlap_tokens * 4 chars/token = 400), with slack.
             overlap_window = min(600, len(merged))
             tail = merged[-overlap_window:]
 
@@ -643,7 +638,7 @@ class YouTubeTranscriber:
                     best_overlap = j
                     break
 
-            if best_overlap > 10:  # Only deduplicate if overlap is meaningful
+            if best_overlap > 10:
                 merged += " " + chunk[best_overlap:].strip()
             else:
                 merged += " " + chunk.strip()
@@ -658,17 +653,10 @@ class YouTubeTranscriber:
         ]
 
     def _run_chunked_enhancement(self, chunks, backend_label, call_chunk):
-        """Shared chunk-loop for cloud enhancement backends.
+        """Shared chunk-loop for the enhancement backends.
 
-        Args:
-            chunks: list of text chunks to enhance.
-            backend_label: name used in progress/warning messages (e.g. provider.key).
-            call_chunk: callable(chunk) -> enhanced text. Returning an empty/falsy
-                string signals "no usable output" and keeps the original chunk;
-                raising falls back to the original chunk and logs the error.
-
-        Returns:
-            str: merged, enhanced text.
+        call_chunk(chunk) returns enhanced text; a falsy return or a raised
+        exception keeps the original chunk.
         """
         enhanced_chunks = []
         for i, chunk in enumerate(chunks):
@@ -682,20 +670,10 @@ class YouTubeTranscriber:
         return self.merge_chunks(enhanced_chunks)
 
     def enhance_with_openai_compatible(self, text, prompt_text, api_key, provider):
-        """Enhance transcript text via an OpenAI-API-compatible endpoint.
+        """Enhance transcript text via an OpenAI-compatible endpoint.
 
-        Covers OPENAI and OPENROUTER (and, via base_url overrides, any other
-        provider that speaks the same chat completions API - Groq, Together,
-        DeepSeek's direct API, Azure OpenAI, etc.).
-
-        Args:
-            text: The raw transcript text.
-            prompt_text: The enhancement prompt (from prompt file).
-            api_key: API key for `provider`.
-            provider: Provider enum (OPENAI or OPENROUTER).
-
-        Returns:
-            str: Enhanced text, or original text on failure.
+        Covers OPENAI and OPENROUTER, plus anything else reachable by overriding the
+        provider's base URL (Groq, Together, DeepSeek, Azure). Returns `text` on failure.
         """
         try:
             import openai
@@ -727,17 +705,7 @@ class YouTubeTranscriber:
         return result
 
     def enhance_with_anthropic(self, text, prompt_text, api_key, provider):
-        """Enhance transcript text using Anthropic's native Messages API with chunking.
-
-        Args:
-            text: The raw transcript text.
-            prompt_text: The enhancement prompt (from prompt file).
-            api_key: Anthropic API key.
-            provider: Provider.ANTHROPIC (carries the resolved model/base_url).
-
-        Returns:
-            str: Enhanced text, or original text on failure.
-        """
+        """Enhance transcript text via Anthropic's Messages API. Returns `text` on failure."""
         try:
             import anthropic
         except ImportError:
@@ -768,7 +736,8 @@ class YouTubeTranscriber:
             if response.stop_reason == "max_tokens":
                 # Output was cut off mid-sentence; keep the original chunk rather
                 # than silently save truncated text.
-                print(f"  Warning: response truncated at {max_tokens} tokens; keeping original chunk to avoid content loss.")
+                print(f"  Warning: response truncated at {max_tokens} tokens; "
+                      "keeping original chunk to avoid content loss.")
                 return ""
             return "".join(
                 block.text for block in response.content if block.type == "text"
@@ -779,18 +748,9 @@ class YouTubeTranscriber:
         return result
 
     def enhance_with_local(self, text, prompt_text, local_model):
-        """Enhance transcript text using a local model with chunking.
-
-        Args:
-            text: The raw transcript text.
-            prompt_text: The enhancement prompt (from prompt file).
-            local_model: LocalModel enum or HuggingFace model ID string.
-
-        Returns:
-            str: Enhanced text, or original text on failure.
-        """
+        """Enhance transcript text with a local HuggingFace model. Returns `text` on failure."""
         try:
-            from transformers import pipeline, AutoTokenizer
+            from transformers import AutoTokenizer, pipeline
         except ImportError:
             print("Warning: 'transformers' package not installed. Skipping local enhancement.")
             print("Install with: pip install transformers torch")
@@ -799,7 +759,8 @@ class YouTubeTranscriber:
         try:
             import torch
         except ImportError:
-            print("Warning: 'torch' package not installed or not available. Skipping local enhancement.")
+            print("Warning: 'torch' package not installed or not available. "
+                  "Skipping local enhancement.")
             print("Install with: pip install torch")
             return text
 
@@ -821,7 +782,7 @@ class YouTubeTranscriber:
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_id)
             max_length = getattr(tokenizer, 'model_max_length', 1024)
-            # Use 60% of max length for input, leave room for generation
+            # leave room for generation
             chunk_max = min(int(max_length * 0.6), 800)
 
             accelerate_available = importlib.util.find_spec("accelerate") is not None
@@ -847,7 +808,7 @@ class YouTubeTranscriber:
         print(f"Enhancing transcript with local model ({len(chunks)} chunk(s))...")
 
         def call_chunk(chunk):
-            max_new_tokens = max(len(chunk.split()) * 2, 256)  # Allow roughly 2x input length
+            max_new_tokens = max(len(chunk.split()) * 2, 256)
 
             if has_chat_template:
                 full_prompt = tokenizer.apply_chat_template(
@@ -890,18 +851,10 @@ class YouTubeTranscriber:
         return result
 
     def enhance_text(self, text, mode, prompt_text, api_key=None, provider=None, local_model=None):
-        """Main dispatcher for transcript enhancement.
+        """Dispatch enhancement to the cloud or local backend.
 
-        Args:
-            text: The raw transcript text.
-            mode: AIEnhancementMode enum (API or LOCAL).
-            prompt_text: The enhancement prompt text.
-            api_key: Cloud API key (required if mode is API).
-            provider: Provider enum selecting which cloud API to call (used if mode is API).
-            local_model: HuggingFace model ID string or LocalModel enum (required if mode is LOCAL).
-
-        Returns:
-            str: Enhanced text, or original text if enhancement fails/skipped.
+        api_key/provider apply to API mode, local_model to LOCAL mode. Returns
+        `text` unchanged if enhancement is skipped or fails.
         """
         if not text or not text.strip():
             print("Warning: No text to enhance.")
@@ -929,14 +882,14 @@ class YouTubeTranscriber:
             print("Warning: Unknown enhancement mode. Skipping.")
             return text
 
-
     def startfile(self, fn):
         """Open file with system default app (cross-platform)."""
         if os.name == 'nt':
             os.startfile(fn)
         elif os.name == 'posix':
             opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
-            subprocess.run([opener, fn], check=True)
+            # a non-zero exit from the opener is not our problem
+            subprocess.run([opener, fn], check=False)
 
     def sanitize_filename(self, text):
         """Strip invalid characters from filename; never returns an empty name."""
@@ -961,18 +914,24 @@ class YouTubeTranscriber:
         required_space = max(len(text) * 2, 1024 * 1024)
         free_space = self.get_free_disk_space(output_dir)
         if free_space is not None and free_space < required_space:
-            print(f"Error: Not enough disk space to save transcript. Need {required_space/1024/1024:.1f}MB, have {free_space/1024/1024:.1f}MB free.")
+            print(f"Error: Not enough disk space to save transcript. "
+                  f"Need {required_space/1024/1024:.1f}MB, "
+                  f"have {free_space/1024/1024:.1f}MB free.")
             return False
 
         try:
             with open(file_path, "w", encoding='utf-8') as file:
                 file.write(text)
-            self.startfile(file_path)
-            return True
-        except (PermissionError, OSError) as e:
+        except OSError as e:
             print(f"Error writing transcript file: {str(e)}")
             return False
 
+        # Opening is a convenience; failing to open must not report the file as lost.
+        try:
+            self.startfile(file_path)
+        except OSError as e:
+            print(f"Note: could not open the transcript automatically: {str(e)}")
+        return True
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2),
            retry=retry_if_exception_type(Exception))
@@ -980,7 +939,8 @@ class YouTubeTranscriber:
         """Create YouTube object (retries up to 3 times on failures)."""
         try:
             return YouTube(url, "WEB")
-        except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, ValueError, OSError) as e:
+        except (RegexMatchError, VideoUnavailable, VideoPrivate,
+                VideoRegionBlocked, ValueError, OSError) as e:
             print(f"Error creating YouTube object: {str(e)}")
             raise
 
@@ -989,7 +949,8 @@ class YouTubeTranscriber:
         """Sort video streams by resolution, highest first."""
         return sorted(
             streams,
-            key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,  # [:-1] strips 'p' from '1080p'
+            # [:-1] strips 'p' from '1080p'
+            key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,
             reverse=True
         )
 
@@ -1011,7 +972,8 @@ class YouTubeTranscriber:
             audio_streams = yt.streams.filter(only_audio=True)
             return sorted(
                 audio_streams,
-                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,  # [:-4] strips 'kbps' from '128kbps'
+                # [:-4] strips 'kbps' from '128kbps'
+                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,
                 reverse=True
             )
         except RegexMatchError as e:
@@ -1063,7 +1025,8 @@ class YouTubeTranscriber:
 
         return relative_path, absolute_path
 
-    def combine_audio_video(self, video_path, audio_path, output_path, cleanup_temp=True, temp_video_dir=None):
+    def combine_audio_video(self, video_path, audio_path, output_path,
+                            cleanup_temp=True, temp_video_dir=None):
         """Merge separate video and audio files using ffmpeg."""
         output_dir = os.path.dirname(output_path)
         if not self.ensure_directory_exists(output_dir):
@@ -1081,9 +1044,11 @@ class YouTubeTranscriber:
 
             free_space = self.get_free_disk_space(output_dir)
             if free_space is not None and free_space < required_space:
-                print(f"Error: Not enough disk space to combine video. Need {required_space/1024/1024:.1f}MB, have {free_space/1024/1024:.1f}MB free.")
+                print(f"Error: Not enough disk space to combine video. "
+                      f"Need {required_space/1024/1024:.1f}MB, "
+                      f"have {free_space/1024/1024:.1f}MB free.")
                 return None
-        except (OSError, IOError) as e:
+        except OSError as e:
             print(f"Warning: Could not verify file sizes: {str(e)}")
 
         if not os.path.exists(video_path):
@@ -1094,10 +1059,11 @@ class YouTubeTranscriber:
             print(f"Error: Audio file not found: {audio_path}")
             return None
 
-        command = f'ffmpeg -y -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac "{output_path}"'
+        command = ['ffmpeg', '-y', '-i', video_path, '-i', audio_path,
+                   '-c:v', 'copy', '-c:a', 'aac', output_path]
 
         try:
-            subprocess.run(command, shell=True, capture_output=True, text=True, check=True)
+            subprocess.run(command, capture_output=True, text=True, check=True)
         except subprocess.CalledProcessError as e:
             print(f"Error combining audio and video: {e.stderr}")
             return None
@@ -1115,18 +1081,21 @@ class YouTubeTranscriber:
                     os.remove(video_path)
                 if temp_video_dir and os.path.exists(temp_video_dir):
                     os.rmdir(temp_video_dir)
-            except (PermissionError, OSError) as e:
+            except OSError as e:
                 print(f"Warning: Could not clean up temporary files: {str(e)}")
 
         print(f"Combined video saved to {output_path}")
         return output_path
 
     def transcribe_audio_file(self, file_path, model_name, target_language):
-        """Transcribe audio file using Whisper and detect the language."""
+        """Transcribe with Whisper and detect the language.
+
+        Returns (text, language_code), or (None, code) on failure or no speech.
+        Never an error string, which callers would otherwise save as a transcript.
+        """
         if not os.path.exists(file_path):
-            error_msg = f"Error: Audio file not found: {file_path}"
-            print(error_msg)
-            return error_msg, "en"
+            print(f"Error: Audio file not found: {file_path}")
+            return None, "en"
 
         try:
             print(f"Loading Whisper model: {model_name}")
@@ -1138,7 +1107,7 @@ class YouTubeTranscriber:
                 model = whisper.load_model("base")
             except (OSError, ValueError) as fallback_error:
                 print(f"Error loading fallback model: {str(fallback_error)}")
-                return "Error: Unable to load Whisper model", "en"
+                return None, "en"
 
         target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)
         target_language_full = target_language_full.capitalize()
@@ -1151,19 +1120,20 @@ class YouTubeTranscriber:
             transcribed_text = result["text"]
 
             if not transcribed_text.strip():
-                print("Warning: Transcription produced empty text. The audio might be silent or not contain speech.")
-                return "No speech detected in audio.", target_language
+                print("Warning: Transcription produced empty text. "
+                      "The audio might be silent or not contain speech.")
+                return None, target_language
 
         except (RuntimeError, ValueError) as e:
-            error_msg = f"Error during transcription: {str(e)}"
-            print(error_msg)
-            return error_msg, "en"
+            print(f"Error during transcription: {str(e)}")
+            return None, "en"
 
         print("\nTranscription:\n" + transcribed_text + "\n")
 
         try:
             detected_language = detect(transcribed_text)
-            detected_language_full = whisper.tokenizer.LANGUAGES.get(detected_language, detected_language)
+            detected_language_full = whisper.tokenizer.LANGUAGES.get(
+                detected_language, detected_language)
             detected_language_full = detected_language_full.capitalize()
 
             if detected_language_full == target_language_full:
@@ -1174,7 +1144,8 @@ class YouTubeTranscriber:
             print(f"Error detecting language: {str(e)}")
             detected_language = "unknown"
 
-        return transcribed_text, detected_language
+        language = self.resolve_transcript_language(detected_language, target_language)
+        return transcribed_text, language
 
     def check_dependencies(self):
         """Verify required system dependencies (ffmpeg) are installed."""
@@ -1188,7 +1159,6 @@ class YouTubeTranscriber:
             return False
 
         return True
-
 
     def list_profiles(self):
         """List profile files in the Profile/ directory, sorted by name.
@@ -1218,7 +1188,8 @@ class YouTubeTranscriber:
                   "No changes were made to it.")
 
         existing_profiles = self.list_profiles()
-        num_pattern = rf"^{re.escape(self.PROFILE_PREFIX)}(?P<num>\d+)(?:-.*)?{re.escape(self.ENV_EXT)}$"
+        num_pattern = (rf"^{re.escape(self.PROFILE_PREFIX)}(?P<num>\d+)"
+                       rf"(?:-.*)?{re.escape(self.ENV_EXT)}$")
         existing_numbers = []
         for f in existing_profiles:
             m = re.match(num_pattern, f)
@@ -1262,11 +1233,11 @@ class YouTubeTranscriber:
             if not os.path.exists(parent_dir):
                 try:
                     os.makedirs(parent_dir, exist_ok=True)
-                except (PermissionError, OSError):
+                except OSError:
                     return False
 
             return os.access(parent_dir, os.W_OK)
-        except (OSError, IOError):
+        except OSError:
             return False
 
     def get_free_disk_space(self, directory):
@@ -1283,7 +1254,7 @@ class YouTubeTranscriber:
                 target_dir = '.'
 
             return shutil.disk_usage(target_dir).free
-        except (OSError, IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             print(f"Error checking disk space: {str(e)}")
             return None
 
@@ -1389,11 +1360,7 @@ def _ai_mode_from_setting(value):
 
 
 def _select_prompt_interactively(transcriber):
-    """Have the user pick a prompt file or type an inline prompt.
-
-    Returns:
-        tuple: (prompt_text, used_fields_label) or (None, None) if cancelled.
-    """
+    """Pick a prompt file or type one inline. Returns (prompt_text, label) or (None, None)."""
     prompt_filename, inline_prompt = transcriber.get_prompt_input()
     if prompt_filename:
         return transcriber.load_prompt_file(prompt_filename), prompt_filename
@@ -1414,11 +1381,7 @@ def _resolve_api_key(provider):
 
 
 def _prompt_profile_selection(transcriber, profiles):
-    """List profiles and let the user pick one.
-
-    Returns:
-        str or None: The selected profile filename, or None if skipped.
-    """
+    """List profiles and return the chosen filename, or None if skipped."""
     print("Available profiles:")
     for i, profile in enumerate(profiles):
         print(f"{i+1}. {profile}")
@@ -1459,12 +1422,14 @@ def _prompt_resolution_selection(transcriber, yt):
         print(f"{i+1}. {res}")
 
     while True:
-        user_input = input("Enter desired resolution (number or resolution, default highest): ").lower()
+        user_input = input(
+            "Enter desired resolution (number or resolution, default highest): ").strip().lower()
         if not user_input:
             return available_resolutions[0]
         if user_input.isdigit() and 1 <= int(user_input) <= len(available_resolutions):
             return available_resolutions[int(user_input) - 1]
-        if user_input in available_resolutions or (user_input.isdigit() and user_input + "p" in available_resolutions):
+        if user_input in available_resolutions or (
+                user_input.isdigit() and user_input + "p" in available_resolutions):
             return user_input if user_input in available_resolutions else user_input + "p"
         print("Invalid input. Please enter a valid number or resolution.")
 
@@ -1481,11 +1446,9 @@ def _prompt_resolution_input(transcriber, used_fields):
         if not resolution:
             return Resolution.HIGHEST.value
 
-        resolution = resolution.lower()
+        resolution = Resolution.normalize(resolution)
 
         if resolution in Resolution.values():
-            if resolution == Resolution.F.value:
-                resolution = Resolution.FETCH.value
             used_fields["RESOLUTION"] = resolution
             return resolution
         if resolution.endswith("p") and resolution[:-1].isdigit() and int(resolution[:-1]) > 0:
@@ -1503,13 +1466,10 @@ def _prompt_resolution_input(transcriber, used_fields):
 
 
 def _select_profile(transcriber):
-    """Determine whether to run from a profile and load it if so.
+    """Decide whether to run from a profile and load it if so.
 
-    Handles repeat invocations, config.txt discovery, and interactive
-    profile selection.
-
-    Returns:
-        tuple: (load_profile, profile_name)
+    Handles repeat invocations, config.txt discovery, and interactive selection.
+    Returns (load_profile, profile_name).
     """
     repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
     repeat_profile_name = os.environ.get("_REPEAT_PROFILE_NAME")
@@ -1568,7 +1528,8 @@ def _select_profile(transcriber):
     lower_lp = load_profile_str.lower() if load_profile_str else ''
 
     # Explicit profile names (not simple yes/no) take precedence
-    if load_profile_str and lower_lp not in YesNo.YES.value + YesNo.NO.value + YesNo.SKIP.value + ('',):
+    reserved = YesNo.YES.value + YesNo.NO.value + YesNo.SKIP.value + ('',)
+    if load_profile_str and lower_lp not in reserved:
         if not load_profile_str.endswith(transcriber.ENV_EXT):
             load_profile_str += transcriber.ENV_EXT
         profile_path = os.path.join(transcriber.PROFILE_DIR, load_profile_str)
@@ -1620,7 +1581,8 @@ def _configure_interactive(transcriber):
         if cfg.download_video:
             cfg.no_audio_in_video = _bool_from_last(
                 "LAST_NO_AUDIO_IN_VIDEO",
-                lambda: transcriber.get_yes_no_input("... without the audio in the video? (y/N): ", "n"))
+                lambda: transcriber.get_yes_no_input(
+                    "... without the audio in the video? (y/N): ", "n"))
             used_fields["NO_AUDIO_IN_VIDEO"] = "y" if cfg.no_audio_in_video else "n"
 
             cfg.resolution = _value_from_last(
@@ -1657,14 +1619,17 @@ def _configure_interactive(transcriber):
     cfg.model_name = model_enum.value
     used_fields["MODEL_CHOICE"] = cfg.model_name
 
-    cfg.target_language = _value_from_last("LAST_TARGET_LANGUAGE", transcriber.get_target_language_input)
+    cfg.target_language = _value_from_last(
+        "LAST_TARGET_LANGUAGE", transcriber.get_target_language_input)
     used_fields["TARGET_LANGUAGE"] = cfg.target_language
 
-    if model_enum in ModelSize.standard_models() and cfg.target_language == transcriber.DEFAULT_LANGUAGE:
+    if (model_enum in ModelSize.standard_models()
+            and cfg.target_language == transcriber.DEFAULT_LANGUAGE):
         cfg.use_en_model = _bool_from_last(
             "LAST_USE_EN_MODEL",
             lambda: transcriber.get_yes_no_input(
-                "Use English-specific model? (Recommended only if the video is originally in English) (y/N): ",
+                "Use English-specific model? "
+                "(Recommended only if the video is originally in English) (y/N): ",
                 default='n'))
         used_fields["USE_EN_MODEL"] = "y" if cfg.use_en_model else "n"
 
@@ -1736,7 +1701,8 @@ def _configure_from_profile(transcriber, profile_name):
                         print(f"Loaded local file: {cfg.url} (from {profile_name})")
                     else:
                         print("Incorrect value for YOUTUBE_URL in config.env. "
-                              "Please enter a valid YouTube video URL, video ID, or local file path: ")
+                              "Please enter a valid YouTube video URL, video ID, "
+                              "or local file path: ")
                         cfg.url = input()
             else:
                 print("Error: Only YouTube URLs supported for web inputs")
@@ -1759,7 +1725,7 @@ def _configure_from_profile(transcriber, profile_name):
 
             resolution = os.getenv("RESOLUTION")
             if resolution:
-                resolution = resolution.lower()
+                resolution = Resolution.normalize(resolution)
                 if resolution not in Resolution.values():
                     if resolution.isdigit():
                         if int(resolution) > 0:
@@ -1816,10 +1782,12 @@ def _configure_from_profile(transcriber, profile_name):
 
         target_language = os.getenv("TARGET_LANGUAGE")
         if target_language:
-            if target_language.lower() not in whisper.tokenizer.LANGUAGES:
+            code = transcriber.normalize_language(target_language)
+            if code is None:
                 print(f"Invalid value for TARGET_LANGUAGE in .env: {target_language}")
                 target_language = transcriber.get_target_language_input()
             else:
+                target_language = code
                 print(f"Loaded TARGET_LANGUAGE: {target_language} (from {profile_name})")
         else:
             target_language = transcriber.get_target_language_input()
@@ -1835,9 +1803,11 @@ def _configure_from_profile(transcriber, profile_name):
                 print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
             else:
                 print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
-                if model_enum in ModelSize.standard_models() and cfg.target_language == transcriber.DEFAULT_LANGUAGE:
+                if (model_enum in ModelSize.standard_models()
+                        and cfg.target_language == transcriber.DEFAULT_LANGUAGE):
                     cfg.use_en_model = transcriber.get_yes_no_input(
-                        "Use English-specific model? (Recommended only if the video is originally in English) (y/N): ",
+                        "Use English-specific model? "
+                        "(Recommended only if the video is originally in English) (y/N): ",
                         default='n')
 
     ai_enhancement_str = os.getenv("AI_ENHANCEMENT")
@@ -1886,7 +1856,8 @@ def _create_youtube_with_recovery(transcriber, cfg):
             try:
                 video_title = yt.title
                 yt.check_availability()
-            except (AttributeError, OSError, VideoUnavailable, VideoPrivate, VideoRegionBlocked) as e:
+            except (AttributeError, OSError, VideoUnavailable,
+                    VideoPrivate, VideoRegionBlocked) as e:
                 print(f"\nError with URL '{cfg.url}': {str(e)}")
                 print("The video is unavailable or inaccessible.")
                 cfg.url, cfg.is_local_file = transcriber.prompt_for_source(retry_prompt)
@@ -1896,7 +1867,8 @@ def _create_youtube_with_recovery(transcriber, cfg):
             cfg.yt = yt
             cfg.video_title = video_title
             return
-        except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked, OSError, ValueError) as e:
+        except (RegexMatchError, VideoUnavailable, VideoPrivate,
+                VideoRegionBlocked, OSError, ValueError) as e:
             print(f"\nError with URL '{cfg.url}': {str(e)}")
             print("The URL appears to be invalid or the video is unavailable.")
             cfg.url, cfg.is_local_file = transcriber.prompt_for_source(retry_prompt)
@@ -1923,6 +1895,8 @@ def _run_pipeline(transcriber, cfg):
     audio_filename = filename_base + transcriber.MP3_EXT
     video_temp_dir = None
     video_path = None
+    audio_path = None
+    transcription_failed = False
 
     if cfg.download_video and not cfg.is_local_file:
         yt = cfg.yt
@@ -1948,13 +1922,16 @@ def _run_pipeline(transcriber, cfg):
             cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
             stream = yt.streams.filter(only_video=True, resolution=cfg.selected_res).first()
             if stream is None:
-                print(f"Error: No suitable stream found for resolution {cfg.selected_res}. Exiting...")
+                print(f"Error: No suitable stream found for "
+                      f"resolution {cfg.selected_res}. Exiting...")
                 sys.exit()
 
         if cfg.no_audio_in_video:
             print(f"Downloading video stream ({stream.resolution} without audio)...")
-            stream.download(output_path=transcriber.VIDEO_WITHOUT_AUDIO_DIR, filename=video_filename)
-            file_path = os.path.abspath(os.path.join(transcriber.VIDEO_WITHOUT_AUDIO_DIR, video_filename))
+            stream.download(output_path=transcriber.VIDEO_WITHOUT_AUDIO_DIR,
+                            filename=video_filename)
+            file_path = os.path.abspath(
+                os.path.join(transcriber.VIDEO_WITHOUT_AUDIO_DIR, video_filename))
             print(f"Video downloaded to {file_path}")
         else:
             video_temp_dir = os.path.join(transcriber.VIDEO_DIR, transcriber.TEMP_DIR)
@@ -1978,8 +1955,9 @@ def _run_pipeline(transcriber, cfg):
             audio_path = os.path.join(transcriber.AUDIO_DIR, audio_filename)
 
         output_path_combined = os.path.join(transcriber.VIDEO_DIR, video_filename)
-        transcriber.combine_audio_video(video_path, audio_path, output_path_combined,
-                cleanup_temp=not cfg.no_audio_in_video, temp_video_dir=video_temp_dir)
+        transcriber.combine_audio_video(
+            video_path, audio_path, output_path_combined,
+            cleanup_temp=not cfg.no_audio_in_video, temp_video_dir=video_temp_dir)
 
     if cfg.transcribe_audio:
         if cfg.is_local_file:
@@ -1989,7 +1967,8 @@ def _run_pipeline(transcriber, cfg):
                 # Extract the audio track from a local video file
                 try:
                     video = VideoFileClip(cfg.url)
-                    audio_file = os.path.join(transcriber.AUDIO_DIR, filename_base + transcriber.MP3_EXT)
+                    audio_file = os.path.join(
+                        transcriber.AUDIO_DIR, filename_base + transcriber.MP3_EXT)
                     try:
                         if video.audio is None:
                             print("Error: Video file has no audio track.")
@@ -1997,14 +1976,17 @@ def _run_pipeline(transcriber, cfg):
                         video.audio.write_audiofile(audio_file)
                     finally:
                         video.close()
-                except (IOError, OSError, ValueError, AttributeError) as e:
+                except (OSError, ValueError, AttributeError) as e:
                     print(f"Error processing video file: {str(e)}")
                     sys.exit(1)
             file_path = audio_file
         else:
             audio_file = os.path.join(transcriber.AUDIO_DIR, audio_filename)
             if not cfg.download_audio:
-                audio_file, _ = transcriber.download_audio_stream(cfg.yt, filename_base, is_temp=True)
+                if audio_path is None:  # not already fetched above for the video merge
+                    audio_path, _ = transcriber.download_audio_stream(
+                        cfg.yt, filename_base, is_temp=True)
+                audio_file = audio_path
             file_path = audio_file
 
         # English-specific variants (e.g. base.en) exist for the standard sizes only
@@ -2017,23 +1999,29 @@ def _run_pipeline(transcriber, cfg):
             file_path, model_name, cfg.target_language
         )
 
-        if cfg.ai_mode is not None and transcribed_text and transcribed_text.strip():
-            print(f"\nEnhancing transcript with AI ({cfg.ai_mode.name.lower()})...")
-            transcribed_text = transcriber.enhance_text(
-                transcribed_text,
-                cfg.ai_mode,
-                cfg.prompt_text,
-                api_key=cfg.api_key,
-                provider=cfg.provider,
-                local_model=cfg.local_model
-            )
-
-        if language == transcriber.DEFAULT_LANGUAGE:
-            transcript_name = f"{filename_base}{transcriber.TXT_EXT}"
+        if not transcribed_text:
+            # Don't pay to "enhance" a failure, and don't save one as a transcript
+            transcription_failed = True
+            print("No transcript produced; nothing saved.")
         else:
-            transcript_name = f"{filename_base} [{language}]{transcriber.TXT_EXT}"
-        transcriber.create_and_open_txt(transcribed_text, transcript_name)
-        print(f"Saved transcript to {os.path.abspath(os.path.join(transcriber.TRANSCRIPT_DIR, transcript_name))}")
+            if cfg.ai_mode is not None:
+                print(f"\nEnhancing transcript with AI ({cfg.ai_mode.name.lower()})...")
+                transcribed_text = transcriber.enhance_text(
+                    transcribed_text,
+                    cfg.ai_mode,
+                    cfg.prompt_text,
+                    api_key=cfg.api_key,
+                    provider=cfg.provider,
+                    local_model=cfg.local_model
+                )
+
+            if language == transcriber.DEFAULT_LANGUAGE:
+                transcript_name = f"{filename_base}{transcriber.TXT_EXT}"
+            else:
+                transcript_name = f"{filename_base} [{language}]{transcriber.TXT_EXT}"
+            if transcriber.create_and_open_txt(transcribed_text, transcript_name):
+                saved_path = os.path.join(transcriber.TRANSCRIPT_DIR, transcript_name)
+                print(f"Saved transcript to {os.path.abspath(saved_path)}")
     else:
         print("Skipping transcription.")
 
@@ -2043,10 +2031,14 @@ def _run_pipeline(transcriber, cfg):
     if (not cfg.is_local_file and not cfg.download_audio
             and (cfg.transcribe_audio or cfg.download_video)
             and os.path.exists(temp_audio_file)):
-        os.remove(temp_audio_file)
-        if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
-            os.rmdir(temp_audio_path)
-        print(f"Deleted audio residual in {temp_audio_file}")
+        if transcription_failed:
+            # Transcription is the retryable step; don't make the user re-download
+            print(f"Keeping downloaded audio for retry: {os.path.abspath(temp_audio_file)}")
+        else:
+            os.remove(temp_audio_file)
+            if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
+                os.rmdir(temp_audio_path)
+            print(f"Deleted audio residual in {temp_audio_file}")
 
     print("Tasks complete.")
 
@@ -2055,7 +2047,8 @@ def _ask_repeat(transcriber):
     """Ask the user whether to run again; the default flips to yes after the first repeat."""
     repeat_ask_count = int(os.environ.get("_REPEAT_ASK_COUNT", "0"))
     default_repeat = 'y' if repeat_ask_count > 0 else 'n'
-    prompt_text = "Run again? (Y/n): " if default_repeat == 'y' else "Run again? Hit Enter to repeat (y/N): "
+    prompt_text = ("Run again? (Y/n): " if default_repeat == 'y'
+                   else "Run again? Hit Enter to repeat (y/N): ")
     repeat = transcriber.get_yes_no_input(prompt_text, default=default_repeat)
     os.environ["_REPEAT_ASK_COUNT"] = str(repeat_ask_count + 1)
     return repeat, ("y" if repeat else "n")
@@ -2083,7 +2076,8 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
     cfg.used_fields["REPEAT"] = repeat_value
 
     if not load_profile and did_something_useful and not is_repeat:
-        if transcriber.get_yes_no_input("Do you want to create a profile from this session? (y/N): ", default='n'):
+        if transcriber.get_yes_no_input(
+                "Do you want to create a profile from this session? (y/N): ", default='n'):
             transcriber.create_profile(cfg.used_fields)
 
     try:
@@ -2099,7 +2093,6 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
                 os.environ.update({
                     "LAST_DOWNLOAD_VIDEO": "y" if cfg.download_video else "n",
                     "LAST_NO_AUDIO_IN_VIDEO": "y" if cfg.no_audio_in_video else "n",
-                    "LAST_RESOLUTION": cfg.resolution or "",
                     "LAST_DOWNLOAD_AUDIO": "y" if cfg.download_audio else "n",
                     "LAST_TRANSCRIBE_AUDIO": "y" if cfg.transcribe_audio else "n",
                     "LAST_MODEL_CHOICE": cfg.model_choice or "",
@@ -2107,6 +2100,11 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
                     "LAST_USE_EN_MODEL": "y" if cfg.use_en_model else "n",
                     "LAST_AI_ENHANCEMENT": last_ai,
                 })
+                # Storing "" would make the next run skip the prompt, then filter on ""
+                if cfg.resolution:
+                    os.environ["LAST_RESOLUTION"] = cfg.resolution
+                else:
+                    os.environ.pop("LAST_RESOLUTION", None)
             os.environ["_REPEAT_INVOCATION"] = "1"
             os.environ["URL"] = transcriber.URL_PLACEHOLDER
             if load_profile and profile_name:

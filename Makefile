@@ -1,4 +1,4 @@
-.PHONY: install deps lint format test run clean help
+.PHONY: install deps dev lint test run clean help precommit-install
 
 install:
 	python -m pip install --upgrade pip
@@ -16,10 +16,8 @@ lint:
 	pip install --no-input flake8
 	flake8
 
-format:
-	@echo "Running black to format code..."
-	pip install --no-input black
-	black .
+test:
+	python test_transcriber.py
 
 run:
 	python OpenAIYouTubeTranscriber.py
@@ -33,7 +31,7 @@ help:
 	@echo "  deps     - Install runtime dependencies from requirements.txt"
 	@echo "  dev      - Install development dependencies from requirements-dev.txt"
 	@echo "  lint     - Run flake8 linting (installs flake8 if missing)"
-	@echo "  format   - Run black formatter (installs black if missing)"
+	@echo "  test     - Run the self-check suite"
 	@echo "  run      - Run the main script"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  help     - Show this message"

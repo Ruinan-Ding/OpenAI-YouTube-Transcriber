@@ -12,8 +12,10 @@ python-dotenv
 moviepy
 tenacity
 git+https://github.com/openai/whisper.git
+
+# Optional: only needed for AI transcript enhancement. The app runs without
+# them and prints an install hint if you pick a backend that is missing.
 openai
 anthropic
-tiktoken
 transformers
 torch
