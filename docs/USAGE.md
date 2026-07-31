@@ -80,10 +80,10 @@ The `URL` field accepts any supported format:
 
 ## Output Locations
 
-- **Transcripts** — `OpenAIYouTubeTranscriber/Transcript/`
-- **Audio files** — `OpenAIYouTubeTranscriber/Audio/`
-- **Video files** — `OpenAIYouTubeTranscriber/Video/`
-- **Video without audio** — `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
+- **Transcripts**: `OpenAIYouTubeTranscriber/Transcript/`
+- **Audio files**: `OpenAIYouTubeTranscriber/Audio/`
+- **Video files**: `OpenAIYouTubeTranscriber/Video/`
+- **Video without audio**: `OpenAIYouTubeTranscriber/VideoWithoutAudio/`
 
 ## Examples
 

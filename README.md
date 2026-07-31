@@ -34,8 +34,8 @@ Then follow the prompts.
 
 ## Features
 
-- **Interactive CLI** — answer a few prompts; no configuration files required.
-- **Flexible input** — accepts any of the following:
+- **Interactive CLI**: answer a few prompts; no configuration files required.
+- **Flexible input**: accepts any of the following:
   - Full URL: `https://www.youtube.com/watch?v=jNQXAC9IVRw`
   - Short URL: `https://youtu.be/jNQXAC9IVRw`
   - Video ID: `jNQXAC9IVRw`
@@ -43,23 +43,23 @@ Then follow the prompts.
 
   The 11-character video ID is extracted from any URL format; query parameters such as timestamps (`&t=30s`) or playlist info (`&list=...`) are ignored.
 - **99+ languages** with automatic language detection.
-- **Selectable Whisper model** — tiny, base, small, medium, large-v1, large-v2, or large-v3, trading speed for accuracy.
-- **Profiles** — save a session's settings to a file and reuse them.
+- **Selectable Whisper model**: tiny, base, small, medium, large-v1, large-v2, or large-v3, trading speed for accuracy.
+- **Profiles**: save a session's settings to a file and reuse them.
 - **Resolution control** for video downloads, or automatic selection.
-- **Cross-platform** — Windows, macOS, and Linux.
-- **Audio handling** — extracts audio from video, merges separate audio/video streams, and converts formats via FFmpeg.
-- **AI transcript enhancement (optional)** — clean up the raw transcript with OpenAI, OpenRouter, or Anthropic (API key required), or a local Hugging Face model, guided by a prompt file or a custom prompt.
+- **Cross-platform**: Windows, macOS, and Linux.
+- **Audio handling**: extracts audio from video, merges separate audio/video streams, and converts formats via FFmpeg.
+- **AI transcript enhancement (optional)**: clean up the raw transcript with OpenAI, OpenRouter, or Anthropic (API key required), or a local Hugging Face model, guided by a prompt file or a custom prompt.
 
 ## Prerequisites
 
-**Python 3.6+** — check with `python --version`. Installation guides:
+**Python 3.6+**: check with `python --version`. Installation guides:
 - [Windows](https://phoenixnap.com/kb/how-to-install-python-3-windows)
 - [macOS](https://docs.python-guide.org/starting/install3/osx/)
 - [Linux (Ubuntu)](https://phoenixnap.com/kb/how-to-install-python-3-ubuntu)
 
-**pip** — usually bundled with Python; verify with `python -m pip --version`.
+**pip**: usually bundled with Python; verify with `python -m pip --version`.
 
-**FFmpeg** — required for all audio/video processing and must be on your PATH.
+**FFmpeg**: required for all audio/video processing and must be on your PATH.
 
 Windows (PowerShell, using Scoop):
 ```powershell
@@ -185,10 +185,10 @@ The `URL` field accepts any of the supported input formats (full URL, short URL,
 
 ### Included Profiles
 
-- **profile-transcriber.txt** — transcribe only (no downloads)
-- **profile1-video_downloader.txt** — download video with audio
-- **profile2-audio_downloader.txt** — download audio only
-- **profile0-translator.txt** — transcribe into other languages
+- **profile-transcriber.txt**: transcribe only (no downloads)
+- **profile1-video_downloader.txt**: download video with audio
+- **profile2-audio_downloader.txt**: download audio only
+- **profile0-translator.txt**: transcribe into other languages
 
 ## AI Transcript Enhancement
 
@@ -196,11 +196,11 @@ Whisper output can have inconsistent punctuation and grammar. After transcriptio
 
 When asked `Enhance transcript with AI?`, the options are:
 
-- **`y`** — use the default cloud provider ([OpenRouter](https://openrouter.ai/), `openai/gpt-4o-mini` by default).
-- **A provider name** — `openai`, `openrouter`, or `anthropic`.
-- **`local`** — use a free local model (Qwen2.5-1.5B-Instruct by default). No API key; runs entirely on your machine. The first run downloads the model (~3GB).
-- **A model name** — a specific local model (`qwen2.5-1.5b`, `qwen2.5-0.5b`, `distilgpt2`, `gpt2`, `gpt2-medium`, `phi-1_5`, `deepseek-1_5b`) or any Hugging Face model ID such as `microsoft/phi-2`.
-- **`n`** — skip (the default).
+- **`y`**: use the default cloud provider ([OpenRouter](https://openrouter.ai/), `openai/gpt-4o-mini` by default).
+- **A provider name**: `openai`, `openrouter`, or `anthropic`.
+- **`local`**: use a free local model (Qwen2.5-1.5B-Instruct by default). No API key; runs entirely on your machine. The first run downloads the model (~3GB).
+- **A model name**: a specific local model (`qwen2.5-1.5b`, `qwen2.5-0.5b`, `distilgpt2`, `gpt2`, `gpt2-medium`, `phi-1_5`, `deepseek-1_5b`) or any Hugging Face model ID such as `microsoft/phi-2`.
+- **`n`**: skip (the default).
 
 ### Cloud Providers
 
@@ -273,9 +273,9 @@ If it still fails, check the [issue tracker](https://github.com/Ruinan-Ding/Open
 
 Whisper models have different memory requirements:
 
-- `tiny` — ~1GB RAM (fastest, least accurate)
-- `base` — ~2GB RAM (good default)
-- `small` — ~3GB RAM (noticeably better)
+- `tiny`: ~1GB RAM (fastest, least accurate)
+- `base`: ~2GB RAM (good default)
+- `small`: ~3GB RAM (noticeably better)
 
 On machines with limited RAM, stick with `tiny` or `base`.
 
@@ -375,9 +375,9 @@ openai-youtube-transcriber
 
 ## Known Issues
 
-- **Punctuation** — Whisper doesn't always place commas and periods correctly; AI enhancement usually fixes this.
-- **Uncommon words** — domain-specific jargon and unusual names may be transcribed incorrectly and can need manual review.
-- **Very long videos** — content over ~3 hours may produce fragmented transcriptions that need cleanup.
+- **Punctuation**: Whisper doesn't always place commas and periods correctly; AI enhancement usually fixes this.
+- **Uncommon words**: domain-specific jargon and unusual names may be transcribed incorrectly and can need manual review.
+- **Very long videos**: content over ~3 hours may produce fragmented transcriptions that need cleanup.
 
 ## Supported Languages
 

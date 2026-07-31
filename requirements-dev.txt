@@ -1,5 +1,5 @@
 # Development dependencies (install with `pip install -r requirements-dev.txt`)
 flake8
-black
+flake8-bugbear
 isort
 pre-commit

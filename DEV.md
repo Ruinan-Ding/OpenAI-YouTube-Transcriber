@@ -42,14 +42,18 @@ make run
 make lint
 ```
 
-**Auto-format (black + isort):**
+**Run the self-check suite:**
 ```bash
-make format
+make test
 ```
+
+There is no auto-formatter. This codebase is 100 columns and single-quoted;
+black defaults to 88 and double quotes, so it is not enabled. `flake8` (with
+`flake8-bugbear`) is the enforced standard and must report zero issues.
 
 ## Git Hooks
 
-Install the pre-commit hooks to lint and format automatically on each commit:
+Install the pre-commit hooks to lint automatically on each commit:
 
 ```bash
 make precommit-install
@@ -65,11 +69,11 @@ If a hook fails, fix the reported issue and commit again.
 
 ## Makefile Targets
 
-- `make install` — Install the package in editable mode
-- `make deps` — Install runtime dependencies
-- `make dev` — Install development tools
-- `make lint` — Check code quality
-- `make format` — Auto-format code
-- `make run` — Run the app
-- `make clean` — Remove build artifacts
-- `make precommit-install` — Set up git hooks
+- `make install`: Install the package in editable mode
+- `make deps`: Install runtime dependencies
+- `make dev`: Install development tools
+- `make lint`: Check code quality
+- `make test`: Run the self-check suite
+- `make run`: Run the app
+- `make clean`: Remove build artifacts
+- `make precommit-install`: Set up git hooks
