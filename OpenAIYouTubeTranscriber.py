@@ -16,15 +16,19 @@ from enum import Enum
 from urllib.parse import urlparse
 
 import whisper
+
 try:
     from moviepy import VideoFileClip  # moviepy 2.x
 except ImportError:  # moviepy 1.x exposes it via the editor module
     from moviepy.editor import VideoFileClip
-from langdetect import detect, LangDetectException
-from pytubefix import YouTube
-from pytubefix.exceptions import RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked
+
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from langdetect import LangDetectException, detect
+from pytubefix import YouTube
+from pytubefix.exceptions import (RegexMatchError, VideoPrivate,
+                                  VideoRegionBlocked, VideoUnavailable)
+from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
+                      wait_fixed)
 
 
 class YesNo(Enum):
@@ -746,7 +750,7 @@ class YouTubeTranscriber:
     def enhance_with_local(self, text, prompt_text, local_model):
         """Enhance transcript text with a local HuggingFace model. Returns `text` on failure."""
         try:
-            from transformers import pipeline, AutoTokenizer
+            from transformers import AutoTokenizer, pipeline
         except ImportError:
             print("Warning: 'transformers' package not installed. Skipping local enhancement.")
             print("Install with: pip install transformers torch")

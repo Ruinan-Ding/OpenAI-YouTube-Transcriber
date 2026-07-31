@@ -1,6 +1,6 @@
 # OpenAI YouTube Transcriber
 
-![Python](https://img.shields.io/badge/Python-3.6+-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![OpenAI](https://img.shields.io/badge/OpenAI-Whisper-412991?logo=openai&logoColor=white)
 ![License](https://img.shields.io/badge/License-BSD%203--Clause-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -52,7 +52,7 @@ Then follow the prompts.
 
 ## Prerequisites
 
-**Python 3.6+**: check with `python --version`. Installation guides:
+**Python 3.10+**: check with `python --version`. Installation guides:
 - [Windows](https://phoenixnap.com/kb/how-to-install-python-3-windows)
 - [macOS](https://docs.python-guide.org/starting/install3/osx/)
 - [Linux (Ubuntu)](https://phoenixnap.com/kb/how-to-install-python-3-ubuntu)
