@@ -2022,6 +2022,9 @@ def _run_pipeline(transcriber, cfg):
             if transcriber.create_and_open_txt(transcribed_text, transcript_name):
                 saved_path = os.path.join(transcriber.TRANSCRIPT_DIR, transcript_name)
                 print(f"Saved transcript to {os.path.abspath(saved_path)}")
+            else:
+                # Nothing was saved, so the audio is still needed for a retry
+                transcription_failed = True
     else:
         print("Skipping transcription.")
 
