@@ -312,7 +312,7 @@ pip install -r requirements-dev.txt
 Common tasks:
 ```bash
 make lint    # Check for code quality issues
-make format  # Auto-fix formatting
+make test    # Run the self-check suite
 make run     # Run the app
 ```
 
