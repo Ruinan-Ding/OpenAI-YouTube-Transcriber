@@ -13,9 +13,10 @@ import sys
 import textwrap
 from dataclasses import dataclass, field
 from enum import Enum
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import whisper
+import yt_dlp
 
 try:
     from moviepy import VideoFileClip  # moviepy 2.x
@@ -24,11 +25,6 @@ except ImportError:  # moviepy 1.x exposes it via the editor module
 
 from dotenv import load_dotenv
 from langdetect import LangDetectException, detect
-from pytubefix import YouTube
-from pytubefix.exceptions import (RegexMatchError, VideoPrivate,
-                                  VideoRegionBlocked, VideoUnavailable)
-from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
-                      wait_fixed)
 
 
 class YesNo(Enum):
@@ -235,6 +231,15 @@ class YouTubeTranscriber:
     DEFAULT_PROFILE = f"{PROFILE_PREFIX}{ENV_EXT}"
     URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
     DEFAULT_LANGUAGE = 'en'
+    YOUTUBE_HOSTS = ('youtube.com', 'www.youtube.com', 'm.youtube.com',
+                     'music.youtube.com', 'youtube-nocookie.com',
+                     'www.youtube-nocookie.com', 'youtu.be', 'www.youtu.be')
+    # Paths naming one video. Playlist and channel URLs must not match: yt-dlp
+    # would download every entry into the single output path we hand it.
+    YOUTUBE_VIDEO_PATH = re.compile(r'^/(shorts|embed|live|v)/[^/]')
+    # quiet only silences progress, not errors; warnings are kept because a
+    # broken extractor announces itself there and nowhere else
+    YDL_OPTS = {'quiet': True, 'noplaylist': True}
     DEFAULT_SOURCE_PROMPT = "Enter the YouTube video URL, video ID, or local file path: "
     # Appended to the enhancement prompt so chat models don't add "Sure! Here's..." preambles
     ENHANCEMENT_OUTPUT_DIRECTIVE = (
@@ -298,19 +303,29 @@ class YouTubeTranscriber:
         return bool(re.match(r'^[a-zA-Z0-9_-]{11}$', text))
 
     def construct_youtube_url(self, video_id):
-        """Build a full YouTube URL from a video ID; pytubefix strips query params itself."""
+        """Build a full YouTube URL from a video ID."""
         return f"https://www.youtube.com/watch?v={video_id}"
 
     def is_youtube_url(self, url):
-        """Validate a YouTube URL via pytubefix (standard, short, and embed forms)."""
+        """Check a URL names a single YouTube video (watch, short, embed forms).
+
+        Shape only: whether the video actually exists is settled by the single
+        metadata fetch in _create_youtube_with_recovery, which can re-prompt.
+        """
         try:
-            YouTube(url, "WEB")
-            return True
-        except (RegexMatchError, VideoUnavailable, VideoPrivate, VideoRegionBlocked):
-            return False
-        except (ValueError, OSError) as e:
+            parsed = urlparse(url)
+        except ValueError as e:
             print(f"Warning: Error checking YouTube URL: {str(e)}")
             return False
+
+        host = parsed.netloc.lower()
+        if host not in self.YOUTUBE_HOSTS:
+            return False
+        if host.endswith('youtu.be'):
+            return len(parsed.path) > 1
+        if parsed.path == '/watch':
+            return 'v' in parse_qs(parsed.query)
+        return bool(self.YOUTUBE_VIDEO_PATH.match(parsed.path))
 
     def is_valid_media_file(self, path):
         """Check if path is a supported audio/video file."""
@@ -933,92 +948,75 @@ class YouTubeTranscriber:
             print(f"Note: could not open the transcript automatically: {str(e)}")
         return True
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2),
-           retry=retry_if_exception_type(Exception))
-    def create_youtube_object(self, url):
-        """Create YouTube object (retries up to 3 times on failures)."""
-        try:
-            return YouTube(url, "WEB")
-        except (RegexMatchError, VideoUnavailable, VideoPrivate,
-                VideoRegionBlocked, ValueError, OSError) as e:
-            print(f"Error creating YouTube object: {str(e)}")
-            raise
+    def fetch_video_info(self, url):
+        """Fetch video metadata with yt-dlp.
+
+        yt-dlp does its own extractor and network retries, so a failure that
+        reaches the caller is settled: report it and re-prompt.
+        """
+        # YoutubeDL mutates the params dict it is given, so hand it a copy
+        with yt_dlp.YoutubeDL(dict(self.YDL_OPTS)) as ydl:
+            return ydl.extract_info(url, download=False)
 
     @staticmethod
-    def sort_streams_by_resolution(streams):
-        """Sort video streams by resolution, highest first."""
-        return sorted(
-            streams,
-            # [:-1] strips 'p' from '1080p'
-            key=lambda stream: int(stream.resolution[:-1]) if stream.resolution else 0,
-            reverse=True
-        )
+    def available_resolutions(info):
+        """Unique '1080p'-style resolutions offered for a video, highest first."""
+        heights = {stream.get('height') for stream in info.get('formats', [])
+                   if stream.get('vcodec') not in (None, 'none') and stream.get('height')}
+        return [f"{height}p" for height in sorted(heights, reverse=True)]
 
-    def get_sorted_video_streams(self, yt):
-        """Get available video streams sorted by resolution (highest first)."""
+    @staticmethod
+    def video_format(resolution):
+        """Build the yt-dlp format selector for a resolution keyword or '720p'."""
+        match resolution:
+            case Resolution.HIGHEST.value:
+                return 'bestvideo'
+            case Resolution.LOWEST.value:
+                return 'worstvideo'
+            case _:
+                return f"bestvideo[height={str(resolution).rstrip('p')}]"
+
+    def download_format(self, url, format_selector, output_dir, filename):
+        """Download one yt-dlp format to output_dir/filename.
+
+        Exits with a message rather than a traceback: by the time a download
+        fails there is nothing left for the caller to fall back to.
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, filename)
+        # No overwrites=True: an existing file is reused, which is what keeps
+        # the audio saved for a transcription retry from being fetched again
+        options = dict(self.YDL_OPTS, format=format_selector,
+                       outtmpl={'default': path})
+
         try:
-            return self.sort_streams_by_resolution(yt.streams.filter(only_video=True))
-        except RegexMatchError as e:
-            print(f"Error retrieving video streams: {str(e)}")
-            print("YouTube may have changed something. Try: pip install --upgrade pytubefix")
-            return []
-        except (AttributeError, ValueError, OSError) as e:
-            print(f"Error retrieving video streams: {str(e)}")
-            return []
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.download([url])
+        except yt_dlp.utils.DownloadError as e:
+            print(f"Error: YouTube refused the download: {str(e)}")
+            print("If this persists, YouTube may have changed something. "
+                  "Try: pip install --upgrade yt-dlp")
+            sys.exit(1)
 
-    def get_sorted_audio_streams(self, yt):
-        """Get available audio streams sorted by bitrate (highest first)."""
-        try:
-            audio_streams = yt.streams.filter(only_audio=True)
-            return sorted(
-                audio_streams,
-                # [:-4] strips 'kbps' from '128kbps'
-                key=lambda stream: int(stream.abr[:-4]) if stream.abr else 0,
-                reverse=True
-            )
-        except RegexMatchError as e:
-            print(f"Error retrieving audio streams: {str(e)}")
-            print("YouTube may have changed something. Try: pip install --upgrade pytubefix")
-            return []
-        except (AttributeError, ValueError) as e:
-            print(f"Error retrieving audio streams: {str(e)}")
-            return []
+        if not os.path.exists(path):
+            print(f"Error: the download did not produce {path}")
+            sys.exit(1)
+        return path
 
-    def get_unique_sorted_resolutions(self, streams):
-        """Extract unique resolutions from streams and sort by quality (highest first)."""
-        resolutions = set([stream.resolution for stream in streams if stream.resolution])
+    def download_audio_stream(self, info, filename_base, is_temp=False):
+        """Download highest quality audio stream (optionally to temp directory).
 
-        return sorted(
-            resolutions,
-            key=lambda res: int(res[:-1]) if res else 0,  # Strip 'p' suffix for numeric sorting
-            reverse=True
-        )
-
-    def download_audio_stream(self, yt, filename_base, is_temp=False):
-        """Download highest quality audio stream (optionally to temp directory)."""
+        'bestaudio' keeps yt-dlp's preference for the original-language track:
+        dubs are published at the same bitrate, so picking on bitrate alone
+        would transcribe an arbitrary language.
+        """
         print("Downloading the audio stream (highest quality)...")
-
-        audio_streams = self.get_sorted_audio_streams(yt)
-
-        if not audio_streams:
-            raise ValueError("No audio streams available for this video")
-
-        audio_stream = audio_streams[0]
 
         audio_filename = filename_base + self.MP3_EXT
         output_dir = os.path.join(self.AUDIO_DIR, self.TEMP_DIR) if is_temp else self.AUDIO_DIR
-        os.makedirs(output_dir, exist_ok=True)
 
-        relative_path = os.path.join(output_dir, audio_filename)
-
-        @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-        def download_with_retry():
-            audio_stream.download(output_path=output_dir, filename=audio_filename)
-            if not os.path.exists(relative_path):
-                raise FileNotFoundError(f"Failed to download audio stream to {relative_path}")
-            return True
-
-        download_with_retry()
+        relative_path = self.download_format(
+            info['webpage_url'], 'bestaudio/best', output_dir, audio_filename)
 
         absolute_path = os.path.abspath(relative_path)
         print(f"Audio downloaded to {absolute_path}")
@@ -1264,7 +1262,7 @@ class SessionConfig:
     """Settings gathered for one transcription session (interactively or from a profile)."""
     url: str = None
     is_local_file: bool = False
-    yt: object = None
+    info: dict = None
     video_title: str = ""
     download_video: bool = False
     no_audio_in_video: bool = False
@@ -1405,13 +1403,12 @@ def _prompt_profile_selection(transcriber, profiles):
         print("Invalid profile selection.")
 
 
-def _prompt_resolution_selection(transcriber, yt):
+def _prompt_resolution_selection(transcriber, info):
     """List a video's available resolutions and let the user pick one.
 
     Exits the program if the video has no video streams.
     """
-    available_streams = transcriber.get_sorted_video_streams(yt)
-    available_resolutions = transcriber.get_unique_sorted_resolutions(available_streams)
+    available_resolutions = transcriber.available_resolutions(info)
 
     if not available_resolutions:
         print("No video streams found. Exiting...")
@@ -1594,12 +1591,9 @@ def _configure_interactive(transcriber):
                 print("Loading available resolution...")
 
         if cfg.resolution == Resolution.FETCH.value:
-            try:
-                yt = YouTube(cfg.url, "WEB")
-            except RegexMatchError:
-                print("Error: Invalid YouTube URL.")
-                sys.exit()
-            cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
+            _create_youtube_with_recovery(transcriber, cfg)
+            if not cfg.is_local_file:
+                cfg.selected_res = _prompt_resolution_selection(transcriber, cfg.info)
 
         cfg.download_audio = _bool_from_last(
             "LAST_DOWNLOAD_AUDIO",
@@ -1683,29 +1677,15 @@ def _configure_from_profile(transcriber, profile_name):
         if transcriber.is_youtube_video_id(cfg.url) and not os.path.exists(cfg.url):
             cfg.url = transcriber.construct_youtube_url(cfg.url)
             print(f"Detected video ID from profile, using: {cfg.url}")
-            try:
-                YouTube(cfg.url, "WEB")
-                print(f"Loaded YOUTUBE_URL: {cfg.url} (from {profile_name})")
-            except RegexMatchError:
-                print("Error creating YouTube object. Please enter a valid URL or video ID.")
-                cfg.url = input()
+            print(f"Loaded YOUTUBE_URL: {cfg.url} (from {profile_name})")
         elif transcriber.is_web_url(cfg.url):
             if transcriber.is_youtube_url(cfg.url):
-                try:
-                    YouTube(cfg.url, "WEB")
-                    print(f"Loaded YOUTUBE_URL: {cfg.url} (from {profile_name})")
-                except RegexMatchError:
-                    # Use ffprobe to determine if it's a valid audio/video file
-                    if transcriber.get_file_format(cfg.url):
-                        cfg.is_local_file = True
-                        print(f"Loaded local file: {cfg.url} (from {profile_name})")
-                    else:
-                        print("Incorrect value for YOUTUBE_URL in config.env. "
-                              "Please enter a valid YouTube video URL, video ID, "
-                              "or local file path: ")
-                        cfg.url = input()
+                # Whether the video exists is settled by the metadata fetch in
+                # _create_youtube_with_recovery, which can re-prompt
+                print(f"Loaded YOUTUBE_URL: {cfg.url} (from {profile_name})")
             else:
                 print("Error: Only YouTube URLs supported for web inputs")
+                cfg.url, cfg.is_local_file = transcriber.prompt_for_source()
         elif transcriber.is_valid_media_file(cfg.url):
             cfg.is_local_file = True
             print(f"Loaded local file: {cfg.url} (from {profile_name})")
@@ -1746,12 +1726,9 @@ def _configure_from_profile(transcriber, profile_name):
         if not cfg.url or cfg.url == transcriber.URL_PLACEHOLDER:
             cfg.url, cfg.is_local_file = transcriber.prompt_for_source()
         if not cfg.is_local_file:
-            try:
-                yt = YouTube(cfg.url, "WEB")
-            except RegexMatchError:
-                print("Error: Invalid YouTube URL.")
-                sys.exit()
-            cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
+            _create_youtube_with_recovery(transcriber, cfg)
+            if not cfg.is_local_file:
+                cfg.selected_res = _prompt_resolution_selection(transcriber, cfg.info)
 
     if not cfg.is_local_file:
         cfg.download_audio = _bool_from_profile_env(
@@ -1844,31 +1821,22 @@ def _configure_from_profile(transcriber, profile_name):
 
 
 def _create_youtube_with_recovery(transcriber, cfg):
-    """Create the YouTube object for cfg.url, re-prompting on failure.
+    """Fetch video metadata for cfg.url, re-prompting on failure.
 
-    Sets cfg.yt and cfg.video_title on success. May flip cfg.is_local_file to
-    True (leaving cfg.yt unset) if the user switches to a local file.
+    Sets cfg.info and cfg.video_title on success. May flip cfg.is_local_file
+    to True (leaving cfg.info unset) if the user switches to a local file.
     """
     retry_prompt = "\nEnter a different YouTube video URL, video ID, or local file path: "
     while True:
         try:
-            yt = transcriber.create_youtube_object(cfg.url)
-            try:
-                video_title = yt.title
-                yt.check_availability()
-            except (AttributeError, OSError, VideoUnavailable,
-                    VideoPrivate, VideoRegionBlocked) as e:
-                print(f"\nError with URL '{cfg.url}': {str(e)}")
-                print("The video is unavailable or inaccessible.")
-                cfg.url, cfg.is_local_file = transcriber.prompt_for_source(retry_prompt)
-                if cfg.is_local_file:
-                    return
-                continue
-            cfg.yt = yt
-            cfg.video_title = video_title
+            # extract_info fails for private, removed and region-blocked
+            # videos, so this doubles as the availability check
+            info = transcriber.fetch_video_info(cfg.url)
+            cfg.video_title = info['title']
+            cfg.info = info
             return
-        except (RegexMatchError, VideoUnavailable, VideoPrivate,
-                VideoRegionBlocked, OSError, ValueError) as e:
+        except (yt_dlp.utils.DownloadError, KeyError, TypeError,
+                OSError, ValueError) as e:
             print(f"\nError with URL '{cfg.url}': {str(e)}")
             print("The URL appears to be invalid or the video is unavailable.")
             cfg.url, cfg.is_local_file = transcriber.prompt_for_source(retry_prompt)
@@ -1881,7 +1849,7 @@ def _run_pipeline(transcriber, cfg):
     if not cfg.is_local_file and (not cfg.url or cfg.url == transcriber.URL_PLACEHOLDER):
         cfg.url, cfg.is_local_file = transcriber.prompt_for_source()
 
-    if not cfg.is_local_file:
+    if not cfg.is_local_file and cfg.info is None:
         _create_youtube_with_recovery(transcriber, cfg)
 
     if cfg.is_local_file:
@@ -1899,58 +1867,41 @@ def _run_pipeline(transcriber, cfg):
     transcription_failed = False
 
     if cfg.download_video and not cfg.is_local_file:
-        yt = cfg.yt
-        match cfg.resolution:
-            case Resolution.HIGHEST.value:
-                streams = transcriber.get_sorted_video_streams(yt)
-                stream = streams[0] if streams else None
+        resolution = (cfg.selected_res if cfg.resolution == Resolution.FETCH.value
+                      else cfg.resolution)
+        keywords = (Resolution.HIGHEST.value, Resolution.LOWEST.value)
 
-            case Resolution.LOWEST.value:
-                streams = transcriber.get_sorted_video_streams(yt)
-                stream = streams[-1] if streams else None
-
-            case Resolution.FETCH.value:
-                stream = yt.streams.filter(only_video=True, resolution=cfg.selected_res).first()
-
-            case _:
-                streams = transcriber.sort_streams_by_resolution(
-                    yt.streams.filter(only_video=True, resolution=cfg.resolution))
-                stream = streams[0] if streams else None
-
-        if stream is None:
+        if resolution not in keywords and (
+                resolution not in transcriber.available_resolutions(cfg.info)):
             print("Requested resolution not found, left null, or invalid.")
-            cfg.selected_res = _prompt_resolution_selection(transcriber, yt)
-            stream = yt.streams.filter(only_video=True, resolution=cfg.selected_res).first()
-            if stream is None:
-                print(f"Error: No suitable stream found for "
-                      f"resolution {cfg.selected_res}. Exiting...")
-                sys.exit()
+            resolution = _prompt_resolution_selection(transcriber, cfg.info)
+            cfg.selected_res = resolution
+
+        video_format = transcriber.video_format(resolution)
 
         if cfg.no_audio_in_video:
-            print(f"Downloading video stream ({stream.resolution} without audio)...")
-            stream.download(output_path=transcriber.VIDEO_WITHOUT_AUDIO_DIR,
-                            filename=video_filename)
-            file_path = os.path.abspath(
-                os.path.join(transcriber.VIDEO_WITHOUT_AUDIO_DIR, video_filename))
+            print(f"Downloading video stream ({resolution} without audio)...")
+            file_path = os.path.abspath(transcriber.download_format(
+                cfg.url, video_format,
+                transcriber.VIDEO_WITHOUT_AUDIO_DIR, video_filename))
             print(f"Video downloaded to {file_path}")
         else:
             video_temp_dir = os.path.join(transcriber.VIDEO_DIR, transcriber.TEMP_DIR)
-            os.makedirs(video_temp_dir, exist_ok=True)
-            stream.download(output_path=video_temp_dir, filename=video_filename)
-            video_path = os.path.join(video_temp_dir, video_filename)
+            video_path = transcriber.download_format(
+                cfg.url, video_format, video_temp_dir, video_filename)
             print(f"Video downloaded to {video_path}")
     else:
         print("Skipping video download...")
 
     if cfg.download_audio and not cfg.is_local_file:
-        transcriber.download_audio_stream(cfg.yt, filename_base, is_temp=False)
+        transcriber.download_audio_stream(cfg.info, filename_base, is_temp=False)
     elif cfg.download_audio:
         # Source switched to a local file mid-run; there is no stream to download
         print("Skipping audio download (source is a local file).")
 
     if cfg.download_video and not cfg.is_local_file and not cfg.no_audio_in_video:
         if not cfg.download_audio:
-            audio_path, _ = transcriber.download_audio_stream(cfg.yt, filename_base, is_temp=True)
+            audio_path, _ = transcriber.download_audio_stream(cfg.info, filename_base, is_temp=True)
         else:
             audio_path = os.path.join(transcriber.AUDIO_DIR, audio_filename)
 
@@ -1985,7 +1936,7 @@ def _run_pipeline(transcriber, cfg):
             if not cfg.download_audio:
                 if audio_path is None:  # not already fetched above for the video merge
                     audio_path, _ = transcriber.download_audio_stream(
-                        cfg.yt, filename_base, is_temp=True)
+                        cfg.info, filename_base, is_temp=True)
                 audio_file = audio_path
             file_path = audio_file
 
@@ -2038,10 +1989,21 @@ def _run_pipeline(transcriber, cfg):
             # Transcription is the retryable step; don't make the user re-download
             print(f"Keeping downloaded audio for retry: {os.path.abspath(temp_audio_file)}")
         else:
-            os.remove(temp_audio_file)
-            if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
-                os.rmdir(temp_audio_path)
-            print(f"Deleted audio residual in {temp_audio_file}")
+            try:
+                os.remove(temp_audio_file)
+            except OSError as e:
+                # Windows can still hold the file open just after transcription
+                print(f"Note: could not delete the temp audio: {str(e)}")
+            else:
+                print(f"Deleted audio residual in {temp_audio_file}")
+
+            try:
+                if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
+                    os.rmdir(temp_audio_path)
+            except OSError:
+                # The directory is recreated on demand, so leaving the empty
+                # one behind is not worth reporting
+                pass
 
     print("Tasks complete.")
 

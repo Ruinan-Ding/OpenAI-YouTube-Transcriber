@@ -27,12 +27,10 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "requests",
-        "py_mini_racer",
         "langdetect",
-        "pytubefix",
+        "yt-dlp",
         "python-dotenv",
         "moviepy",
-        "tenacity",
         "openai-whisper @ git+https://github.com/openai/whisper.git",
     ],
     entry_points={

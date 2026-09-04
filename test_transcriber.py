@@ -3,6 +3,48 @@
 from OpenAIYouTubeTranscriber import ModelSize, Resolution, YouTubeTranscriber
 
 
+def test_is_youtube_url_accepts_videos_and_rejects_collections():
+    u = YouTubeTranscriber().is_youtube_url
+    for url in ('https://www.youtube.com/watch?v=jNQXAC9IVRw',
+                'https://m.youtube.com/watch?list=PL1&v=jNQXAC9IVRw',
+                'https://youtu.be/jNQXAC9IVRw',
+                'https://www.youtube.com/shorts/abc123',
+                'https://www.youtube-nocookie.com/embed/jNQXAC9IVRw',
+                'https://www.youtube.com/live/jNQXAC9IVRw'):
+        assert u(url), url
+    # A playlist or channel URL makes yt-dlp download every entry into the one
+    # output path we hand it, each overwriting the last
+    for url in ('https://www.youtube.com/playlist?list=PLxxxx',
+                'https://www.youtube.com/@SomeChannel',
+                'https://www.youtube.com/watch?list=PLxxxx',
+                'https://www.youtube.com/',
+                'https://vimeo.com/123456789',
+                'https://notyoutube.com/watch?v=jNQXAC9IVRw'):
+        assert not u(url), url
+
+
+def test_available_resolutions_ignores_audio_formats():
+    # yt-dlp reports audio formats with vcodec 'none' and no height
+    info = {'formats': [
+        {'vcodec': 'vp9', 'height': 720},
+        {'vcodec': 'avc1', 'height': 1080},
+        {'vcodec': 'vp9', 'height': 720},   # same height, different codec
+        {'vcodec': 'none', 'acodec': 'opus'},
+        {'vcodec': 'avc1'},                 # storyboard-style entry, no height
+    ]}
+    assert YouTubeTranscriber.available_resolutions(info) == ['1080p', '720p']
+    assert YouTubeTranscriber.available_resolutions({}) == []
+
+
+def test_video_format_selectors():
+    f = YouTubeTranscriber.video_format
+    assert f(Resolution.HIGHEST.value) == 'bestvideo'
+    assert f(Resolution.LOWEST.value) == 'worstvideo'
+    # A resolution reaches this both as '720p' (prompt/profile) and bare '720'
+    assert f('720p') == 'bestvideo[height=720]'
+    assert f('720') == 'bestvideo[height=720]'
+
+
 def test_model_choice_is_case_insensitive():
     # _configure_from_profile validates model_choice.lower() but passes the raw
     # value on, so 'Large-v3' from a hand-edited profile must not become 'base'

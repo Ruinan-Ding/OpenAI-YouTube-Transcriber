@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Downloads now use `yt-dlp` instead of `pytubefix`.** YouTube serves SABR-only
+  streams that require a fully attested PoToken, which pytubefix's botGuard
+  cold-start token no longer satisfies; downloads failed with
+  `SABRError: ... PoToken PENDING`, and every other pytubefix client was either
+  bot-detected or cut off with HTTP 403 partway through the file. `yt-dlp`
+  replaces both the metadata and download paths. `py_mini_racer` is dropped with
+  it, having existed only for pytubefix's JS interpreter.
+
+### Fixed
+
+- Multi-language videos are transcribed in their original language. Dubbed tracks
+  are published at the same bitrate as the original, so picking the
+  highest-bitrate audio stream chose an arbitrary language - a video whose top
+  stream was the German dub was transcribed from German.
+- A refused download prints one actionable line instead of a traceback, and video
+  downloads retry like audio downloads always have.
+- Playlist and channel URLs are rejected instead of accepted as a single video.
+  They would have downloaded every entry into one output path, each overwriting
+  the last. `youtube-nocookie.com` embed URLs are now accepted.
+- An invalid URL entered before the "fetch available resolutions" step re-prompts
+  instead of exiting and discarding every answer already given.
+- A non-YouTube web address in a profile re-prompts. It printed
+  "Only YouTube URLs supported" and then used the address anyway.
+- Loading a profile no longer makes two extra network round trips to validate a
+  URL that is validated again moments later, and choosing `fetch` for the
+  resolution no longer fetches the same metadata twice.
+- Cleanup failures after a successful run no longer abort it. Removing the temp
+  audio could raise `PermissionError` on Windows after the transcript was
+  already saved.
+
 ## [1.1.0] - 2026-07-31
 
 ### Fixed

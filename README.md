@@ -264,7 +264,7 @@ FFmpeg isn't installed or isn't on your PATH. See [Prerequisites](#prerequisites
 
 YouTube changes its internals regularly and the downloader occasionally needs an update:
 ```bash
-pip install --upgrade pytubefix
+pip install --upgrade yt-dlp
 ```
 
 If it still fails, check the [issue tracker](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues) to see whether it's a known problem.
@@ -400,5 +400,5 @@ BSD 3-Clause License. See [LICENSE](LICENSE).
 ## Acknowledgments
 
 - [OpenAI Whisper](https://github.com/openai/whisper) for speech recognition
-- [pytubefix](https://github.com/JuanBindez/pytubefix) for YouTube downloading
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube downloading
 - [langdetect](https://github.com/Mimino666/langdetect) for language detection
