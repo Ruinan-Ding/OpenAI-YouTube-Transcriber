@@ -1,5 +1,8 @@
 # Self-check for the parsing/chunking logic. Run with: python test_transcriber.py
 
+import io
+from contextlib import redirect_stdout
+
 from OpenAIYouTubeTranscriber import ModelSize, Resolution, YouTubeTranscriber
 
 
@@ -21,6 +24,16 @@ def test_is_youtube_url_accepts_videos_and_rejects_collections():
                 'https://vimeo.com/123456789',
                 'https://notyoutube.com/watch?v=jNQXAC9IVRw'):
         assert not u(url), url
+
+
+def test_add_scheme_if_missing_leaves_paths_alone():
+    t = YouTubeTranscriber()
+    assert (t.add_scheme_if_missing('www.youtube.com/watch?v=UuZ7pZ_1JDE')
+            == 'https://www.youtube.com/watch?v=UuZ7pZ_1JDE')
+    assert t.add_scheme_if_missing('youtu.be/jNQXAC9IVRw') == 'https://youtu.be/jNQXAC9IVRw'
+    for text in ('https://www.youtube.com/watch?v=jNQXAC9IVRw', 'Audio/clip.mp3',
+                 'UuZ7pZ_1JDE', 'C:/Users/me/clip.mp3'):
+        assert t.add_scheme_if_missing(text) == text, text
 
 
 def test_available_resolutions_ignores_audio_formats():
@@ -84,7 +97,8 @@ def test_chunk_text_respects_budget():
     def est(chunks):
         return max(len(c) // 4 for c in chunks)
 
-    punctuated = t('This is a sentence. ' * 2000, max_tokens=800)
+    punctuated_source = 'This is a sentence. ' * 2000
+    punctuated = t(punctuated_source, max_tokens=800)
     assert len(punctuated) > 1
     assert est(punctuated) <= 800
 
@@ -97,20 +111,39 @@ def test_chunk_text_respects_budget():
     assert not any('any way' in c for c in unpunctuated)
     assert all(w in blob for c in unpunctuated for w in c.split())
 
-    # An overlap wider than the budget must not shred text into single characters
-    degenerate = t('hello world this is a test of the emergency system',
-                   max_tokens=40, overlap_tokens=50)
+    # A budget too small for one sentence must not shred text into characters
+    degenerate = t('hello world this is a test of the emergency system', max_tokens=2)
     assert 'hello' in degenerate[0]
 
     assert t('Short.', max_tokens=800) == ['Short.']
 
+    # Chunks must not overlap: the duplicate text cannot be removed again once
+    # the model has rewritten both copies of it
+    assert ' '.join(punctuated).split() == punctuated_source.split()
 
-def test_merge_chunks_dedupes_overlap():
-    m = YouTubeTranscriber.merge_chunks
-    assert m([]) == ''
-    assert m(['only']) == 'only'
-    tail = 'the quick brown fox jumps over the lazy dog'
-    assert m(['start ' + tail, tail + ' end']).count('lazy dog') == 1
+
+def test_enhancement_round_trip_neither_duplicates_nor_drops():
+    """A rewriting model must not cost or duplicate a single sentence."""
+    t = YouTubeTranscriber()
+    sentences = [f'sentence number {i} went by.' for i in range(600)]
+    chunks = t.chunk_text(' '.join(sentences), max_tokens=200)
+    assert len(chunks) > 1
+
+    # What a real model returns: rewritten, so the seam text never matches
+    # byte-for-byte between one enhanced chunk and the next
+    def rewrite(chunk):
+        return chunk[0].upper() + chunk[1:].replace(' went by', ' passed')
+
+    def run(call_chunk):
+        with redirect_stdout(io.StringIO()):
+            return t._run_chunked_enhancement(chunks, 'fake', call_chunk).lower()
+
+    for label, call_chunk in (('rewritten', rewrite),
+                              ('verbatim', lambda c: c),
+                              ('backend down', lambda c: (_ for _ in ()).throw(RuntimeError))):
+        merged = run(call_chunk)
+        for i in range(600):
+            assert merged.count(f'sentence number {i} ') == 1, (label, i)
 
 
 def test_resolution_f_normalizes_to_fetch():

@@ -14,6 +14,13 @@
 
 ### Fixed
 
+- AI enhancement no longer duplicates text at every chunk boundary. Chunks were
+  overlapped by 400 characters and rejoined by exact string match, but both
+  copies of the overlap had been rewritten by the model, so no match survived
+  and the overlap was pasted in twice - 1,604 duplicated characters in a
+  47,000-character transcript. On repetitive speech the same match ran past the
+  overlap and silently deleted whole sentences. Chunks no longer overlap; they
+  already split on sentence boundaries.
 - Multi-language videos are transcribed in their original language. Dubbed tracks
   are published at the same bitrate as the original, so picking the
   highest-bitrate audio stream chose an arbitrary language - a video whose top
@@ -23,6 +30,8 @@
 - Playlist and channel URLs are rejected instead of accepted as a single video.
   They would have downloaded every entry into one output path, each overwriting
   the last. `youtube-nocookie.com` embed URLs are now accepted.
+- A YouTube address typed without `https://` is accepted instead of rejected
+  as invalid input.
 - An invalid URL entered before the "fetch available resolutions" step re-prompts
   instead of exiting and discarding every answer already given.
 - A non-YouTube web address in a profile re-prompts. It printed

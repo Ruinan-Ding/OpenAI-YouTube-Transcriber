@@ -296,6 +296,15 @@ class YouTubeTranscriber:
         except ValueError:
             return False
 
+    def add_scheme_if_missing(self, text):
+        """Accept a YouTube address typed without 'https://'.
+
+        Matching the whole host keeps local file paths out of it.
+        """
+        if text.split('/', 1)[0].lower() in self.YOUTUBE_HOSTS:
+            return 'https://' + text
+        return text
+
     def is_youtube_video_id(self, text):
         """Check for a valid 11-character video ID (alphanumerics, dash, underscore)."""
         if len(text) != 11:
@@ -376,7 +385,7 @@ class YouTubeTranscriber:
         if prompt_text is None:
             prompt_text = self.DEFAULT_SOURCE_PROMPT
         while True:
-            url = input(prompt_text).strip()
+            url = self.add_scheme_if_missing(input(prompt_text).strip())
             # An existing local file wins over an ID-lookalike filename
             if self.is_youtube_video_id(url) and not os.path.exists(url):
                 url = self.construct_youtube_url(url)
@@ -597,13 +606,18 @@ class YouTubeTranscriber:
             return ""
 
     @staticmethod
-    def chunk_text(text, max_tokens=800, overlap_tokens=50):
-        """Split text into overlapping chunks at sentence boundaries, under max_tokens each."""
-        overlap_tokens = min(overlap_tokens, max_tokens // 2)
+    def chunk_text(text, max_tokens=800):
+        """Split text into chunks at sentence boundaries, under max_tokens each.
+
+        Chunks do not overlap. An overlap gives the model context across the
+        boundary, but it cannot be stripped again afterwards: enhancement
+        rewrites both copies of it, so no exact match survives to find, and the
+        overlap is duplicated into the transcript. Splitting on sentence
+        boundaries leaves nothing mid-thought for the context to rescue.
+        """
         sentences = re.split(r'(?<=[.!?])\s+', text)
-        # Unpunctuated audio yields one giant "sentence"; wrap those on word boundaries,
-        # leaving room for the overlap prefix prepended below.
-        max_chars = max(1, (max_tokens - overlap_tokens) * 4)
+        # Unpunctuated audio yields one giant "sentence"; wrap those on word boundaries
+        max_chars = max(1, max_tokens * 4)
         sentences = [
             piece for s in sentences
             for piece in (textwrap.wrap(s, max_chars) if len(s) > max_chars else [s])
@@ -619,11 +633,7 @@ class YouTubeTranscriber:
 
             if estimated_tokens + sentence_tokens > max_tokens and current_chunk:
                 chunks.append(current_chunk.strip())
-                overlap_chars = overlap_tokens * 4
-                if len(current_chunk) > overlap_chars:
-                    current_chunk = current_chunk[-overlap_chars:] + " " + sentence
-                else:
-                    current_chunk = sentence
+                current_chunk = sentence
             else:
                 current_chunk = (current_chunk + " " + sentence).strip()
 
@@ -631,34 +641,6 @@ class YouTubeTranscriber:
             chunks.append(current_chunk.strip())
 
         return chunks if chunks else [text]
-
-    @staticmethod
-    def merge_chunks(enhanced_chunks):
-        """Merge enhanced chunks back together, dropping duplicated overlap text."""
-        if not enhanced_chunks:
-            return ""
-        if len(enhanced_chunks) == 1:
-            return enhanced_chunks[0]
-
-        merged = enhanced_chunks[0]
-        for chunk in enhanced_chunks[1:]:
-            # Window must cover the largest overlap chunk_text produces
-            # (100 overlap_tokens * 4 chars/token = 400), with slack.
-            overlap_window = min(600, len(merged))
-            tail = merged[-overlap_window:]
-
-            best_overlap = 0
-            for j in range(len(tail), 0, -1):
-                if chunk.startswith(tail[-j:]):
-                    best_overlap = j
-                    break
-
-            if best_overlap > 10:
-                merged += " " + chunk[best_overlap:].strip()
-            else:
-                merged += " " + chunk.strip()
-
-        return merged.strip()
 
     def _build_chat_messages(self, prompt_text, chunk):
         """Build the system/user message pair shared by all chat-style backends."""
@@ -682,7 +664,8 @@ class YouTubeTranscriber:
             except Exception as e:
                 print(f"  Warning: {backend_label} error on chunk {i+1}: {str(e)}")
                 enhanced_chunks.append(chunk)
-        return self.merge_chunks(enhanced_chunks)
+        # chunk_text leaves no overlap to strip, so the pieces just butt together
+        return " ".join(enhanced_chunks).strip()
 
     def enhance_with_openai_compatible(self, text, prompt_text, api_key, provider):
         """Enhance transcript text via an OpenAI-compatible endpoint.
@@ -703,7 +686,7 @@ class YouTubeTranscriber:
         if base_url:
             client_kwargs["base_url"] = base_url
         client = openai.OpenAI(**client_kwargs)
-        chunks = self.chunk_text(text, max_tokens=3000, overlap_tokens=100)
+        chunks = self.chunk_text(text, max_tokens=3000)
 
         print(f"Enhancing transcript with {provider.key} ({model}, {len(chunks)} chunk(s))...")
 
@@ -734,7 +717,7 @@ class YouTubeTranscriber:
         if base_url:
             client_kwargs["base_url"] = base_url
         client = anthropic.Anthropic(**client_kwargs)
-        chunks = self.chunk_text(text, max_tokens=3000, overlap_tokens=100)
+        chunks = self.chunk_text(text, max_tokens=3000)
 
         print(f"Enhancing transcript with anthropic ({model}, {len(chunks)} chunk(s))...")
 
@@ -816,7 +799,7 @@ class YouTubeTranscriber:
             print("Skipping local enhancement.")
             return text
 
-        chunks = self.chunk_text(text, max_tokens=chunk_max, overlap_tokens=50)
+        chunks = self.chunk_text(text, max_tokens=chunk_max)
         # Instruct/chat models define a chat template; base models (gpt2 etc.) don't
         has_chat_template = getattr(tokenizer, 'chat_template', None) is not None
 
@@ -1671,6 +1654,8 @@ def _configure_from_profile(transcriber, profile_name):
         cfg.url = transcriber.URL_PLACEHOLDER
     else:
         cfg.url = os.getenv("URL") or transcriber.URL_PLACEHOLDER
+
+    cfg.url = transcriber.add_scheme_if_missing(cfg.url)
 
     if cfg.url != transcriber.URL_PLACEHOLDER:
         # An existing local file wins over an ID-lookalike filename
