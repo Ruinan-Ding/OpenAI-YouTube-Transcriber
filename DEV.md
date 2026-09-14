@@ -47,9 +47,20 @@ make lint
 make test
 ```
 
+No framework: plain `assert`, and `python test_transcriber.py` runs every
+`test_*` in the file and prints `all passed`. The pipeline cases merge and re-encode real
+files through the installed ffmpeg, and skip themselves if it is missing. Only
+the two network calls are faked.
+
 There is no auto-formatter. This codebase is 100 columns and single-quoted;
 black defaults to 88 and double quotes, so it is not enabled. `flake8` (with
 `flake8-bugbear`) is the enforced standard and must report zero issues.
+
+## Continuous Integration
+
+`.github/workflows/tests.yml` runs flake8, isort and the suite on every push to
+`main` and on every pull request, on Ubuntu with Python 3.11. It installs the
+CPU build of torch before the requirements, so Whisper does not drag in CUDA.
 
 ## Git Hooks
 
@@ -63,7 +74,7 @@ If a hook fails, fix the reported issue and commit again.
 
 ## Notes
 
-- Keep `OpenAIYouTubeTranscriber/requirements.txt` pinned to specific versions so installs are reproducible. The versions in `setup.py` can be looser.
+- `OpenAIYouTubeTranscriber/requirements.txt` is deliberately unpinned. yt-dlp goes stale the moment YouTube changes something, which is what this project migrated to it for, so a pin there would be a scheduled breakage. Add a lower bound if a change needs one.
 - Don't commit audio or video files; they're covered by `.gitignore`.
 - If you add a dependency, update both `requirements.txt` and `setup.py`.
 

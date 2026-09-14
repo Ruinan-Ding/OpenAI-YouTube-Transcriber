@@ -1,14 +1,6 @@
-# requirements.txt
-
-#pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
-#or
-#python -m pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
-
-requests
 langdetect
 yt-dlp
 python-dotenv
-moviepy
 git+https://github.com/openai/whisper.git
 
 # Optional: only needed for AI transcript enhancement. The app runs without

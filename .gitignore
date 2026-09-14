@@ -41,6 +41,7 @@ Thumbs.db
 OpenAIYouTubeTranscriber/Audio/
 OpenAIYouTubeTranscriber/Video/
 OpenAIYouTubeTranscriber/VideoWithoutAudio/
+OpenAIYouTubeTranscriber/Transcript/Raw/
 *.mp3
 *.mp4
 *.wav
