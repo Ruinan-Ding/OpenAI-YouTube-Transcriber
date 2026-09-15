@@ -17,7 +17,8 @@
   unattended. The refined source leaves `Transcript/` as its refinement
   arrives there, its untouched text written to `Transcript/Raw/` unless
   `KEEP_TRANSCRIPT=n`. A transcript already in `Raw/`, one named from outside
-  the project, and one no prompt changed are never removed.
+  the project, one no prompt changed, and - with `KEEP_TRANSCRIPT=n` - one only
+  summarized or translated are never removed.
 - **Every resolution, in every format.** The quality and format fields take
   lists too, and multiply out within their own deliverable:
   `VIDEO_RESOLUTION=144p,720p` with `VIDEO_FORMAT=mp4,mkv` is four merged
@@ -428,6 +429,45 @@
   was matched against the first video's tracks for all of them, so a Japanese
   video after an English one saved the English translation and never its
   original; and a list led by a video with no captions saved none for any video.
+- Output a console cannot encode no longer ends the run. Redirected to a file on
+  Windows, stdout is cp1252, and a Japanese, Russian or Hindi transcript raised
+  as it was printed, before it was saved; a title or path did the same.
+- Enter at a resolution or audio menu records `highest` (or `lowest`), not the
+  height it landed on. A profile made from the session said `240p`, fetched
+  240p of the next video, and asked again - crashing unattended - on one
+  without it.
+- A profile made from a refine-only session names the transcript where the
+  session left it, in `Transcript/Raw/`. It named the `Transcript/` file the
+  same session moved, and replayed as "Invalid input" and a crash.
+- The merged video no longer takes the name of the audio it is made from. With
+  `VIDEO_PATH` and `AUDIO_PATH` one folder and both in WebM at the top tier,
+  ffmpeg refused to write over its input and the failed merge's cleanup deleted
+  the downloaded audio; the merge is now tagged with its format.
+- An audio file given as a local source is not re-encoded into `Video/` as an
+  `.mp4` with no picture; `DOWNLOAD_VIDEO` says it has no video stream.
+- One source re-asked a question an unattended run cannot answer - a resolution
+  that video lacks - and the rest of the list was abandoned. That source fails
+  and the list carries on.
+- "Run again?" remembers the Whisper model when Enter picked it, rather than
+  asking again every round.
+- `API_KEY` is not sent to a provider its prefix says it does not belong to. An
+  OpenRouter key with `AI_PROVIDER=anthropic` went to Anthropic, failed every
+  chunk, and passed over the `ANTHROPIC_API_KEY` exported for it. A `BASE_URL`
+  still takes `API_KEY` as it stands.
+- `local` at the backend prompt runs the default local model it names, not
+  `MODEL`, which there is a cloud model's name that HuggingFace cannot load.
+- A profile with `REPEAT=y` no longer gives the next video the last one's
+  `*_RENAME`, overwriting its file; an interactive repeat already dropped it.
+- `KEEP_TRANSCRIPT=n` no longer deletes a refine-only source after a summary or
+  a translation, which do not say what it said; only a refinement replaces it.
+  The question now says that `n` keeps only the refined text.
+- `DOWNLOAD_YT_TRANSCRIPT=all` fetches each track from the metadata already in
+  hand, rather than extracting the whole video again per track - some 150
+  extractions per video.
+- A batch no longer opens a window for every transcript it saves.
+- The language a transcript is named for is the same on every run; langdetect
+  samples at random, so a short or mixed transcript could be `sk` once and `hr`
+  the next time.
 - A reply wrapped in a code block is unwrapped. The local model fenced its
   summary in ```` ```markdown ```` though the prompts say not to, and the fences
   were saved into the file.

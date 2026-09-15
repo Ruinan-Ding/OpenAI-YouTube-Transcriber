@@ -5,6 +5,7 @@
 
 
 import difflib
+import functools
 import getpass
 import importlib.util
 import json
@@ -23,7 +24,11 @@ from urllib.parse import parse_qs, urlparse
 import whisper
 import yt_dlp
 from dotenv import load_dotenv
-from langdetect import LangDetectException, detect
+from langdetect import DetectorFactory, LangDetectException, detect
+
+# langdetect samples at random, so a short or mixed transcript was tagged fr on
+# one run and en the next, and named differently each time
+DetectorFactory.seed = 0
 
 
 class DownloadFailed(Exception):
@@ -201,8 +206,16 @@ class Provider(Enum):
         return os.getenv('MODEL') or self.default_model
 
     def resolve_api_key(self):
-        """The key: API_KEY, else whatever this vendor's own tools already read."""
-        return os.getenv('API_KEY') or os.getenv(self.vendor_key_env)
+        """The key: API_KEY, else whatever this vendor's own tools already read.
+
+        Not an API_KEY that says it is another vendor's: an OpenRouter key sent
+        to Anthropic failed every chunk and handed that key to the wrong company.
+        A BASE_URL is somewhere the user pointed the provider themselves.
+        """
+        key = os.getenv('API_KEY')
+        if key and Provider.from_api_key(key) not in (None, self) and not os.getenv('BASE_URL'):
+            key = None
+        return key or os.getenv(self.vendor_key_env)
 
 
 class AIEnhancementMode(Enum):
@@ -708,7 +721,10 @@ MODEL=
                 return AIEnhancementMode.API, provider, None
 
             if user_lower == 'local':
-                return AIEnhancementMode.LOCAL, None, LocalModel.resolve_id()
+                # The default the prompt names, not MODEL: this is only asked
+                # when AI_PROVIDER is not local, so a MODEL on file is a cloud
+                # one, and gpt-4o-mini failed to load from HuggingFace
+                return AIEnhancementMode.LOCAL, None, LocalModel.default().hf_model_id
 
             if user_lower in LocalModel.all_model_values():
                 model = LocalModel.get_by_name(user_lower)
@@ -1558,11 +1574,13 @@ MODEL=
             (key for key, tracks in (info.get('automatic_captions') or {}).items()
              if tracks and 'tlang=' not in (tracks[0].get('url') or '')), None)
 
-    def fetch_caption_text(self, url, key):
+    def fetch_caption_text(self, info, key):
         """One named caption track as plain text, or None if it cannot be had.
 
         yt-dlp does the fetching: a track arrives as a plain file or as an HLS
-        playlist, and it knows the difference.
+        playlist, and it knows the difference. It works from the metadata
+        already fetched, as --load-info-json does; given the URL, it extracted
+        the whole video again per track, some 150 times over for 'all'.
         """
         print(f"Fetching YouTube's own transcript ({key})...")
         with tempfile.TemporaryDirectory() as folder:
@@ -1578,7 +1596,7 @@ MODEL=
                            outtmpl={'default': os.path.join(folder, 'captions.%(ext)s')})
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
-                    ydl.download([url])
+                    ydl.process_ie_result(ydl.sanitize_info(info), download=True)
                 written = sorted(name for name in os.listdir(folder)
                                  if os.path.splitext(name)[1] in ('.json3', '.vtt'))
                 if not written:
@@ -2574,7 +2592,8 @@ def _ask_enhancement(transcriber, cfg, used_fields, assumed=False):
         cfg.keep_transcript = _bool_from_last(
             "LAST_KEEP_TRANSCRIPT",
             lambda: transcriber.get_yes_no_input(
-                "Keep the unrefined transcript in Transcript/Raw/? (Y/n): ", default='y'))
+                "Keep the unrefined transcript in Transcript/Raw/? "
+                "n keeps only the refined one (Y/n): ", default='y'))
         used_fields["KEEP_TRANSCRIPT"] = "y" if cfg.keep_transcript else "n"
         # Which backend, not just that there was one: AI_REFINEMENT carries a
         # bare y, so without this a profile made from a local session replays
@@ -2590,6 +2609,9 @@ def _resolve_api_key(provider):
     """Get the API key for `provider` from the environment or prompt for it."""
     api_key = provider.resolve_api_key()
     if not api_key:
+        owner = Provider.from_api_key(os.getenv("API_KEY"))
+        if owner:
+            print(f"API_KEY is a {owner.key} key, so it is not sent to {provider.key}.")
         # Not echoed, and so not left in the scrollback or a terminal log
         api_key = getpass.getpass(f"Enter your {provider.key} API key: ").strip()
     if not api_key:
@@ -2630,8 +2652,9 @@ def _prompt_profile_selection(transcriber, profiles):
 
 
 def _menu_default(options, default):
-    """Which listed option Enter takes: the best available, or the cheapest
-    where the field asks for it. Shared, so the two menus cannot drift apart.
+    """Which listed option Enter lands on, for the prompt to name: the best
+    available, or the cheapest where the field asks for it. Shared, so the two
+    menus cannot drift apart.
     """
     return options[-1 if default == Resolution.LOWEST.value else 0]
 
@@ -2686,7 +2709,9 @@ def _prompt_resolution_selection(transcriber, info, default=Resolution.HIGHEST.v
             f"Enter desired resolution (number or resolution, or several separated "
             f"by commas or spaces, default {fallback}): ").strip().lower()
         if not user_input:
-            return fallback
+            # The keyword, not the height it lands on here: recorded as 240p, a
+            # profile made from this session fetched 240p of the next video
+            return default
         chosen = _valid_entries(transcriber, user_input, pick)
         if chosen:
             return ",".join(chosen)
@@ -2732,7 +2757,7 @@ def _prompt_audio_selection(transcriber, info, default=Resolution.HIGHEST.value)
             f"several separated by commas or spaces; default {fallback}): "
         ).strip().lower()
         if not user_input:
-            return fallback
+            return default
         chosen = _valid_entries(transcriber, user_input, pick)
         if chosen:
             return ",".join(chosen)
@@ -3080,6 +3105,31 @@ def _placement_gate(transcriber, cfg):
     return cfg.ask_placement
 
 
+def _several(cfg):
+    """Whether this session has several sources, which one name or one opened
+    window cannot serve."""
+    return len(cfg.sources or []) > 1 or len(cfg.refine_sources or []) > 1
+
+
+def _stem_for(cfg, filename_base, which):
+    """The name a deliverable is written under. The tags still follow it, so
+    the several files one answer can ask for stay distinct.
+
+    One name cannot name several sources, and the second would land on the
+    first: given a list, the name leads and each source's own title still
+    tells them apart.
+    """
+    name = getattr(cfg, f"{which}_rename", "")
+    if not name:
+        return filename_base
+    return f"{name} - {filename_base}" if _several(cfg) else name
+
+
+def _dir_for(cfg, which, default):
+    """Where a deliverable is written, the project's own folder by default."""
+    return getattr(cfg, f"{which}_path", "") or default
+
+
 def _placement_answer(transcriber, cfg, prefix, suffix, from_profile, profile_name):
     """The raw answer for one placement field: profile, repeat, or a question.
 
@@ -3088,6 +3138,13 @@ def _placement_answer(transcriber, cfg, prefix, suffix, from_profile, profile_na
     """
     if from_profile:
         raw = os.getenv(f"{prefix}_{suffix}")
+        if (suffix == "RENAME" and raw and raw.lower() not in YesNo.all_no_and_skip()
+                and os.environ.get("_REPEAT_INVOCATION", "") == "1"):
+            # A repeat takes a new URL and keeps the rest, but a name was for
+            # the last round's video, and on this one it overwrote that file.
+            # An interactive repeat drops it the same way.
+            print(f"Ignoring {prefix}_RENAME={raw} on a repeat: it named the last round's file.")
+            return "n"
         if raw and profile_name:
             print(f"Loaded {prefix}_{suffix}: {raw} (from {profile_name})")
         return raw
@@ -3686,7 +3743,8 @@ def _settle_refinement(transcriber, cfg, profile_name, assumed=False):
     if cfg.ai_mode is not None:
         cfg.keep_transcript = _bool_from_profile_env(
             transcriber, "KEEP_TRANSCRIPT", profile_name,
-            "Keep the unrefined transcript in Transcript/Raw/? (Y/n): ", default='y')
+            "Keep the unrefined transcript in Transcript/Raw/? "
+            "n keeps only the refined one (Y/n): ", default='y')
 
     return cfg
 
@@ -3742,6 +3800,9 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
     when every prompt left the text alone, which would delete the only copy.
     """
     raw_name = f"{stem}{transcriber.TXT_EXT}"
+    # One transcript is worth putting in front of the user; a batch opened a
+    # window for every one of them
+    open_after = open_after and not _several(cfg)
     if cfg.ai_mode is None or not enhance or not cfg.prompts:
         # An unenhanced transcript is its own original, which save_final_transcript
         # sees is no refinement and so does not keep a second copy of
@@ -3750,7 +3811,7 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
             keep_original=cfg.keep_transcript, open_after=open_after,
             output_dir=cfg.transcript_path or None)
 
-    saved = kept = False
+    saved = kept = rewritten = False
     for prompt_text, label, tag in transcriber.tagged_prompts(cfg.prompts):
         print(f"\nEnhancing {stem} with {label} ({cfg.ai_mode.name.lower()})...")
         # ponytail: known by its filename, so a summary prompt named otherwise is
@@ -3758,13 +3819,14 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
         # and a refinement named otherwise is not checked for dropped sentences.
         # The filename alone: a prompt kept outside Prompt/ is labelled by its path
         name = os.path.basename(label or "").lower()
+        keeps = "some" if "summar" in name else "words" if "refine" in name else "all"
         final = transcriber.enhance_text(
             text, cfg.ai_mode, prompt_text, api_key=cfg.api_key,
-            provider=cfg.provider, local_model=cfg.local_model,
-            keeps="some" if "summar" in name else "words" if "refine" in name else "all")
+            provider=cfg.provider, local_model=cfg.local_model, keeps=keeps)
         # An enhancement that returned the text unchanged refined nothing, so
         # it does not earn the prompt's tag
         refined = transcriber.is_refinement(text, final)
+        rewritten = rewritten or (refined and keeps == "words")
         if source and not refined:
             # A transcript read from disk is already saved where it is. Saving it
             # again rewrote a Transcript/ source in place, or copied one from
@@ -3778,8 +3840,12 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
                 open_after=open_after, output_dir=cfg.transcript_path or None):
             saved = True
             kept = kept or refined
-    if source and kept:
+    # Kept nowhere else, the source goes only for a refinement, which says what
+    # it said: after a summary or a translation it was the only copy of the words
+    if source and kept and (cfg.keep_transcript or rewritten):
         _retire_source(transcriber, cfg, source, raw_name)
+    elif source and kept:
+        print(f"Kept {os.path.basename(source)}: a summary or translation does not replace it.")
     return saved
 
 
@@ -3790,7 +3856,7 @@ def _retire_source(transcriber, cfg, source, raw_name):
     that replaces them was just written. A transcript named from anywhere else
     - Raw/ included - was read, not taken over, and is left where it is.
     """
-    source = os.path.abspath(os.path.expanduser(source))
+    given, source = source, os.path.abspath(os.path.expanduser(source))
     if os.path.dirname(source) != os.path.abspath(transcriber.TRANSCRIPT_DIR):
         return
     # Kept means a copy in Raw/ that says what the source says. A Raw/ save that
@@ -3812,6 +3878,11 @@ def _retire_source(transcriber, cfg, source, raw_name):
     except OSError as e:
         print(f"Warning: could not remove {source}: {e}")
         return
+    if cfg.keep_transcript and cfg.used_fields.get("URL"):
+        # A profile made from this session replays the same transcripts, and
+        # named this one where it no longer is
+        cfg.used_fields["URL"] = ",".join(
+            raw if part == given else part for part in cfg.used_fields["URL"].split(","))
     print(f"Moved {os.path.basename(source)} to {transcriber.RAW_TRANSCRIPT_DIR}"
           if cfg.keep_transcript else f"Removed the unrefined {os.path.basename(source)}")
 
@@ -3826,17 +3897,13 @@ def _refine_transcripts(transcriber, cfg):
     if cfg.ai_mode is None or not cfg.prompts:
         print("No refinement backend or prompt, so there is nothing to refine.")
         return
-    several = len(cfg.refine_sources) > 1 or len(cfg.sources or []) > 1
     for source in cfg.refine_sources:
         text = transcriber.read_transcript(source)
         if not text:
             continue
         print(f"\nProcessing: {os.path.abspath(source)}...")
-        stem = os.path.splitext(os.path.basename(source))[0]
-        # TRANSCRIPT_RENAME is asked in a refine-only run too, and was ignored.
-        # One name for several transcripts leads each one's own, as in _run_one
-        if cfg.transcript_rename:
-            stem = f"{cfg.transcript_rename} - {stem}" if several else cfg.transcript_rename
+        # TRANSCRIPT_RENAME is asked in a refine-only run too, and was ignored
+        stem = _stem_for(cfg, os.path.splitext(os.path.basename(source))[0], "transcript")
         _enhance_and_save(transcriber, cfg, text, stem, source=source)
 
 
@@ -3882,7 +3949,7 @@ def _save_yt_transcripts(transcriber, cfg, filename_base):
             print("Cannot tell which language this video was spoken in, so no "
                   "transcript is enhanced. Name a language to enhance one.")
     for key in keys:
-        text = transcriber.fetch_caption_text(cfg.url, key)
+        text = transcriber.fetch_caption_text(cfg.info, key)
         if not text:
             print(f"Nothing came back for the {key} transcript.")
             continue
@@ -3949,15 +4016,8 @@ def _local_deliverables(transcriber, cfg, filename_base):
     is only ever read: a deliverable that would land on it is skipped rather
     than written over.
     """
-
-    def stem_for(which):
-        name = getattr(cfg, f"{which}_rename", "")
-        if not name:
-            return filename_base
-        return f"{name} - {filename_base}" if len(cfg.sources or []) > 1 else name
-
-    def dir_for(which, default):
-        return getattr(cfg, f"{which}_path", "") or default
+    stem_for = functools.partial(_stem_for, cfg, filename_base)
+    dir_for = functools.partial(_dir_for, cfg)
     source = cfg.url
 
     def each(raw, fallback=None):
@@ -4019,7 +4079,9 @@ def _local_deliverables(transcriber, cfg, filename_base):
     # over the first: the format joins the name, as it does for a download and
     # the video-only file. And two qualities that come to the same file - highest
     # and lowest are both the file as it is - are one encode, not two
-    if cfg.download_video:
+    if cfg.download_video and transcriber.stream_codec(source, 'video') is None:
+        print("Skipping the video: this one has no video stream.")
+    elif cfg.download_video:
         containers = each(cfg.video_format, transcriber.DEFAULT_VIDEO_FORMAT)
         share = _shared_container(transcriber, containers, 'container')
         done = set()
@@ -4080,10 +4142,12 @@ def _run_pipeline(transcriber, cfg):
         cfg.video_title = prefetched[2] if reuse else ""
         try:
             _run_one(transcriber, cfg)
-        except (DownloadFailed, yt_dlp.utils.DownloadError) as e:
+        except (DownloadFailed, yt_dlp.utils.DownloadError, EOFError) as e:
             # One source failing is not the batch failing: the reason has been
             # reported already, and the sources after this one are still owed.
             # Alone, it is the whole run, and main() gives it the exit code.
+            # EOFError is an unattended run re-asked about this one video - a
+            # resolution it does not have - which the ones after need not be.
             if len(cfg.sources) == 1:
                 raise
             error(f"Source {index + 1} of {len(cfg.sources)} failed ({e}); "
@@ -4105,23 +4169,8 @@ def _run_one(transcriber, cfg):
     filename_base = transcriber.sanitize_filename(cfg.video_title)
     display_source = os.path.abspath(cfg.url) if cfg.is_local_file else cfg.url
     print(f"\nProcessing: {display_source}...")
-
-    def stem_for(which):
-        """The name a deliverable is written under. The tags still follow it, so
-        the several files one answer can ask for stay distinct.
-
-        One name cannot name several sources, and the second would land on the
-        first: given a list, the name leads and each source's own title still
-        tells them apart.
-        """
-        name = getattr(cfg, f"{which}_rename", "")
-        if not name:
-            return filename_base
-        return f"{name} - {filename_base}" if len(cfg.sources or []) > 1 else name
-
-    def dir_for(which, default):
-        """Where a deliverable is written, the project's own folder by default."""
-        return getattr(cfg, f"{which}_path", "") or default
+    stem_for = functools.partial(_stem_for, cfg, filename_base)
+    dir_for = functools.partial(_dir_for, cfg)
 
     video_temp_dir = None
     audio_path = None
@@ -4295,12 +4344,18 @@ def _run_one(transcriber, cfg):
                 container = (os.path.splitext(video_files[res])[1].lstrip('.')
                              if chosen == transcriber.FORMAT_ORIGINAL
                              else transcriber.format_extension(chosen) or chosen)
-                output = os.path.join(dir_for("video", transcriber.VIDEO_DIR),
-                                      stem_for("video")
-                                      + transcriber.quality_tag(
-                                          res, audio_label_for(tier),
-                                          chosen if merge_shares else None)
-                                      + f".{container}")
+                for fmt in (chosen if merge_shares else None, chosen):
+                    output = os.path.join(dir_for("video", transcriber.VIDEO_DIR),
+                                          stem_for("video") + transcriber.quality_tag(
+                                              res, audio_label_for(tier), fmt)
+                                          + f".{container}")
+                    # The audio saved to the same folder in the same container
+                    # can have this very name: ffmpeg refused to write over its
+                    # own input, and the failed merge's cleanup deleted that
+                    # input. The format tag tells the merge apart.
+                    if not (os.path.exists(output)
+                            and os.path.samefile(output, merge_files[tier])):
+                        break
                 # Every merge reads the streams as downloaded, so the scratch
                 # copies are cleared once below rather than by the first of them
                 if transcriber.combine_audio_video(video_files[res], merge_files[tier],
@@ -4518,7 +4573,9 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
                 "LAST_TRANSCRIBE_AUDIO": media and fields.get("TRANSCRIBE_AUDIO"),
                 "LAST_DOWNLOAD_YT_TRANSCRIPT": (media and not cfg.is_local_file
                                                 and cfg.yt_transcript_raw),
-                "LAST_MODEL_CHOICE": cfg.transcribe_audio and cfg.model_choice,
+                # The model, not the answer: Enter for base is "", and a blank
+                # answer asked again every round
+                "LAST_MODEL_CHOICE": media and cfg.transcribe_audio and cfg.model_name,
                 "LAST_TARGET_LANGUAGE": (cfg.transcribe_audio
                                          and ",".join(cfg.target_languages or [])),
                 "LAST_USE_EN_MODEL": fields.get("USE_EN_MODEL"),
@@ -4565,6 +4622,11 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
 
 def main():
     """Run sessions until the user stops asking for another."""
+    # Redirected to a file on Windows, stdout is cp1252: a Japanese title, path
+    # or transcript raised mid-run, before the transcript it printed was saved
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     transcriber = YouTubeTranscriber()
 
     if not transcriber.check_dependencies():

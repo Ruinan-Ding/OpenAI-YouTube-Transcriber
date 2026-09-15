@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -527,17 +528,24 @@ def test_menu_default_decides_what_enter_takes():
     info = _plain_info()
 
     def enter(picker, default):
-        module.input = lambda _prompt: ''
+        asked = []
+        module.input = lambda prompt: asked.append(prompt) or ''
         try:
             with redirect_stdout(io.StringIO()):
-                return picker(t, info, default)
+                return picker(t, info, default), asked[0]
         finally:
             del module.input
 
-    assert enter(module._prompt_resolution_selection, Resolution.HIGHEST.value) == '720p'
-    assert enter(module._prompt_resolution_selection, Resolution.LOWEST.value) == '144p'
-    assert enter(module._prompt_audio_selection, Resolution.HIGHEST.value) == 'medium'
-    assert enter(module._prompt_audio_selection, Resolution.LOWEST.value) == 'low'
+    # The menu names what Enter lands on for this video, but the answer is the
+    # keyword: recorded as 720p, a profile made from it fetched 720p of a 4K
+    # video, and asked again - unattended, crashed - on one without 720p
+    for picker, default, shown in (
+            (module._prompt_resolution_selection, Resolution.HIGHEST.value, '720p'),
+            (module._prompt_resolution_selection, Resolution.LOWEST.value, '144p'),
+            (module._prompt_audio_selection, Resolution.HIGHEST.value, 'medium'),
+            (module._prompt_audio_selection, Resolution.LOWEST.value, 'low')):
+        answer, prompt = enter(picker, default)
+        assert answer == default and f'default {shown}' in prompt, (answer, prompt)
 
 
 def test_model_choice_is_case_insensitive():
@@ -981,9 +989,14 @@ def test_a_refined_transcript_is_not_deleted_before_its_raw_copy_is_saved():
             folder != t.RAW_TRANSCRIPT_DIR and real_save(text, name, folder, **k)))
         assert os.path.exists(source), 'the only copy was deleted'
         # Once the copy is there, the source is retired as before
+        cfg.used_fields['URL'] = f'{source},https://youtu.be/other'
         refine(real_save)
         assert not os.path.exists(source)
-        assert io.open(os.path.join(t.RAW_TRANSCRIPT_DIR, 'talk.txt')).read() == 'the only words'
+        raw = os.path.join(t.RAW_TRANSCRIPT_DIR, 'talk.txt')
+        assert io.open(raw).read() == 'the only words'
+        # ...and a profile made from the session names the copy: it named the
+        # file just moved, and replayed as "Invalid input" and a crash
+        assert cfg.used_fields['URL'] == f'{raw},https://youtu.be/other', cfg.used_fields
 
         # TRANSCRIPT_RENAME names a refine-only run's output too, and was ignored
         io.open(source, 'w', encoding='utf-8').write('the only words')
@@ -1004,6 +1017,18 @@ def test_a_refined_transcript_is_not_deleted_before_its_raw_copy_is_saved():
                                      source=elsewhere)
         assert not os.path.exists(os.path.join(t.TRANSCRIPT_DIR, 'call.txt'))
         assert os.path.exists(elsewhere)
+
+        # KEEP_TRANSCRIPT=n retires a source a refinement replaced, but a summary
+        # does not say what it said: the source was the last copy of the words
+        t.enhance_text = lambda text, *a, **k: text.upper()
+        cfg.keep_transcript = False
+        for prompt, survives in (('prompt-summary.txt', True), ('prompt-refinement.txt', False)):
+            io.open(source, 'w', encoding='utf-8').write('the only words')
+            cfg.prompts = [('DO IT', prompt)]
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                module._enhance_and_save(t, cfg, 'the only words', 'talk',
+                                         open_after=False, source=source)
+            assert os.path.exists(source) == survives, prompt
 
 
 def _ffmpeg_available():
@@ -2004,6 +2029,14 @@ def test_a_local_file_never_writes_two_deliverables_to_one_name():
     assert len(written) == len(set(written)), written
     assert len(written) == 5, written  # mkv, matroska, mp3, then mp4 and original
 
+    # An audio file is not a video: it was re-encoded into Video/ as an mp4
+    # with no picture in it
+    written.clear()
+    t.stream_codec = lambda source, kind: None if kind == 'video' else 'aac'
+    with redirect_stdout(io.StringIO()):
+        module._local_deliverables(t, cfg, 'clip')
+    assert written == [], written
+
 
 def test_a_profile_records_which_backend_the_session_used():
     """AI_REFINEMENT carries a bare y, so a profile without the backend
@@ -2279,8 +2312,9 @@ def test_a_transcript_is_worth_a_profile_and_every_answer_is_cleared():
     try:
         with redirect_stdout(io.StringIO()):
             assert module._finish_session(
-                t, module.SessionConfig(used_fields={}, model_choice='base',
-                                        transcribe_audio=True,
+                t, module.SessionConfig(used_fields={}, url='https://youtu.be/x',
+                                        model_choice='',  # Enter took base
+                                        model_name='base', transcribe_audio=True,
                                         yt_transcript_languages=['en']),
                 load_profile=False, profile_name=None) is True
         assert os.environ.get('_REPEAT_INVOCATION') == '1'
@@ -2573,7 +2607,7 @@ def test_one_key_names_its_own_provider():
     from OpenAIYouTubeTranscriber import Provider
 
     saved = {v: os.environ.get(v) for v in
-             ('API_KEY', 'MODEL', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY')}
+             ('API_KEY', 'MODEL', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'BASE_URL')}
     for var in saved:
         os.environ.pop(var, None)
     try:
@@ -2589,7 +2623,20 @@ def test_one_key_names_its_own_provider():
         assert Provider.default() is Provider.OPENROUTER
         os.environ['API_KEY'] = 'sk-ant-api03-xyz'
         assert Provider.default() is Provider.ANTHROPIC
+        assert Provider.ANTHROPIC.resolve_api_key() == 'sk-ant-api03-xyz'
+        # Another vendor's key is not sent to this one, and the key exported for
+        # this one is not passed over for it
+        assert Provider.OPENAI.resolve_api_key() is None
+        os.environ['OPENAI_API_KEY'] = 'sk-proj-exported'
+        assert Provider.OPENAI.resolve_api_key() == 'sk-proj-exported'
+        del os.environ['OPENAI_API_KEY']
+        # ...unless BASE_URL says where it goes, and a key nobody claims is anyone's
+        os.environ['BASE_URL'] = 'https://example.com/v1'
         assert Provider.OPENAI.resolve_api_key() == 'sk-ant-api03-xyz'
+        del os.environ['BASE_URL']
+        os.environ['API_KEY'] = 'gsk_xyz'
+        assert Provider.ANTHROPIC.resolve_api_key() == 'gsk_xyz'
+        os.environ['API_KEY'] = 'sk-ant-api03-xyz'
 
         # One MODEL line, but a blank one leaves each provider its own default
         assert Provider.ANTHROPIC.resolve_model() == 'claude-opus-4-8'
@@ -2602,6 +2649,18 @@ def test_one_key_names_its_own_provider():
         os.environ['OPENAI_API_KEY'] = 'sk-from-the-shell'
         assert Provider.OPENAI.resolve_api_key() == 'sk-from-the-shell'
         assert Provider.ANTHROPIC.resolve_api_key() is None
+
+        # 'local' at the backend prompt is the default it names, not the cloud
+        # MODEL on file, which failed to load from HuggingFace
+        import OpenAIYouTubeTranscriber as module
+        assert os.environ['MODEL'] == 'gpt-5'
+        module.input = lambda prompt='': 'local'
+        try:
+            with redirect_stdout(io.StringIO()):
+                _mode, _provider, model = YouTubeTranscriber().get_ai_provider_input()
+        finally:
+            del module.input
+        assert model == module.LocalModel.default().hf_model_id, model
     finally:
         for var, value in saved.items():
             os.environ.pop(var, None)
@@ -2676,14 +2735,18 @@ def test_one_failing_source_does_not_take_the_batch_with_it():
         attempted.append(cfg.url)
         if cfg.url == 'b':
             raise module.DownloadFailed('unavailable')
+        if cfg.url == 'c':
+            # An unattended run re-asked about one video, a resolution it lacks
+            raise EOFError('EOF when reading a line')
 
     saved, module._run_one = module._run_one, flaky
     try:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             module._run_pipeline(t, module.SessionConfig(
-                sources=[('a', False, None), ('b', False, None), ('c', False, None)],
+                sources=[('a', False, None), ('b', False, None), ('c', False, None),
+                         ('d', False, None)],
                 used_fields={}))
-        assert attempted == ['a', 'b', 'c'], attempted
+        assert attempted == ['a', 'b', 'c', 'd'], attempted
 
         # On its own that same failure is the whole run, and main() turns it
         # into the exit code rather than reporting success
@@ -2803,16 +2866,21 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         # A name and a path in the fields are used as they stand, so a profile
         # carrying them still runs unattended
         cfg = module.SessionConfig(used_fields={})
+        repeat = module.SessionConfig(used_fields={})
         env = {'VIDEO_RENAME': 'lecture', 'VIDEO_PATH': elsewhere}
         os.environ.update(env)
         try:
             with redirect_stdout(io.StringIO()):
                 module._settle_placement(t, cfg, 'video', True, 'p.txt')
+                # REPEAT=y takes a new video, and the name overwrote the last one's
+                os.environ['_REPEAT_INVOCATION'] = '1'
+                module._settle_placement(t, repeat, 'video', True, 'p.txt')
         finally:
-            for key in env:
+            for key in list(env) + ['_REPEAT_INVOCATION']:
                 os.environ.pop(key, None)
         assert cfg.video_rename == 'lecture'
         assert cfg.video_path == elsewhere
+        assert (repeat.video_rename, repeat.video_path) == ('', elsewhere)
         assert os.path.isdir(elsewhere), 'the path is made when it is settled'
         # A profile written from this session replays it, rather than asking
         assert cfg.used_fields['VIDEO_RENAME'] == 'lecture'
@@ -2914,8 +2982,12 @@ def test_one_name_cannot_name_several_sources():
 
         t.download_audio_stream = fake_audio
 
+        opened = []
+        t.startfile = opened.append
+
         def run(sources):
             shutil.rmtree(t.TRANSCRIPT_DIR, ignore_errors=True)
+            opened.clear()
             cfg = module.SessionConfig(
                 sources=sources, used_fields={}, transcribe_audio=True,
                 transcript_rename='meeting', target_languages=['en'],
@@ -2929,9 +3001,53 @@ def test_one_name_cannot_name_several_sources():
         assert run([('https://youtu.be/1', False, None),
                     ('https://youtu.be/2', False, None)]) == [
             'meeting - vid1 [Whisper en].txt', 'meeting - vid2 [Whisper en].txt']
-        # One video: the name is simply the name
+        # ...and a batch does not open a window per transcript
+        assert opened == [], opened
+        # One video: the name is simply the name, and its transcript is opened
         assert run([('https://youtu.be/1', False, None)]) == [
             'meeting [Whisper en].txt']
+        assert len(opened) == 1, opened
+
+
+def test_the_merge_never_takes_the_name_of_the_audio_it_reads():
+    """VIDEO_PATH and AUDIO_PATH one folder, both webm at the top tier: the
+    merged video and the saved audio came to one name. ffmpeg refused to write
+    over its own input, and the failed merge's cleanup deleted the audio."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    merges = []
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, 'out')
+        t.VIDEO_DIR = os.path.join(tmp, 'Video')
+        t.fetch_video_info = lambda url: {'title': 'vid', 'formats': [
+            {'format_id': 'v', 'vcodec': 'vp9', 'acodec': 'none', 'height': 720,
+             'ext': 'webm', 'url': 'v'},
+            {'format_id': 'a', 'vcodec': 'none', 'acodec': 'opus', 'abr': 60,
+             'ext': 'webm', 'url': 'a', 'format_note': 'low'}]}
+
+        def fake(folder, stem):
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, stem + '.webm')
+            io.open(path, 'w', encoding='utf-8').write('x')
+            return path
+
+        t.download_format = lambda url, selector, folder, stem, reuse=False: fake(folder, stem)
+        t.download_audio_stream = (lambda info, stem, is_temp=False, format_selector='',
+                                   keep_in=None: (fake(keep_in, stem),) * 2)
+        t.combine_audio_video = lambda video, audio, output: merges.append((audio, output))
+        cfg = module.SessionConfig(
+            sources=[('https://youtu.be/x', False, None)], used_fields={},
+            transcribe_audio=False, download_video=True, video_resolution='highest',
+            video_audio_resolution='highest', video_format='webm', video_path=out,
+            download_audio=True, audio_resolution='highest', audio_format='original',
+            audio_path=out)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_pipeline(t, cfg)
+    assert len(merges) == 1, merges
+    audio, output = merges[0]
+    assert audio == os.path.join(out, 'vid.webm'), merges
+    assert output == os.path.join(out, 'vid [webm].webm'), merges
 
 
 def test_a_profile_that_predates_a_field_does_not_stop_to_ask():
@@ -2968,12 +3084,16 @@ def test_a_pre_1_2_profile_still_names_its_own_backend():
 
     t = YouTubeTranscriber()
     prompts = t.list_available_prompts()
+    # The OpenRouter key is not Anthropic's, which reads its own
     base = {'PROMPT': prompts[0] if prompts else '', 'KEEP_TRANSCRIPT': 'y',
-            'API_KEY': 'sk-or-v1-test'}
+            'API_KEY': 'sk-or-v1-test', 'ANTHROPIC_API_KEY': 'sk-ant-test'}
     saved = {k: os.environ.get(k) for k in
              list(base) + ['AI_ENHANCEMENT', 'AI_REFINEMENT', 'AI_PROVIDER', 'MODEL']}
-    # Nobody is there to answer an unattended run
+    # Nobody is there to answer an unattended run, and getpass reads the
+    # console itself, so an ask hangs the suite rather than failing it
     t.get_yes_no_input = lambda *a, **k: (_ for _ in ()).throw(AssertionError('asked'))
+    real_getpass = module.getpass.getpass
+    module.getpass.getpass = lambda *a, **k: (_ for _ in ()).throw(AssertionError('asked'))
     try:
         # A model name was a local model, and skip a no: both went to whichever
         # cloud provider the key on file belongs to, and that one charges
@@ -2997,6 +3117,7 @@ def test_a_pre_1_2_profile_still_names_its_own_backend():
             assert (cfg.provider.key if cfg.provider else None) == backend, value
             assert cfg.local_model == local, (value, cfg.local_model)
     finally:
+        module.getpass.getpass = real_getpass
         for key, value in saved.items():
             os.environ.pop(key, None)
             if value is not None:
@@ -3008,6 +3129,49 @@ def test_resolution_f_normalizes_to_fetch():
     assert Resolution.normalize('fetch') == Resolution.FETCH.value
     assert Resolution.normalize('720P') == '720p'
     assert Resolution.normalize('HIGHEST') == Resolution.HIGHEST.value
+
+
+def test_a_caption_track_is_fetched_without_extracting_the_video_again():
+    """Handed the URL, yt-dlp extracted the whole video again per track: some
+    150 extractions for 'all', and the rate limit that comes with them."""
+    import yt_dlp
+
+    info = {'id': 'x', 'title': 'clip', 'extractor': 'youtube', 'extractor_key': 'Youtube',
+            'webpage_url': 'https://youtu.be/x', 'formats': [
+                {'format_id': 'a', 'url': 'https://example.com/a', 'ext': 'webm',
+                 'vcodec': 'none', 'acodec': 'opus'}],
+            'subtitles': {'en': [{'ext': 'json3', 'url': 'https://example.com/en.json3'}]}}
+    payload = json.dumps({'events': [{'segs': [{'utf8': 'the words'}]}]})
+
+    def dl(self, name, sub, **kwargs):
+        io.open(name, 'w', encoding='utf-8').write(payload)
+        return True
+
+    def extract_info(self, *a, **k):
+        raise AssertionError('extracted the video again')
+
+    saved = yt_dlp.YoutubeDL.dl, yt_dlp.YoutubeDL.extract_info
+    yt_dlp.YoutubeDL.dl, yt_dlp.YoutubeDL.extract_info = dl, extract_info
+    try:
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            text = YouTubeTranscriber().fetch_caption_text(info, 'en')
+    finally:
+        yt_dlp.YoutubeDL.dl, yt_dlp.YoutubeDL.extract_info = saved
+    assert text == 'the words', text
+
+
+def test_output_the_console_cannot_encode_does_not_end_the_run():
+    """Redirected on Windows, stdout is cp1252, and printing a Japanese
+    transcript raised before the transcript was saved."""
+    code = ("import OpenAIYouTubeTranscriber as m\n"
+            "m.YouTubeTranscriber.check_dependencies = "
+            "lambda self: print('\\u65e5\\u672c\\u8a9e') or False\n"
+            "m.main()\n")
+    run = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                         cwd=os.path.dirname(os.path.abspath(__file__)),
+                         env=dict(os.environ, PYTHONIOENCODING='cp1252'))
+    assert run.returncode == 1 and b'UnicodeEncodeError' not in run.stderr, run.stderr[-300:]
+    assert b'???' in run.stdout and b'Missing required' in run.stdout, run.stdout
 
 
 if __name__ == '__main__':

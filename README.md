@@ -554,7 +554,9 @@ One provider runs per session, so config.txt carries one `API_KEY=` and one
 the provider itself - an `sk-ant-` key means Anthropic. Leave `API_KEY=` blank
 and the vendor's own variable is read (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENROUTER_API_KEY`), so a key already exported in your shell needs no entry
-here. `MODEL=` blank takes the provider's default above.
+here. That variable is read too when `API_KEY=` holds another provider's key -
+an `sk-or-` key is never sent to Anthropic - unless `BASE_URL=` says where it
+goes. `MODEL=` blank takes the provider's default above.
 
 ```ini
 LOAD_PROFILE=
@@ -724,7 +726,9 @@ KEEP_TRANSCRIPT=y
 A refined transcript leaves `Transcript/` as its refinement arrives there: the
 untouched text is written to `Transcript/Raw/` and the original file removed, so
 you are left with one original and one file per prompt rather than a duplicate.
-`KEEP_TRANSCRIPT=n` skips the copy, and the unrefined text is gone. Two things
+`KEEP_TRANSCRIPT=n` skips the copy, and the unrefined text is gone - unless the
+only prompts that changed it were a summary or a translation, which do not say
+what it said, so the transcript stays where it is. Two things
 are never removed: a transcript that already lives in `Transcript/Raw/`, and one
 named from anywhere else on disk - those are read, not taken over. Neither is a
 transcript no prompt actually changed.
