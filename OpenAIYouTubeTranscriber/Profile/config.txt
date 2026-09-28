@@ -1,7 +1,13 @@
 LOAD_PROFILE=
-OPENAI_API_KEY=
-OPENAI_MODEL=
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
-ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=
+# AI_PROVIDER - who refines the transcript when refinement is on:
+#   openai, openrouter, anthropic  cloud; needs API_KEY, or the vendor's own
+#                                  OPENAI_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY
+#   local                          runs on this machine, no key; the first run downloads ~3GB
+#   blank                          taken from API_KEY's prefix (sk-, sk-or-, sk-ant-),
+#                                  and asked for if there is no key
+# MODEL picks the model for whichever it is. Any other OpenAI-compatible endpoint
+# (Groq, Together, Ollama, ...) is openai or openrouter plus BASE_URL=; its key
+# matches no prefix, so name the provider.
+AI_PROVIDER=
+API_KEY=
+MODEL=

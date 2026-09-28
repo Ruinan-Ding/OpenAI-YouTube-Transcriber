@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      # The pipeline tests merge and re-encode real files
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # Whisper pulls torch; the CPU build is a tenth of the CUDA one and
+      # satisfies the requirement below, so it is installed first
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -r OpenAIYouTubeTranscriber/requirements.txt
+      - run: pip install -r requirements-dev.txt
+
+      - run: flake8
+      - run: isort --check-only .
+      - run: python test_transcriber.py
