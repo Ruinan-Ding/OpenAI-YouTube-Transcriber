@@ -307,7 +307,7 @@ class YouTubeTranscriber:
     VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
     PROFILE_DIR = os.path.join(DATA_DIR, "Profile")
     PROMPT_DIR = os.path.join(DATA_DIR, "Prompt")
-    # The names setup.py installs Prompt/ and the sample profiles under, as data
+    # The names pyproject.toml installs Prompt/ and the sample profiles under, as data
     PROMPT_PACKAGE = "openai_youtube_transcriber_prompts"
     PROFILE_PACKAGE = "openai_youtube_transcriber_profiles"
     TXT_EXT = ".txt"
@@ -874,9 +874,9 @@ MODEL=
 
     @staticmethod
     def installed_data_dir(package):
-        """The folder setup.py installed one package of data into, or None.
+        """The folder the build installed one package of data into, or None.
 
-        setup.py installs the shipped prompts and sample profiles as packages of
+        pyproject.toml installs the shipped prompts and sample profiles as packages of
         data, and the import system is what knows where site-packages put them.
         A checkout has no such package, and has the files beside the module.
         """
