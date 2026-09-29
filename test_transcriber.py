@@ -2916,11 +2916,13 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         repeat = module.SessionConfig(used_fields={})
         env = {'VIDEO_RENAME': 'lecture', 'VIDEO_PATH': elsewhere}
         os.environ.update(env)
+        log = io.StringIO()
         try:
             with redirect_stdout(io.StringIO()):
                 module._settle_placement(t, cfg, 'video', module._Profile('p.txt'))
-                # REPEAT=y takes a new video, and the name overwrote the last one's
-                os.environ['_REPEAT_INVOCATION'] = '1'
+            # REPEAT=y takes a new video, and the name overwrote the last one's
+            os.environ['_REPEAT_INVOCATION'] = '1'
+            with redirect_stdout(log):
                 module._settle_placement(t, repeat, 'video', module._Profile('p.txt'))
         finally:
             for key in list(env) + ['_REPEAT_INVOCATION']:
@@ -2928,6 +2930,9 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         assert cfg.video_rename == 'lecture'
         assert cfg.video_path == elsewhere
         assert (repeat.video_rename, repeat.video_path) == ('', elsewhere)
+        # Said once, as dropped, and not then reported as loaded
+        assert 'Ignoring VIDEO_RENAME=lecture' in log.getvalue()
+        assert 'Loaded VIDEO_RENAME' not in log.getvalue(), log.getvalue()
         assert os.path.isdir(elsewhere), 'the path is made when it is settled'
         # A profile written from this session replays it, rather than asking
         assert cfg.used_fields['VIDEO_RENAME'] == 'lecture'

@@ -3016,9 +3016,9 @@ class _Profile(_Answers):
                 and stated not in YesNo.all_no_and_skip()):
             # A repeat takes a new URL and keeps the rest, but a name was for
             # the last round's video, and on this one it overwrote that file.
-            # An interactive repeat drops it the same way.
+            # An interactive repeat drops it the same way: as if not there.
             print(f"Ignoring {name}={value} on a repeat: it named the last round's file.")
-            return name, "n"
+            return name, None
         return name, value
 
     def absent(self, setting):
