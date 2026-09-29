@@ -1069,6 +1069,33 @@ def _make_clip(path, kind):
     return path
 
 
+def test_ffmpeg_leaves_stdin_to_the_prompts():
+    """ffmpeg reads its keyboard commands from stdin as it works - q stops it -
+    and so took the first character of whatever answer was waiting there: a
+    path piped to a profile's next round arrived without its leading slash."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        clip = _make_clip(os.path.join(tmp, 'clip.mp3'), 'audio')
+        read_end, write_end = os.pipe()
+        os.write(write_end, b'/next/answer\n')
+        os.close(write_end)
+        saved = os.dup(0)
+        os.dup2(read_end, 0)
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                converted = t.convert_media(clip, 'wav', 'audio', tmp, 'converted',
+                                            replace_source=False)
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+        left = os.read(read_end, 64)
+        os.close(read_end)
+    assert converted, 'the conversion itself failed'
+    assert left == b'/next/answer\n', left
+
+
 def _plain_info():
     """A plain video's formats, shaped as yt-dlp reports them: worst first."""
     return {'webpage_url': 'https://youtu.be/x', 'formats': [
