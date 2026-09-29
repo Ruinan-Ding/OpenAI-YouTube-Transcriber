@@ -1074,8 +1074,7 @@ def test_ffmpeg_leaves_stdin_to_the_prompts():
     and so took the first character of whatever answer was waiting there: a
     path piped to a profile's next round arrived without its leading slash."""
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
     with tempfile.TemporaryDirectory() as tmp:
         clip = _make_clip(os.path.join(tmp, 'clip.mp3'), 'audio')
