@@ -101,6 +101,14 @@ regression test.
 - **Downloads reuse the metadata already fetched** instead of extracting each
   video again per deliverable.
 
+### Also fixed
+
+- **ffmpeg no longer reads the keyboard.** It takes its commands from stdin
+  while it works: `q` stopped a re-encode part way, and the first character
+  of an answer waiting after it was eaten, so a path piped to a profile's
+  next round arrived without its leading `/`. ffmpeg and ffprobe now get no
+  stdin, as the ffmpeg runs of yt-dlp and Whisper already did.
+
 ## [1.2.0] - 2026-09-12
 
 ### Added

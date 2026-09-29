@@ -35,12 +35,15 @@ from langdetect import DetectorFactory, LangDetectException, detect
 DetectorFactory.seed = 0
 
 
-# How ffmpeg's and ffprobe's output is read. text=True decoded it in the
-# locale's encoding - cp1252 on Windows - and ffmpeg writes UTF-8, so a
-# Japanese filename in its log raised UnicodeDecodeError and ended the batch.
-# Only ever printed or parsed for ASCII, so a byte that does not decode is
-# replaced rather than fatal.
-FFMPEG_TEXT = {'encoding': 'utf-8', 'errors': 'replace'}
+# How ffmpeg and ffprobe are run. Their output is read as UTF-8: text=True
+# decoded it in the locale's encoding - cp1252 on Windows - and ffmpeg writes
+# UTF-8, so a Japanese filename in its log raised UnicodeDecodeError and ended
+# the batch. Only ever printed or parsed for ASCII, so a byte that does not
+# decode is replaced rather than fatal. And they are given no stdin: ffmpeg
+# reads its keyboard commands there as it works - q stops it - so it took the
+# first character of the answer waiting after it, and a path piped to the next
+# round arrived without its leading slash.
+FFMPEG_RUN = {'stdin': subprocess.DEVNULL, 'encoding': 'utf-8', 'errors': 'replace'}
 
 
 def _is_number(text):
@@ -502,7 +505,7 @@ MODEL=
                 file_path
             ]
             result = subprocess.run(
-                cmd, capture_output=True, check=True, **FFMPEG_TEXT
+                cmd, capture_output=True, check=True, **FFMPEG_RUN
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -2181,7 +2184,7 @@ MODEL=
         flag = '-muxers' if kind == 'container' else '-encoders'
         try:
             listing = subprocess.run(['ffmpeg', '-hide_banner', flag],
-                                     capture_output=True, check=True, **FFMPEG_TEXT).stdout
+                                     capture_output=True, check=True, **FFMPEG_RUN).stdout
         except (subprocess.CalledProcessError, FileNotFoundError):
             cached[kind] = []
             return cached[kind]
@@ -2219,7 +2222,7 @@ MODEL=
             muxer = cls.FORMAT_ALIASES.get(name, name)
             try:
                 listing = subprocess.run(['ffmpeg', '-hide_banner', '-h', f'muxer={muxer}'],
-                                         capture_output=True, check=True, **FFMPEG_TEXT).stdout
+                                         capture_output=True, check=True, **FFMPEG_RUN).stdout
             except (subprocess.CalledProcessError, OSError):
                 listing = ""
             match = re.search(r'Common extensions:\s*([^.\n]+)', listing)
@@ -2243,7 +2246,7 @@ MODEL=
                 ['ffprobe', '-v', 'error',
                  '-select_streams', 'v:0' if kind == 'video' else 'a:0',
                  '-show_entries', f'stream={entry}', '-of', 'csv=p=0', path],
-                capture_output=True, check=True, **FFMPEG_TEXT).stdout.strip()
+                capture_output=True, check=True, **FFMPEG_RUN).stdout.strip()
         except (subprocess.CalledProcessError, OSError):
             return None
         value = probe.splitlines()[0].strip() if probe else ""
@@ -2282,7 +2285,7 @@ MODEL=
         print(f"Removing the audio {os.path.basename(path)} arrived with...")
         try:
             subprocess.run(['ffmpeg', '-y', '-i', path, '-c', 'copy', '-an', silent],
-                           capture_output=True, check=True, **FFMPEG_TEXT)
+                           capture_output=True, check=True, **FFMPEG_RUN)
         except (subprocess.CalledProcessError, OSError) as e:
             error(f"Error: could not remove the audio from "
                   f"{os.path.basename(path)}: {str(e)}")
@@ -2358,7 +2361,7 @@ MODEL=
         for extra in attempts:
             command = ['ffmpeg', '-y', '-i', source] + extra + [target]
             try:
-                subprocess.run(command, capture_output=True, check=True, **FFMPEG_TEXT)
+                subprocess.run(command, capture_output=True, check=True, **FFMPEG_RUN)
             except subprocess.CalledProcessError as e:
                 last_error = e.stderr
                 continue
@@ -2444,7 +2447,7 @@ MODEL=
 
         for index, command in enumerate(attempts):
             try:
-                subprocess.run(command, capture_output=True, check=True, **FFMPEG_TEXT)
+                subprocess.run(command, capture_output=True, check=True, **FFMPEG_RUN)
                 break
             except subprocess.CalledProcessError as e:
                 if index == len(attempts) - 1:
