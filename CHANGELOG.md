@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased]
+
+Fixes for the sixteen findings in `docs/CODE_REVIEW_REPORT.md`, each with a
+regression test.
+
+### Changed
+
+- **Whisper is told the language spoken, not the one to write** (F06). A new
+  `SOURCE_LANGUAGE` field names the spoken language, and by default (`auto`)
+  Whisper detects it. `TARGET_LANGUAGE` is the language to write: `auto` (now
+  what Enter takes) is the language spoken, `en` is Whisper's own translation
+  into English, and any other language, which Whisper cannot write, comes back
+  as the spoken-language transcript with a note pointing at
+  `prompt0-translator.txt`. Transcripts are named for the language they are
+  in, and two targets that come out the same are saved once. Before, the
+  target was passed as Whisper's spoken-language hint, so French asked of
+  English speech was decoded as if it were French, and files were labelled by
+  what was asked for. `profile0-translator.txt` now translates into English.
+
+### Fixed
+
+- **A refinement renamed onto its own source is no longer deleted** (F01). The
+  source is never retired when an output landed on its path, the Raw/ copy is
+  written before the refinement, and transcripts are written atomically.
+- **A refinement that failed to save no longer retires its source** (F02):
+  only a whole refinement that actually landed replaces it.
+- **Audio no longer overwrites the merged video** in a shared folder and
+  container (F03); it becomes `<name> - Audio.<ext>`, remote and local alike.
+- **Sources of one list with one name keep their own files** (F04): the second
+  takes its video ID, or a number, and the same source twice keeps its name.
+- **Scratch cleanup deletes only what the pass fetched** (F05), in a folder of
+  its own under `Video/Temp`, even when the pass fails part way.
+- **A caption request stands for every video of a list** (F07), rather than
+  being narrowed to the tracks the first video had.
+- **Saved profiles read back exactly** (F08): values dotenv would change are
+  single-quoted, and single-quoted values are read literally.
+- **A typed prompt is saved with the profile** (F09) as `Prompt/prompt<N>.txt`,
+  instead of `PROMPT=(inline)`.
+- **A new `config.txt` names the profile actually written** (F10).
+- **A transcript or prompt in another encoding no longer ends the run** (F11):
+  UTF-16 and BOM-marked files are read, and anything else that is not UTF-8
+  is reported and skipped.
+- **A failed enhancement hands back the text unchanged** (F12), and **every
+  chunk respects its size budget** (F13), mixed scripts included: chunks are
+  exact spans of the text rather than `textwrap` output.
+- **Installed copies carry the shipped prompts** (F14); profiles and
+  `config.txt` stay in the working directory.
+- **WebVTT captions are read by cue block** (F15): cue numbers, `NOTE`, `STYLE`
+  and `REGION` blocks are not speech, and `&amp;` is decoded.
+- **`~/clip.mp3` is accepted as a source** (F16).
+
 ## [1.2.0] - 2026-09-12
 
 ### Added

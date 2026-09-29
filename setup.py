@@ -21,6 +21,14 @@ setup(
     # One top-level module: OpenAIYouTubeTranscriber/ beside it is the data
     # directory, not a package, so find_packages() found nothing to install
     py_modules=["OpenAIYouTubeTranscriber"],
+    # ...but the prompts it ships have to travel with it: a wheel held the
+    # module alone, and an installed copy offered no prompt at all. They go in
+    # as a package of their own, which the module finds through the import
+    # system. Profiles and config.txt are the user's, and stay in the working
+    # directory - config.txt can hold an API key.
+    packages=["openai_youtube_transcriber_prompts"],
+    package_dir={"openai_youtube_transcriber_prompts": "OpenAIYouTubeTranscriber/Prompt"},
+    package_data={"openai_youtube_transcriber_prompts": ["*.txt"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",

@@ -4,10 +4,13 @@
 # Run with: python OpenAIYouTubeTranscriber.py
 
 
+import codecs
 import difflib
 import functools
 import getpass
+import html
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -15,7 +18,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
@@ -23,7 +25,8 @@ from urllib.parse import parse_qs, urlparse
 
 import whisper
 import yt_dlp
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
+from dotenv.parser import parse_stream
 from langdetect import DetectorFactory, LangDetectException, detect
 
 # langdetect samples at random, so a short or mixed transcript was tagged fr on
@@ -285,6 +288,8 @@ class YouTubeTranscriber:
     VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
     PROFILE_DIR = os.path.join(DATA_DIR, "Profile")
     PROMPT_DIR = os.path.join(DATA_DIR, "Prompt")
+    # The name setup.py installs Prompt/ under, as package data
+    PROMPT_PACKAGE = "openai_youtube_transcriber_prompts"
     TXT_EXT = ".txt"
     # Filename tag for a prompt that names no description of its own
     REFINED_TAG = " - Refined"
@@ -315,6 +320,9 @@ MODEL=
 """
     URL_PLACEHOLDER = "<Insert_YouTube_link_or_local_path_to_audio_or_video>"
     DEFAULT_LANGUAGE = 'en'
+    # The language spoken, whichever it is: detected as a SOURCE_LANGUAGE, and
+    # as a TARGET_LANGUAGE the transcript in the language the audio is in
+    AUTO_LANGUAGE = 'auto'
     YOUTUBE_HOSTS = ('youtube.com', 'www.youtube.com', 'm.youtube.com',
                      'music.youtube.com', 'youtube-nocookie.com',
                      'www.youtube-nocookie.com', 'youtu.be', 'www.youtu.be')
@@ -362,6 +370,7 @@ MODEL=
         "TRANSCRIBE_AUDIO": "",
         "TRANSCRIBE_AUDIO_QUALITY": "",
         "MODEL_CHOICE": "",
+        "SOURCE_LANGUAGE": "",
         "TARGET_LANGUAGE": "",
         "USE_EN_MODEL": "",
         "AI_REFINEMENT": "",
@@ -500,6 +509,11 @@ MODEL=
         need reading back.
         """
         loaded = f" (from {origin})" if origin else ""
+        # ~/clip.mp3 is a file like any other: expanded once, here, and carried
+        # expanded, where it was expanded to be recognised as a path and then
+        # checked unexpanded. No URL or video ID begins with a tilde.
+        if text.startswith('~'):
+            text = os.path.expanduser(text)
         url = self.add_scheme_if_missing(text)
         # An existing local file wins over an ID-lookalike filename
         if self.is_youtube_video_id(url) and not os.path.exists(url):
@@ -646,12 +660,17 @@ MODEL=
         """Split a comma- or space-separated answer into Whisper codes.
 
         Returns (codes, unknown). Order is kept and repeats collapse, so
-        "en, English, fr" asks for two transcripts rather than three.
+        "en, English, fr" asks for two transcripts rather than three. 'auto',
+        the language spoken, is kept as it is.
         """
+        def code_of(piece):
+            if piece.strip().lower() == self.AUTO_LANGUAGE:
+                return self.AUTO_LANGUAGE
+            return self.normalize_language(piece)
+
         codes, unknown = [], []
-        for part in self.split_entries(
-                text, lambda piece: self.normalize_language(piece) is not None):
-            code = self.normalize_language(part)
+        for part in self.split_entries(text, lambda piece: code_of(piece) is not None):
+            code = code_of(part)
             if code is None:
                 unknown.append(part)
             elif code not in codes:
@@ -659,24 +678,38 @@ MODEL=
         return codes, unknown
 
     def get_target_language_input(self):
-        """Prompt for the target language, or several separated by commas or spaces."""
+        """Prompt for the language to write, or several separated by commas or spaces."""
         while True:
             prompt = (
-                "Enter the target language for transcription (e.g., 'es' or 'spanish', "
-                "or several separated by commas or spaces for one transcript each, "
-                f"default '{self.DEFAULT_LANGUAGE}'). See supported languages at "
-                "https://github.com/openai/whisper#supported-languages): "
+                "Enter the language the transcript should be in: press Enter (or "
+                f"'{self.AUTO_LANGUAGE}') for the language spoken, 'en' to translate it "
+                "into English, or several separated by commas or spaces for one "
+                "transcript each. Whisper translates into English only; see "
+                "https://github.com/openai/whisper#supported-languages: "
             )
             answer = input(prompt).strip().lower()
 
             if not answer:
-                return self.DEFAULT_LANGUAGE
+                return self.AUTO_LANGUAGE
 
             codes, unknown = self.normalize_languages(answer)
             if codes and not unknown:
                 return ",".join(codes)
             print(f"Not a supported language: {', '.join(unknown) or answer}. Please "
                   "refer to the supported languages list and try again.")
+
+    def get_source_language_input(self):
+        """Prompt for the language spoken in the audio; Enter has Whisper detect it."""
+        while True:
+            answer = input("Enter the language spoken in the audio (e.g., 'ja' or "
+                           "'japanese'), or press Enter to detect it: ").strip().lower()
+            if not answer or answer == self.AUTO_LANGUAGE:
+                return self.AUTO_LANGUAGE
+            code = self.normalize_language(answer)
+            if code:
+                return code
+            print(f"Not a supported language: {answer}. Please refer to "
+                  "https://github.com/openai/whisper#supported-languages and try again.")
 
     def _validate_hf_model(self, model_name):
         """Check whether a HuggingFace model ID (e.g. 'microsoft/phi-2') exists."""
@@ -800,15 +833,34 @@ MODEL=
         return (None, prompt_text)
 
     def prompt_dirs(self):
-        """Where Prompt/ may be: beside this file, and under the working directory.
+        """Where Prompt/ may be: beside this file, under the working directory,
+        and where an installed copy keeps the prompts it shipped with.
 
         Every other folder is made relative to the working directory, and that
-        is where an installed `openai-youtube-transcriber` has one; the copy
-        beside the module is the repo's own, and still comes first.
+        is where an installed `openai-youtube-transcriber` keeps the user's own
+        prompts; the copy beside the module is the repo's own, and still comes
+        first. The shipped ones come last, so a prompt edited in the working
+        directory is not shadowed by the original it was copied from.
         """
         beside = os.path.join(os.path.dirname(__file__), self.PROMPT_DIR)
-        return [d for d in dict.fromkeys((beside, os.path.abspath(self.PROMPT_DIR)))
-                if os.path.isdir(d)]
+        return [d for d in dict.fromkeys((beside, os.path.abspath(self.PROMPT_DIR),
+                                          self.installed_prompt_dir()))
+                if d and os.path.isdir(d)]
+
+    @classmethod
+    def installed_prompt_dir(cls):
+        """The folder an installed copy's shipped prompts are in, or None.
+
+        setup.py installs Prompt/ as a package of data, and the import system
+        is what knows where site-packages put it. A checkout has no such
+        package, and finds its prompts beside the module instead.
+        """
+        try:
+            spec = importlib.util.find_spec(cls.PROMPT_PACKAGE)
+        except (ImportError, ValueError):
+            return None
+        locations = list(spec.submodule_search_locations or []) if spec else []
+        return locations[0] if locations else None
 
     def list_available_prompts(self):
         """List non-empty .txt files in the Prompt/ directory."""
@@ -833,16 +885,46 @@ MODEL=
         if not os.path.exists(prompt_path):
             print(f"Warning: Prompt file not found: {filename}")
             return ""
+        content = (self.read_text_file(prompt_path, "prompt file") or "").strip()
+        if not content:
+            print(f"Warning: Prompt file is empty or unreadable: {prompt_path}")
+        return content
+
+    @staticmethod
+    def decode_text(data):
+        """A text file's bytes as text: UTF-8, with or without a BOM, or UTF-16/32
+        with one.
+
+        Notepad's "Unicode" is UTF-16, and its BOM says so outright. Anything
+        else has to be UTF-8: guessing among the legacy code pages reads the
+        wrong one as readily as the right one, and saves the misreading as
+        words. Raises UnicodeDecodeError for bytes that are neither.
+        """
+        for bom, encoding in ((codecs.BOM_UTF32_LE, 'utf-32'), (codecs.BOM_UTF32_BE, 'utf-32'),
+                              (codecs.BOM_UTF16_LE, 'utf-16'), (codecs.BOM_UTF16_BE, 'utf-16')):
+            if data.startswith(bom):
+                text = data.decode(encoding)
+                break
+        else:
+            text = data.decode('utf-8-sig')
+        # As text mode reads it: a file saved on Windows is the same words
+        return text.replace('\r\n', '\n').replace('\r', '\n')
+
+    def read_text_file(self, path, what):
+        """The text of a transcript or prompt, or None, having said why not.
+
+        A file some other editor saved in another encoding raised out of the
+        reader and ended the whole session, the transcripts after it included.
+        """
         try:
-            with open(prompt_path, "r", encoding='utf-8') as f:
-                content = f.read().strip()
-            if not content:
-                print(f"Warning: Prompt file is empty: {prompt_path}")
-                return ""
-            return content
+            with open(os.path.expanduser(path), 'rb') as f:
+                return self.decode_text(f.read())
         except OSError as e:
-            error(f"Error reading prompt file: {str(e)}")
-            return ""
+            error(f"Error reading {what} {path}: {e}")
+        except UnicodeDecodeError:
+            error(f"Error: {what} {path} is not UTF-8 text. Save it as UTF-8 "
+                  f"(or UTF-16 with a BOM) and try again.")
+        return None
 
     def is_transcript_file(self, path):
         """Is this an existing .txt file, i.e. a transcript rather than media?"""
@@ -928,12 +1010,10 @@ MODEL=
 
     def read_transcript(self, path):
         """Read a transcript to refine. Empty string if unreadable or empty."""
-        try:
-            with open(os.path.expanduser(path), "r", encoding='utf-8') as f:
-                content = f.read().strip()
-        except OSError as e:
-            error(f"Error reading transcript {path}: {e}")
+        content = self.read_text_file(path, "transcript")
+        if content is None:
             return ""
+        content = content.strip()
         if not content:
             print(f"Warning: Transcript is empty: {path}")
         return content
@@ -992,6 +1072,23 @@ MODEL=
         overlap is duplicated into the transcript. Splitting on sentence
         boundaries leaves nothing mid-thought for the context to rescue.
         """
+        return cls.chunk_spans(text, max_tokens)[0]
+
+    @classmethod
+    def chunk_spans(cls, text, max_tokens=800):
+        """(chunks, seams): chunk_text's chunks, and the exact text between each
+        chunk and the next - whitespace, or nothing where a cut had to fall
+        inside a word.
+
+        Every chunk is a span of the text as it stands, so a chunk the model
+        failed on goes back exactly as it was. Wrapped with textwrap, a word
+        longer than the budget was cut and a space put into it, and a script
+        without spaces between words, Thai among them, got one at every cut:
+        a failed enhancement still changed the words.
+        """
+        def fits(span):
+            return cls.estimate_tokens(span) <= max_tokens
+
         # Hindi ends a sentence with a danda and Arabic a question with its own
         # mark, both followed by a space; Chinese and Japanese use a full-width
         # stop with no space after it. A number opening a line is a list item's,
@@ -1001,34 +1098,57 @@ MODEL=
         # into the paragraph before them.
         parts = re.split(r'((?<=[.!?।؟])(?<!^\d\.)(?<!^\d\d\.)\s+|(?<=[。！？])\s*)',
                          text, flags=re.MULTILINE)
+        # (span, the whitespace after it); joined, they are the text itself
         pieces = []
         for sentence, space in zip(parts[::2], parts[1::2] + [""]):
-            size = cls.estimate_tokens(sentence)
-            if size > max_tokens:
-                # Unpunctuated audio yields one giant "sentence"; wrap those on word
-                # boundaries, into pieces sized by the estimate rather than by characters.
-                # ponytail: wrapping folds the line breaks inside such a sentence into spaces
-                width = max(1, len(sentence) * max_tokens // size)
-                wrapped = textwrap.wrap(sentence, width) or [""]
-                pieces += [line + cls.rejoin(line) for line in wrapped[:-1]] + [wrapped[-1] + space]
+            if fits(sentence):
+                pieces.append((sentence, space))
+                continue
+            # Unpunctuated audio yields one giant "sentence": cut it between
+            # words, and a word too long for any chunk between characters
+            words = re.split(r'(\s+)', sentence)
+            for word, gap in zip(words[::2], words[1::2] + [space]):
+                pieces += cls._split_word(word, fits) + [("", gap)]
+
+        chunks, seams, current, pending = [], [], "", ""
+        for span, space in pieces:
+            if not span.strip():
+                # Whitespace only: it belongs to the seam, whichever side it is
+                pending += span + space
+                continue
+            lead = span[:len(span) - len(span.lstrip())]
+            span, space = span.strip(), span[len(span.rstrip()):] + space
+            if current and not fits(current + pending + lead + span):
+                chunks.append(current)
+                seams.append(pending + lead)
+                current = span
             else:
-                pieces.append(sentence + space)
+                current += (pending + lead if current else "") + span
+            pending = space
+        if current:
+            chunks.append(current)
+        return (chunks, seams) if chunks else ([text], [])
 
-        chunks = []
-        current_chunk = ""
+    @staticmethod
+    def _split_word(word, fits):
+        """A run of text with no whitespace in it, as spans that each fit.
 
-        for piece in pieces:
-            if (cls.estimate_tokens(current_chunk) + cls.estimate_tokens(piece) > max_tokens
-                    and current_chunk.strip()):
-                chunks.append(current_chunk.strip())
-                current_chunk = piece
-            else:
-                current_chunk += piece
-
-        if current_chunk.strip():
-            chunks.append(current_chunk.strip())
-
-        return chunks if chunks else [text]
+        Cut where the budget runs out, but never between a letter and the mark
+        that goes with it - a Thai vowel sign, an accent - which would open the
+        next chunk on a mark with nothing to sit on.
+        """
+        spans = []
+        while word and not fits(word):
+            low, high = 1, len(word)
+            while low < high:
+                middle = (low + high + 1) // 2
+                low, high = (middle, high) if fits(word[:middle]) else (low, middle - 1)
+            cut = low
+            while cut > 1 and unicodedata.category(word[cut])[0] == 'M':
+                cut -= 1
+            spans.append((word[:cut], ""))
+            word = word[cut:]
+        return spans + [(word, "")]
 
     def _build_chat_messages(self, prompt_text, chunk):
         """Build the system/user message pair shared by all chat-style backends."""
@@ -1037,11 +1157,13 @@ MODEL=
             {"role": "user", "content": chunk}
         ]
 
-    def _run_chunked_enhancement(self, chunks, backend_label, call_chunk):
+    def _run_chunked_enhancement(self, chunks, backend_label, call_chunk, seams=None):
         """Shared chunk-loop for the enhancement backends.
 
         call_chunk(chunk) returns enhanced text; a falsy return or a raised
-        exception keeps the original chunk.
+        exception keeps the original chunk. `seams` is chunk_spans' text
+        between the chunks, which two chunks kept as they were are joined by,
+        so a backend that fails throughout hands back the text it was given.
         """
         enhanced_chunks = []
         unchanged = []
@@ -1071,11 +1193,22 @@ MODEL=
         # to cut at is cut mid-sentence, and a blank line there would split the
         # sentence in two, so that seam closes as the text was - on a space, or on
         # nothing in a script without spaces - unless a header follows.
+        # Between two chunks kept as they were, the seam is the text's own.
+        # Where one was cut mid-word, no reply is laid out around the cut either,
+        # so an unended seam closes as the text did there, and not on a space
+        # a cut word would take in.
         merged = enhanced_chunks[0].strip() if enhanced_chunks else ""
-        for chunk, reply in zip(chunks, enhanced_chunks[1:]):
+        for i, (chunk, reply) in enumerate(zip(chunks, enhanced_chunks[1:])):
             reply = reply.strip()
+            seam = seams[i] if seams is not None and i < len(seams) else None
+            kept = str(i + 1) in unchanged and str(i + 2) in unchanged
             ended = chunk.rstrip()[-1:] in ".!?।؟。！？"
-            merged += ("\n\n" if ended or reply.startswith("#") else self.rejoin(merged)) + reply
+            if seam is not None and kept:
+                merged += seam + reply
+            elif ended or reply.startswith("#"):
+                merged += "\n\n" + reply
+            else:
+                merged += (self.rejoin(merged) if seam is None else seam) + reply
         return merged.strip()
 
     def enhance_with_openai_compatible(self, text, prompt_text, api_key, provider):
@@ -1097,7 +1230,7 @@ MODEL=
         if base_url:
             client_kwargs["base_url"] = base_url
         client = openai.OpenAI(**client_kwargs)
-        chunks = self.chunk_text(text, max_tokens=3000)
+        chunks, seams = self.chunk_spans(text, max_tokens=3000)
 
         print(f"Enhancing transcript with {provider.key} ({model}, {len(chunks)} chunk(s))...")
 
@@ -1117,7 +1250,7 @@ MODEL=
             # A refusal can arrive with no content at all
             return (choice.message.content or "").strip()
 
-        result = self._run_chunked_enhancement(chunks, provider.key, call_chunk)
+        result = self._run_chunked_enhancement(chunks, provider.key, call_chunk, seams)
         print(f"{provider.key} enhancement complete.")
         return result
 
@@ -1136,7 +1269,7 @@ MODEL=
         if base_url:
             client_kwargs["base_url"] = base_url
         client = anthropic.Anthropic(**client_kwargs)
-        chunks = self.chunk_text(text, max_tokens=3000)
+        chunks, seams = self.chunk_spans(text, max_tokens=3000)
 
         print(f"Enhancing transcript with anthropic ({model}, {len(chunks)} chunk(s))...")
 
@@ -1162,7 +1295,7 @@ MODEL=
                 block.text for block in response.content if block.type == "text"
             ).strip()
 
-        result = self._run_chunked_enhancement(chunks, "anthropic", call_chunk)
+        result = self._run_chunked_enhancement(chunks, "anthropic", call_chunk, seams)
         print("anthropic enhancement complete.")
         return result
 
@@ -1243,7 +1376,7 @@ MODEL=
             print("Skipping local enhancement.")
             return text
 
-        chunks = self.chunk_text(text, max_tokens=chunk_max)
+        chunks, seams = self.chunk_spans(text, max_tokens=chunk_max)
         # Instruct/chat models define a chat template; base models (gpt2 etc.) don't
         has_chat_template = getattr(tokenizer, 'chat_template', None) is not None
 
@@ -1318,7 +1451,7 @@ MODEL=
                 return ""
             return enhanced
 
-        result = self._run_chunked_enhancement(chunks, "Local model", call_chunk)
+        result = self._run_chunked_enhancement(chunks, "Local model", call_chunk, seams)
         print("Local model enhancement complete.")
         return result
 
@@ -1400,9 +1533,8 @@ MODEL=
             return False
 
         try:
-            with open(file_path, "w", encoding='utf-8') as file:
-                file.write(text)
-        except OSError as e:
+            self.write_text_atomically(file_path, text)
+        except (OSError, UnicodeError) as e:
             error(f"Error writing transcript file: {str(e)}")
             return False
 
@@ -1413,6 +1545,38 @@ MODEL=
             except OSError as e:
                 print(f"Note: could not open the transcript automatically: {str(e)}")
         return True
+
+    @staticmethod
+    def write_text_atomically(path, text):
+        """Write `text` to `path` so that a failed write leaves the file there whole.
+
+        The text goes to a file beside it and is swapped in. Opened with 'w', a
+        refinement named onto its own source truncated the source before a byte
+        of the refinement had landed, and a full disk then lost both.
+        """
+        target = os.path.realpath(path)
+        folder, name = os.path.split(target)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_BINARY', 0)
+        for attempt in itertools.count():
+            temp = os.path.join(folder, f".{name}.{os.getpid()}-{attempt}.tmp")
+            try:
+                # 0o666 less the umask, as open() would have made it
+                handle = os.open(temp, flags, 0o666)
+                break
+            except FileExistsError:
+                continue
+        try:
+            with os.fdopen(handle, 'w', encoding='utf-8') as file:
+                file.write(text)
+            if os.path.exists(target):
+                shutil.copymode(target, temp)
+            os.replace(temp, target)
+        except BaseException:
+            try:
+                os.remove(temp)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def quality_tag(*qualities):
@@ -1493,18 +1657,21 @@ MODEL=
         final_dir = output_dir or self.TRANSCRIPT_DIR
         raw_dir = (os.path.join(output_dir, "Raw") if output_dir
                    else self.RAW_TRANSCRIPT_DIR)
-        if not self.save_transcript(text, filename, final_dir,
-                                    open_after=open_after):
-            return False
-        print(f"Saved transcript to "
-              f"{os.path.abspath(os.path.join(final_dir, filename))}")
-
+        # The original first: the refinement can be named onto the very file it
+        # was read from, and written second, a Raw/ save that failed left the
+        # words that file held nowhere at all
         if keep_original and self.is_refinement(original_text, text):
             raw_name = original_filename or filename
             if self.save_transcript(original_text, raw_name, raw_dir,
                                     open_after=False):
                 kept = os.path.join(raw_dir, raw_name)
                 print(f"Kept the unrefined transcript at {os.path.abspath(kept)}")
+
+        if not self.save_transcript(text, filename, final_dir,
+                                    open_after=open_after):
+            return False
+        print(f"Saved transcript to "
+              f"{os.path.abspath(os.path.join(final_dir, filename))}")
         return True
 
     def fetch_video_info(self, url):
@@ -1620,15 +1787,36 @@ MODEL=
             cues = [''.join(seg.get('utf8', '') for seg in (event.get('segs') or []))
                     for event in json.loads(payload).get('events') or []]
         else:
-            cues = [re.sub(r'<[^>]*>', '', line) for line in payload.splitlines()
-                    if '-->' not in line
-                    and not line.startswith(('WEBVTT', 'Kind:', 'Language:', 'NOTE'))]
+            cues = YouTubeTranscriber.vtt_cue_lines(payload)
         lines = []
         for cue in cues:
             cue = ' '.join(cue.split())
             if cue and (not lines or cue != lines[-1]):
                 lines.append(cue)
         return ' '.join(lines)
+
+    @staticmethod
+    def vtt_cue_lines(payload):
+        """The spoken lines of a WebVTT file, block by block.
+
+        A WebVTT file is blocks between blank lines, and only a cue's payload -
+        the lines after its timing line - is speech. Read line by line, a cue's
+        numeric identifier and all but the first line of a NOTE were kept as
+        speech, and '&amp;' stayed encoded. A header, NOTE, STYLE or REGION
+        block has no timing line and so contributes nothing.
+        """
+        lines = []
+        for block in re.split(r'\n[ \t]*\n', payload.replace('\r\n', '\n').replace('\r', '\n')):
+            rows = block.strip('\n').split('\n')
+            timing = next((i for i, row in enumerate(rows) if '-->' in row), None)
+            # Everything before the timing line - a header run into the first
+            # cue, a cue identifier - is not speech either
+            if timing is None or re.match(r'(NOTE|STYLE|REGION)(\s|$)', rows[0]):
+                continue
+            # Tags first, then the character references: an encoded '&lt;'
+            # is text, and must not be taken for the start of a tag
+            lines += [html.unescape(re.sub(r'<[^>]*>', '', row)) for row in rows[timing + 1:]]
+        return lines
 
     @staticmethod
     def available_resolutions(info):
@@ -2181,6 +2369,7 @@ MODEL=
         Neither should sit through a "Run again?" waiting to be asked for.
         """
         self._loaded_model_name = self._loaded_model = None
+        self._whisper_results = {}
         engine = type(self)._selector_engine
         if engine is not None:
             type(self)._selector_engine = None
@@ -2189,11 +2378,20 @@ MODEL=
             except Exception:
                 pass
 
-    def transcribe_audio_file(self, file_path, model_name, target_language):
-        """Transcribe with Whisper and detect the language.
+    def transcribe_audio_file(self, file_path, model_name, target_language,
+                              source_language=None):
+        """Transcribe with Whisper into target_language, the language to write.
 
-        Returns (text, language_code), or (None, code) on failure or no speech.
-        Never an error string, which callers would otherwise save as a transcript.
+        Whisper's own `language` is the language spoken, not the one to write:
+        handed the target, it decoded English speech as if it were French. So
+        the spoken language is source_language, or detected, and the target
+        picks the task - 'auto' or the spoken language itself is a
+        transcription, English is Whisper's translation, and any other language
+        Whisper cannot write, so the transcription stands in for it, said so.
+
+        Returns (text, language_code), the code being the language the text is
+        actually in, or (None, code) on failure or no speech. Never an error
+        string, which callers would otherwise save as a transcript.
         """
         if not os.path.exists(file_path):
             error(f"Error: Audio file not found: {file_path}")
@@ -2222,14 +2420,48 @@ MODEL=
                 error(f"Error loading fallback model: {str(fallback_error)}")
                 return None, "en"
 
-        target_language_full = whisper.tokenizer.LANGUAGES.get(target_language, target_language)
-        target_language_full = target_language_full.capitalize()
-
+        auto = target_language in (None, "", self.AUTO_LANGUAGE)
         absolute_path = os.path.abspath(file_path)
-        print(f"Transcribing audio from {absolute_path} into {target_language_full}...")
+        wanted = ("in the language spoken" if auto
+                  else f"into {self.language_name(target_language)}")
+        print(f"Transcribing audio from {absolute_path} ({wanted})...")
+
+        spoken = source_language or None
+        if target_language == 'en' and not spoken:
+            # English is a transcription of English speech and a translation of
+            # anything else, so this is the one target that needs to know first
+            spoken = self.spoken_language(model, file_path)
+
+        # The passes already made over this audio, and over no other: a batch
+        # moves on to the next file, and has no use for the last one's
+        cache = getattr(self, '_whisper_results', None) or {}
+        if cache.get('path') != absolute_path:
+            cache = {'path': absolute_path}
+        self._whisper_results = cache
+
+        def run(language, translate=False):
+            """One Whisper pass, once per audio however many targets want it."""
+            key = (model_name, language, translate)
+            if key not in cache:
+                # The task only where it is not the default, so a stand-in model
+                # need take no more than Whisper's own first two arguments
+                options = {'task': 'translate'} if translate else {}
+                result = model.transcribe(file_path, language=language, **options)
+                # The text and its language, not the segments and their tokens
+                cache[key] = {'text': result['text'], 'language': result.get('language')}
+            return cache[key]
 
         try:
-            result = model.transcribe(file_path, language=target_language)
+            translated = target_language == 'en' and spoken not in (None, 'en')
+            if translated:
+                print(f"Whisper heard {self.language_name(spoken)}; translating it into English.")
+            result = run(spoken, translated)
+            heard = result.get('language')
+            if target_language == 'en' and not translated and heard not in (None, 'en'):
+                # Detection could not be had beforehand, and Whisper's own says
+                # this was not English
+                print(f"Whisper heard {self.language_name(heard)}; translating it into English.")
+                result, translated = run(heard, True), True
             transcribed_text = result["text"]
 
             if not transcribed_text.strip():
@@ -2245,20 +2477,54 @@ MODEL=
 
         try:
             detected_language = detect(transcribed_text)
-            detected_language_full = whisper.tokenizer.LANGUAGES.get(
-                detected_language, detected_language)
-            detected_language_full = detected_language_full.capitalize()
-
-            if detected_language_full == target_language_full:
-                print(f"Verified {detected_language_full}")
-            else:
-                print("Transcription/translation mismatch")
         except LangDetectException as e:
             error(f"Error detecting language: {str(e)}")
             detected_language = "unknown"
 
-        language = self.resolve_transcript_language(detected_language, target_language)
+        # Named for the language the text is in, which Whisper knows: English
+        # for a translation, else the language it transcribed. langdetect only
+        # stands in for a model that does not say.
+        fallback = self.DEFAULT_LANGUAGE if auto else target_language
+        language = ('en' if translated else result.get('language') or spoken
+                    or self.resolve_transcript_language(detected_language, fallback))
+        read_as = self.resolve_transcript_language(detected_language, None)
+        if read_as == language:
+            print(f"Verified {self.language_name(language)}")
+        elif read_as:
+            print(f"Note: Whisper wrote {self.language_name(language)}, but the text reads "
+                  f"as {self.language_name(read_as)}.")
+        if not auto and language != target_language:
+            # Whisper writes the language spoken, or English, and nothing else
+            print(f"Whisper translates into English only, so this is the "
+                  f"{self.language_name(language)} transcript. For "
+                  f"{self.language_name(target_language)}, refine it with "
+                  f"prompt0-translator.txt, naming the language on its first line.")
         return transcribed_text, language
+
+    @staticmethod
+    def language_name(code):
+        """'fr' as 'French', for a message."""
+        return whisper.tokenizer.LANGUAGES.get(code, code or "an unknown language").capitalize()
+
+    def spoken_language(self, model, file_path):
+        """The language spoken in the audio, by Whisper's own detection, or None.
+
+        One 30-second window, as transcribe() itself decides by, rather than a
+        whole transcription just to find out. An English-only model can hear
+        nothing else; one that cannot detect leaves it to transcribe().
+        """
+        if not getattr(model, 'is_multilingual', True):
+            return 'en'
+        if not hasattr(model, 'detect_language'):
+            return None
+        try:
+            audio = whisper.pad_or_trim(whisper.load_audio(file_path))
+            mel = whisper.log_mel_spectrogram(audio, n_mels=model.dims.n_mels)
+            _tokens, probabilities = model.detect_language(mel.to(model.device))
+            return max(probabilities, key=probabilities.get)
+        except (RuntimeError, ValueError, AttributeError, TypeError) as e:
+            print(f"Note: could not detect the spoken language first ({str(e)}).")
+            return None
 
     def check_dependencies(self):
         """Verify required system dependencies (ffmpeg, ffprobe) are installed."""
@@ -2293,16 +2559,6 @@ MODEL=
             print(f"Creating profile directory: {self.PROFILE_DIR}")
             os.makedirs(self.PROFILE_DIR, exist_ok=True)
 
-        config_path = os.path.join(self.PROFILE_DIR, self.CONFIG_ENV)
-        if not os.path.exists(config_path):
-            with open(config_path, "w", encoding='utf-8') as config_file:
-                config_file.write(f"LOAD_PROFILE={self.DEFAULT_PROFILE}\n"
-                                  + self.CONFIG_TEMPLATE)
-            print(f"Created {self.CONFIG_ENV}: {os.path.abspath(config_path)}")
-        else:
-            print(f"{self.CONFIG_ENV} already exists: {os.path.abspath(config_path)}. "
-                  "No changes were made to it.")
-
         existing_profiles = self.list_profiles()
         num_pattern = (rf"^{re.escape(self.PROFILE_PREFIX)}(?P<num>\d+)"
                        rf"(?:-.*)?{re.escape(self.ENV_EXT)}$")
@@ -2334,9 +2590,36 @@ MODEL=
                         not value and field_name in self.CONFIG_OVERRIDE_FIELDS):
                     continue
                 newline = "" if i == len(field_order) - 1 else "\n"
-                profile_file.write(f"{field_name}={value}{newline}")
+                profile_file.write(f"{field_name}={self.env_value(value)}{newline}")
 
         print(f"Created profile: {os.path.abspath(profile_path)}")
+
+        # Only now that the profile has a name: written first, config.txt named
+        # profile.txt while the profile itself went to profile0.txt, and the
+        # next run loaded nothing, or an older profile.txt in its place
+        config_path = os.path.join(self.PROFILE_DIR, self.CONFIG_ENV)
+        if not os.path.exists(config_path):
+            with open(config_path, "w", encoding='utf-8') as config_file:
+                config_file.write(f"LOAD_PROFILE={profile_name}\n" + self.CONFIG_TEMPLATE)
+            print(f"Created {self.CONFIG_ENV}: {os.path.abspath(config_path)}")
+        else:
+            print(f"{self.CONFIG_ENV} already exists: {os.path.abspath(config_path)}. "
+                  "No changes were made to it.")
+
+    @staticmethod
+    def env_value(value):
+        """A profile value written so that dotenv reads back exactly it.
+
+        Unquoted, " #" starts a comment, ${...} expands and edge spaces are
+        dropped: "/tmp/Part #2.mp3" came back as "/tmp/Part". Such a value is
+        single-quoted, which _load_profile reads literally, with its
+        backslashes and quotes escaped; anything else is left as it was, so
+        a profile stays as plain to edit as before.
+        """
+        text = "" if value is None else str(value)
+        if text == text.strip() and not re.search(r"[#'\"$\n\r]", text):
+            return text
+        return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
     def verify_file_writable(self, file_path):
         """Check if file path is writable (creates parent dirs if needed)."""
@@ -2413,6 +2696,8 @@ class SessionConfig:
     yt_transcript_all: bool = False
     model_choice: str = ""
     model_name: str = ModelSize.BASE.value
+    # The language spoken in the audio; None has Whisper detect it
+    source_language: str = None
     target_language: str = ""
     target_languages: list = None
     use_en_model: bool = False
@@ -2429,6 +2714,11 @@ class SessionConfig:
     ask_placement: bool = None
     keep_transcript: bool = True
     used_fields: dict = field(default_factory=dict)
+    # The filename each source of this batch writes under, casefolded, and the
+    # source it belongs to: two sources with one title must not share one
+    claimed_names: dict = field(default_factory=dict)
+    # The folder this pass fetches merge-only video streams into, its own
+    video_scratch: str = None
 
 
 # The deliverables that can be renamed and rehoused. Both questions are the
@@ -2451,7 +2741,7 @@ _SESSION_ENV_KEYS = (
     "LAST_VIDEO_FORMAT", "LAST_VIDEO_ONLY_FORMAT", "LAST_AUDIO_FORMAT",
     "LAST_KEEP_TRANSCRIPT",
     "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE",
-    "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL", "LAST_AI_REFINEMENT",
+    "LAST_SOURCE_LANGUAGE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL", "LAST_AI_REFINEMENT",
     "LAST_DOWNLOAD_YT_TRANSCRIPT", "LAST_PLACEMENT"
 ) + tuple(f"LAST_{prefix}_{suffix}"
           for _stem, prefix, _label, _dir in _PLACEMENTS
@@ -2526,6 +2816,10 @@ def _ai_backend(transcriber, named=None):
     return transcriber.get_ai_provider_input()
 
 
+# The label of a prompt typed at the console rather than read from a file
+INLINE_PROMPT = "(inline)"
+
+
 def _select_prompts_interactively(transcriber):
     """Pick prompt files or type one inline. Returns [(text, label), ...]."""
     filenames, inline_prompt = transcriber.get_prompt_input()
@@ -2533,7 +2827,7 @@ def _select_prompts_interactively(transcriber):
         loaded = ((transcriber.load_prompt_file(name), name) for name in filenames)
         return [(text, label) for text, label in loaded if text]
     if inline_prompt:
-        return [(inline_prompt, "(inline)")]
+        return [(inline_prompt, INLINE_PROMPT)]
     return []
 
 
@@ -2858,7 +3152,7 @@ def _select_profile(transcriber):
     if repeat_invocation and repeat_profile_name:
         found = _profile_file(transcriber, repeat_profile_name)
         if found:
-            load_dotenv(dotenv_path=found[1], override=True)
+            _load_profile(found[1])
             print(f"Loaded profile (repeat): {found[0]}")
             return True, found[0]
         print(f"Profile not found for repeat: {repeat_profile_name}. Falling back to selection.")
@@ -2885,7 +3179,7 @@ def _select_profile(transcriber):
             print("Switching to default/interactive mode.")
             return False, None
 
-        load_dotenv(dotenv_path=_profile_file(transcriber, profile_name)[1], override=True)
+        _load_profile(_profile_file(transcriber, profile_name)[1])
         print(f"Loaded profile: {profile_name}")
         return True, profile_name
 
@@ -2914,7 +3208,7 @@ def _select_profile(transcriber):
         if found:
             profile_name, profile_path = found
             print(f"Loading profile: {profile_name}")
-            load_dotenv(dotenv_path=profile_path, override=True)
+            _load_profile(profile_path)
             print(f"Loaded profile: {profile_name}")
             return True, profile_name
         print(f"Profile not found: {load_profile_str}. Using interactive mode.")
@@ -2934,9 +3228,35 @@ def _select_profile(transcriber):
     if profile_name is None:
         return False, None
 
-    load_dotenv(dotenv_path=_profile_file(transcriber, profile_name)[1], override=True)
+    _load_profile(_profile_file(transcriber, profile_name)[1])
     print(f"Loaded profile: {profile_name}")
     return True, profile_name
+
+
+def _single_quoted(line):
+    """Whether one KEY=value line of a profile gives its value in single quotes."""
+    text = re.sub(r'^export\s+', '', line.lstrip())
+    _key, sep, value = text.partition('=')
+    return bool(sep) and value.lstrip(' \t').startswith("'")
+
+
+def _load_profile(path):
+    """Load a profile into the environment, a single-quoted value taken literally.
+
+    As load_dotenv(override=True) did, except that dotenv expands ${...} in
+    every value however it is quoted: a saved PROMPT=/tmp/prompt-${COURSE}.txt
+    came back naming another file. A value the app writes is single-quoted
+    wherever dotenv would otherwise change it, and in single quotes it now
+    means what it says, as in a shell; unquoted, ${HOME} still expands.
+    """
+    with open(path, encoding='utf-8') as handle:
+        literal = {binding.key: _single_quoted(binding.original.string)
+                   for binding in parse_stream(handle) if binding.key}
+    raw = dotenv_values(path, interpolate=False)
+    for key, value in dotenv_values(path).items():
+        value = raw[key] if literal.get(key) else value
+        if value is not None:
+            os.environ[key] = value
 
 
 def _prompt_format(transcriber, label, default, kind):
@@ -3255,12 +3575,17 @@ def _settle_yt_transcripts(transcriber, cfg, raw):
         # whoever or whatever produced it
         chosen, missing = [], []
         for want in transcriber.split_entries(raw):
-            key = _track_for(tracks, want)
-            (chosen if key else missing).append(key or want.lower())
+            (chosen if _track_for(tracks, want) else missing).append(want.lower())
         if missing:
             print(f"This video has no transcript in: {', '.join(missing)}")
-        if chosen:
-            cfg.yt_transcript_languages = chosen
+        videos = sum(1 for entry in cfg.sources or [] if not entry[1] and not entry[2])
+        if chosen or videos > 1:
+            # The codes as asked, not the tracks this video answered them with:
+            # each video is matched against its own tracks when it is saved.
+            # Kept as its en-US, 'en' missed the next video's en-GB, and a
+            # language this video lacked was never asked of the videos after it
+            cfg.yt_transcript_languages = list(dict.fromkeys(
+                chosen + missing if videos > 1 else chosen))
             return
     cfg.yt_transcript_languages = _prompt_yt_transcript_selection(transcriber, cfg.info)
     # What was picked, not 'f': a profile saved from this would list and wait on
@@ -3278,6 +3603,36 @@ def _settle_target_languages(transcriber, cfg, raw):
             transcriber.get_target_language_input())
     cfg.target_languages = codes
     cfg.target_language = codes[0]
+
+
+def _settle_source_language(transcriber, cfg, raw):
+    """Fix the language spoken in the audio: a code, or None to detect it.
+
+    Separate from the target: Whisper takes the spoken language as a hint for
+    what it hears, and the target was being handed to it as one.
+    """
+    answer = (raw or "").strip().lower()
+    while answer != transcriber.AUTO_LANGUAGE:
+        code = transcriber.normalize_language(answer) if answer else None
+        if code:
+            cfg.source_language = code
+            break
+        if answer:
+            print(f"Not a supported language: {raw}.")
+        answer = raw = transcriber.get_source_language_input()
+    else:
+        cfg.source_language = None
+    cfg.used_fields["SOURCE_LANGUAGE"] = cfg.source_language or transcriber.AUTO_LANGUAGE
+
+
+def _offers_en_model(transcriber, cfg, model_enum):
+    """Whether an English-only model could serve: a size that has one, speech
+    that is or may be English, and nothing asked for but English or the
+    language spoken."""
+    return (model_enum in ModelSize.standard_models()
+            and cfg.source_language in (None, transcriber.DEFAULT_LANGUAGE)
+            and set(cfg.target_languages or [cfg.target_language])
+            <= {transcriber.DEFAULT_LANGUAGE, transcriber.AUTO_LANGUAGE})
 
 
 def _ensure_metadata(transcriber, cfg):
@@ -3487,12 +3842,13 @@ def _configure_interactive(transcriber):
     cfg.model_name = model_enum.value
     used_fields["MODEL_CHOICE"] = cfg.model_name
 
+    _settle_source_language(transcriber, cfg, _value_from_last(
+        "LAST_SOURCE_LANGUAGE", transcriber.get_source_language_input))
     _settle_target_languages(transcriber, cfg, _value_from_last(
         "LAST_TARGET_LANGUAGE", transcriber.get_target_language_input))
     used_fields["TARGET_LANGUAGE"] = ",".join(cfg.target_languages)
 
-    if (model_enum in ModelSize.standard_models()
-            and cfg.target_language == transcriber.DEFAULT_LANGUAGE):
+    if _offers_en_model(transcriber, cfg, model_enum):
         cfg.use_en_model = _bool_from_last(
             "LAST_USE_EN_MODEL",
             lambda: transcriber.get_yes_no_input(
@@ -3659,6 +4015,16 @@ def _configure_from_profile(transcriber, profile_name):
         model_enum = ModelSize.from_choice(cfg.model_choice)
         cfg.model_name = model_enum.value
 
+        source_language = os.getenv("SOURCE_LANGUAGE")
+        if source_language is None:
+            # A profile written before the field existed has Whisper detect the
+            # language, as a missing field means the default elsewhere
+            _settle_source_language(transcriber, cfg, transcriber.AUTO_LANGUAGE)
+        else:
+            if source_language.strip():
+                print(f"Loaded SOURCE_LANGUAGE: {source_language} (from {profile_name})")
+            _settle_source_language(transcriber, cfg, source_language)
+
         target_language = os.getenv("TARGET_LANGUAGE")
         if target_language:
             _settle_target_languages(transcriber, cfg, target_language)
@@ -3678,8 +4044,7 @@ def _configure_from_profile(transcriber, profile_name):
                 print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
             else:
                 print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
-                if (model_enum in ModelSize.standard_models()
-                        and cfg.target_language == transcriber.DEFAULT_LANGUAGE):
+                if _offers_en_model(transcriber, cfg, model_enum):
                     cfg.use_en_model = transcriber.get_yes_no_input(
                         "Use English-specific model? "
                         "(Recommended only if the video is originally in English) (y/N): ",
@@ -3811,7 +4176,11 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
             keep_original=cfg.keep_transcript, open_after=open_after,
             output_dir=cfg.transcript_path or None)
 
-    saved = kept = rewritten = False
+    final_dir = cfg.transcript_path or transcriber.TRANSCRIPT_DIR
+    saved = kept = False
+    # What this text was saved as, and which of those is a whole refinement -
+    # the one output that says everything the source said
+    outputs, replaced_by = [], None
     for prompt_text, label, tag in transcriber.tagged_prompts(cfg.prompts):
         print(f"\nEnhancing {stem} with {label} ({cfg.ai_mode.name.lower()})...")
         # ponytail: known by its filename, so a summary prompt named otherwise is
@@ -3826,7 +4195,6 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
         # An enhancement that returned the text unchanged refined nothing, so
         # it does not earn the prompt's tag
         refined = transcriber.is_refinement(text, final)
-        rewritten = rewritten or (refined and keeps == "words")
         if source and not refined:
             # A transcript read from disk is already saved where it is. Saving it
             # again rewrote a Transcript/ source in place, or copied one from
@@ -3834,19 +4202,56 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
             print(f"{label} changed nothing, so {os.path.basename(source)} is left as it was.")
             continue
         name = f"{stem}{tag}{transcriber.TXT_EXT}" if refined else raw_name
+        path = os.path.join(final_dir, name)
+        if (source and keeps != "words" and not cfg.keep_transcript
+                and _same_file(path, source)):
+            # A rename can bring an output back to the source's own name. A
+            # refinement may take its place; a summary or translation written
+            # there, with no copy kept, would be the end of the words themselves
+            print(f"Not saving {label}'s result as {name}: that is the transcript "
+                  f"it was made from, and it keeps no copy. Rename it, or keep "
+                  f"the unrefined transcript.")
+            continue
         if transcriber.save_final_transcript(
                 final, name, original_text=text, original_filename=raw_name,
                 keep_original=cfg.keep_transcript and not kept,
                 open_after=open_after, output_dir=cfg.transcript_path or None):
             saved = True
             kept = kept or refined
-    # Kept nowhere else, the source goes only for a refinement, which says what
-    # it said: after a summary or a translation it was the only copy of the words
-    if source and kept and (cfg.keep_transcript or rewritten):
-        _retire_source(transcriber, cfg, source, raw_name)
-    elif source and kept:
-        print(f"Kept {os.path.basename(source)}: a summary or translation does not replace it.")
+            outputs.append(path)
+            # Counted once it has landed, never on the strength of the reply:
+            # a refinement that failed to save replaces nothing
+            if refined and keeps == "words":
+                replaced_by = path
+    if source and kept:
+        _settle_source(transcriber, cfg, source, raw_name, outputs, replaced_by)
     return saved
+
+
+def _same_file(one, other):
+    """Whether two paths name one file, which need not exist yet."""
+    try:
+        return os.path.samefile(one, other)
+    except OSError:
+        def canonical(path):
+            return os.path.normcase(os.path.realpath(os.path.expanduser(path)))
+        return canonical(one) == canonical(other)
+
+
+def _settle_source(transcriber, cfg, source, raw_name, outputs, replaced_by):
+    """Decide what becomes of a refined transcript's source, once its outputs landed.
+
+    Kept nowhere else, the source goes only for a refinement, which says what
+    it said: after a summary or a translation it was the only copy of the words.
+    And never when an output was written to the source's own path - a rename
+    back onto its own name - where retiring it deleted what was just saved.
+    """
+    if any(_same_file(source, path) for path in outputs):
+        print(f"{os.path.basename(source)} now holds its own refinement, so it stays.")
+    elif cfg.keep_transcript or replaced_by:
+        _retire_source(transcriber, cfg, source, raw_name)
+    else:
+        print(f"Kept {os.path.basename(source)}: a summary or translation does not replace it.")
 
 
 def _retire_source(transcriber, cfg, source, raw_name):
@@ -3865,10 +4270,15 @@ def _retire_source(transcriber, cfg, source, raw_name):
     raw_dir = (os.path.join(cfg.transcript_path, "Raw") if cfg.transcript_path
                else transcriber.RAW_TRANSCRIPT_DIR)
     raw = os.path.join(raw_dir, raw_name)
+
+    def words(path):
+        # Decoded as the source was read, BOM or UTF-16 and all
+        with open(path, 'rb') as handle:
+            return transcriber.decode_text(handle.read()).split()
+
     try:
-        with open(source, encoding="utf-8") as mine, open(raw, encoding="utf-8") as copy:
-            copied = mine.read().split() == copy.read().split()
-    except OSError:
+        copied = words(source) == words(raw)
+    except (OSError, UnicodeDecodeError):
         copied = False
     if cfg.keep_transcript and not copied:
         print(f"Kept {source}: its copy in Raw/ was not saved.")
@@ -3902,8 +4312,11 @@ def _refine_transcripts(transcriber, cfg):
         if not text:
             continue
         print(f"\nProcessing: {os.path.abspath(source)}...")
+        # Two transcripts of one name from two folders would refine to one file
+        base = _claim_name(cfg, os.path.splitext(os.path.basename(source))[0],
+                           os.path.normcase(os.path.realpath(os.path.expanduser(source))))
         # TRANSCRIPT_RENAME is asked in a refine-only run too, and was ignored
-        stem = _stem_for(cfg, os.path.splitext(os.path.basename(source))[0], "transcript")
+        stem = _stem_for(cfg, base, "transcript")
         _enhance_and_save(transcriber, cfg, text, stem, source=source)
 
 
@@ -3931,10 +4344,11 @@ def _save_yt_transcripts(transcriber, cfg, filename_base):
         keys = []
         for want in cfg.yt_transcript_languages:
             key = _track_for(tracks, want)
-            if key:
-                keys.append(key)
-            else:
+            if not key:
                 print(f"This video has no transcript in: {want}")
+            elif key not in keys:
+                # 'en' and 'en-US' can name one track, fetched and billed once
+                keys.append(key)
     enhancing = []
     if cfg.ai_mode is not None and keys:
         if not cfg.yt_transcript_all:
@@ -3958,6 +4372,11 @@ def _save_yt_transcripts(transcriber, cfg, filename_base):
         stem = filename_base if key == original else f"{filename_base} [{key}]"
         _enhance_and_save(transcriber, cfg, text, stem, enhance=key in enhancing,
                           open_after=False)
+
+
+def _path_key(path):
+    """A path as a file system compares it, to tell two deliverables' names apart."""
+    return os.path.normcase(os.path.abspath(path))
 
 
 def _local_quality(source, quality, reader, unit):
@@ -4031,7 +4450,17 @@ def _local_deliverables(transcriber, cfg, filename_base):
             return os.path.splitext(source)[1].lstrip('.') or default
         return chosen or default
 
+    # The merged videos' names, which the audio written after them must not take
+    videos = set()
+
     def make(output_dir, stem, target_format, kind, height=None, bitrate=None):
+        target = _path_key(os.path.join(
+            output_dir, f"{stem}.{_container_of(transcriber, target_format, kind)}"))
+        if kind == 'audio' and target in videos:
+            # AUDIO_PATH and VIDEO_PATH one folder, one container for both
+            stem += " - Audio"
+        elif kind == 'both':
+            videos.add(target)
         made = transcriber.convert_media(source, target_format, kind, output_dir, stem,
                                          height=height, bitrate=bitrate,
                                          replace_source=False)
@@ -4133,6 +4562,7 @@ def _run_pipeline(transcriber, cfg):
         print(f"\n{passes} passes ({refining} transcript(s) x "
               f"{len(cfg.prompts)} prompt(s)).")
 
+    cfg.claimed_names = {}
     for index, entry in enumerate(cfg.sources):
         if len(cfg.sources) > 1:
             print(f"\n--- Source {index + 1} of {len(cfg.sources)} ---")
@@ -4152,6 +4582,59 @@ def _run_pipeline(transcriber, cfg):
                 raise
             error(f"Source {index + 1} of {len(cfg.sources)} failed ({e}); "
                   f"carrying on with the rest.")
+        finally:
+            # A pass that failed part way still owns what it had fetched
+            _clear_video_scratch(transcriber, cfg)
+
+
+def _claim_name(cfg, base, identity, video_id=None):
+    """The name one source's files are written under, its own across the batch.
+
+    Two videos can share a title, two titles can clean to one name, and two
+    local files in different folders share a basename: downloads overwrite, so
+    the second source's files replaced the first's. The video's ID tells a
+    video apart, and a number anything else. The same source named twice keeps
+    the one name - that is a repeat, not a collision.
+    """
+    candidates = itertools.chain(
+        [base], [f"{base} [{video_id}]"] if video_id else [],
+        (f"{base} ({n})" for n in itertools.count(2)))
+    for candidate in candidates:
+        # Casefolded: Windows and macOS file systems do not tell "A" from "a"
+        if cfg.claimed_names.setdefault(candidate.casefold(), identity) == identity:
+            return candidate
+    return base  # unreachable: the numbered names never run out
+
+
+def _source_identity(cfg):
+    """What one source is, however it was written: a video by its ID, a file by
+    where it really is."""
+    if cfg.is_local_file:
+        return os.path.normcase(os.path.realpath(cfg.url))
+    return (cfg.info or {}).get('id') or cfg.url
+
+
+def _clear_video_scratch(transcriber, cfg):
+    """Remove the folder this pass fetched merge-only video streams into.
+
+    It is the pass's own, made fresh for it, so everything in it is this pass's
+    to delete. Emptying the shared Video/Temp instead deleted whatever else was
+    there: another run's streams, a file left in it, and a finished merge when
+    VIDEO_PATH pointed at it.
+    """
+    scratch, cfg.video_scratch = cfg.video_scratch, None
+    if not scratch:
+        return
+    try:
+        shutil.rmtree(scratch)
+    except OSError as e:
+        # Windows can still hold a stream open just after the merge
+        print(f"Warning: Could not clean up temporary files: {str(e)}")
+    try:
+        # The shared parent only once nothing else is in it
+        os.rmdir(os.path.dirname(scratch))
+    except OSError:
+        pass
 
 
 def _run_one(transcriber, cfg):
@@ -4166,13 +4649,14 @@ def _run_one(transcriber, cfg):
     if cfg.is_local_file:
         cfg.video_title = os.path.splitext(os.path.basename(cfg.url))[0]
 
-    filename_base = transcriber.sanitize_filename(cfg.video_title)
+    filename_base = _claim_name(cfg, transcriber.sanitize_filename(cfg.video_title),
+                                _source_identity(cfg),
+                                None if cfg.is_local_file else (cfg.info or {}).get('id'))
     display_source = os.path.abspath(cfg.url) if cfg.is_local_file else cfg.url
     print(f"\nProcessing: {display_source}...")
     stem_for = functools.partial(_stem_for, cfg, filename_base)
     dir_for = functools.partial(_dir_for, cfg)
 
-    video_temp_dir = None
     audio_path = None
     # Audio fetched only to merge or to transcribe, rather than to keep
     temp_audio_paths = []
@@ -4295,16 +4779,20 @@ def _run_one(transcriber, cfg):
         video_only_files[res] = transcriber.strip_audio(downloaded)
         print(f"Video downloaded to {os.path.abspath(video_only_files[res])}")
 
-    if video_res:
-        video_temp_dir = os.path.join(transcriber.VIDEO_DIR, transcriber.TEMP_DIR)
     for res in video_res:
         if res in video_only_files:
             # The merge wants the very stream just saved, so use that copy
             # rather than fetching it a second time
             video_files[res] = video_only_files[res]
             continue
+        if cfg.video_scratch is None:
+            # A folder of this pass's own inside Video/Temp, so that clearing
+            # it afterwards touches nothing this pass did not put there
+            scratch_root = os.path.join(transcriber.VIDEO_DIR, transcriber.TEMP_DIR)
+            os.makedirs(scratch_root, exist_ok=True)
+            cfg.video_scratch = tempfile.mkdtemp(prefix="merge-", dir=scratch_root)
         video_files[res] = transcriber.download_format(
-            cfg.url, transcriber.video_format(res), video_temp_dir,
+            cfg.url, transcriber.video_format(res), cfg.video_scratch,
             stem_for("video") + transcriber.quality_tag(res))
         print(f"Video downloaded to {video_files[res]}")
     if not cfg.download_video and not cfg.video_only:
@@ -4338,6 +4826,9 @@ def _run_one(transcriber, cfg):
     # format joins the name - the same rule convert_all applies to the others
     merge_formats = formats(cfg.video_format, transcriber.DEFAULT_VIDEO_FORMAT)
     merge_shares = _shared_container(transcriber, merge_formats, "container")
+    # Every merged video's name, which the audio converted after them must not
+    # take: the same folder, stem and container is the same file
+    merged_outputs = set()
     for res in video_res:
         for tier in merge_audio:
             for chosen in merge_formats:
@@ -4353,25 +4844,18 @@ def _run_one(transcriber, cfg):
                     # can have this very name: ffmpeg refused to write over its
                     # own input, and the failed merge's cleanup deleted that
                     # input. The format tag tells the merge apart.
-                    if not (os.path.exists(output)
-                            and os.path.samefile(output, merge_files[tier])):
+                    if not (os.path.exists(output) and any(
+                            os.path.samefile(output, audio) for audio in audio_files.values()
+                            if os.path.exists(audio))):
                         break
+                merged_outputs.add(_path_key(output))
                 # Every merge reads the streams as downloaded, so the scratch
                 # copies are cleared once below rather than by the first of them
                 if transcriber.combine_audio_video(video_files[res], merge_files[tier],
                                                    output) is None:
                     error(f"Error: the merged video was not created at {output}")
 
-    if video_temp_dir and os.path.isdir(video_temp_dir):
-        for name in os.listdir(video_temp_dir):
-            try:
-                os.remove(os.path.join(video_temp_dir, name))
-            except OSError as e:
-                print(f"Warning: Could not clean up temporary files: {str(e)}")
-        try:
-            os.rmdir(video_temp_dir)
-        except OSError:
-            pass
+    _clear_video_scratch(transcriber, cfg)
 
     # A list can mix a video with a local file, and DOWNLOAD_YT_TRANSCRIPT was
     # answered for the video: this pass has no metadata to read captions out of
@@ -4407,28 +4891,33 @@ def _run_one(transcriber, cfg):
             return speech_file
 
         wanted = cfg.target_languages or [cfg.target_language]
+        written = set()
         for target in wanted:
             # English-specific variants (e.g. base.en) exist for the standard
-            # sizes only, and only earn their keep on the English pass
+            # sizes only, and only earn their keep on an English pass
             model_name = cfg.model_name
-            if (cfg.use_en_model and target == transcriber.DEFAULT_LANGUAGE
+            if (cfg.use_en_model
+                    and target in (transcriber.DEFAULT_LANGUAGE, transcriber.AUTO_LANGUAGE)
                     and model_name in tuple(size.value for size
                                             in ModelSize.standard_models())):
                 model_name += ".en"
 
             transcribed_text, language = transcriber.transcribe_audio_file(
-                speech_audio_file(), model_name, target
+                speech_audio_file(), model_name, target, cfg.source_language
             )
-            # Several languages are several files: name each for what was
-            # asked for, so one misdetection cannot collapse two into one
-            if len(wanted) > 1:
-                language = target
 
             if not transcribed_text:
                 # Don't pay to "enhance" a failure, and don't save one as a transcript
                 transcription_failed = True
                 print(f"No {target} transcript produced; nothing saved.")
                 continue
+            # Named for the language the text is in, not the one asked for: a
+            # target Whisper cannot write comes back in the language spoken,
+            # which another target may already have saved
+            if language in written:
+                print(f"The {target} transcript is the {language} one already saved.")
+                continue
+            written.add(language)
 
             # Both kinds of transcript share the folder now, so Whisper's
             # reading is named for what it is even in the default language
@@ -4457,10 +4946,15 @@ def _run_one(transcriber, cfg):
                 if fmt == transcriber.FORMAT_ORIGINAL:
                     written.append(source)
                     continue
+                stem = stem_for(quality, fmt if share else None)
+                if kind == "audio" and _path_key(os.path.join(
+                        folder, f"{stem}.{_container_of(transcriber, fmt, kind)}")) \
+                        in merged_outputs:
+                    # AUDIO_PATH and VIDEO_PATH one folder, one container for
+                    # both: the audio was written over the merged video
+                    stem += " - Audio"
                 print(f"Re-encoding {os.path.basename(source)} to {fmt}...")
-                converted = transcriber.convert_media(
-                    source, fmt, kind, folder,
-                    stem_for(quality, fmt if share else None))
+                converted = transcriber.convert_media(source, fmt, kind, folder, stem)
                 if converted:
                     print(f"Saved {os.path.abspath(converted)}")
                     written.append(converted)
@@ -4511,6 +5005,39 @@ def _run_one(transcriber, cfg):
     print("Tasks complete.")
 
 
+def _save_inline_prompts(transcriber, cfg):
+    """Give each prompt typed at the console a file, so a profile can name it.
+
+    PROMPT holds names, and a typed prompt has none: the profile said
+    PROMPT=(inline), which named nothing, and replaying it asked for a prompt
+    again. The text goes into Prompt/ as prompt<N>.txt, which tags its output
+    " - Refined" as the typed prompt did; one already saved there is reused.
+    """
+    if not any(label == INLINE_PROMPT for _text, label in cfg.prompts or []):
+        return
+    folders = transcriber.prompt_dirs() + [transcriber.PROMPT_DIR]
+    labels = []
+    for text, label in cfg.prompts:
+        if label == INLINE_PROMPT:
+            label = next((name for name in transcriber.list_available_prompts()
+                          if transcriber.load_prompt_file(name) == text.strip()), None)
+        if label is None:
+            label = next(name for name in (f"prompt{n}{transcriber.TXT_EXT}"
+                                           for n in itertools.count())
+                         if not any(os.path.exists(os.path.join(folder, name))
+                                    for folder in folders))
+            path = os.path.join(transcriber.PROMPT_DIR, label)
+            try:
+                os.makedirs(transcriber.PROMPT_DIR, exist_ok=True)
+                transcriber.write_text_atomically(path, text.strip() + "\n")
+            except OSError as e:
+                error(f"Error: could not save the typed prompt to {path}: {str(e)}")
+                continue
+            print(f"Saved the typed prompt to {os.path.abspath(path)}")
+        labels.append(label)
+    cfg.used_fields["PROMPT"] = ",".join(labels)
+
+
 def _ask_repeat(transcriber):
     """Ask the user whether to run again; the default flips to yes after the first repeat."""
     repeat_ask_count = int(os.environ.get("_REPEAT_ASK_COUNT", "0"))
@@ -4553,6 +5080,7 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
     if not load_profile and did_something_useful and not is_repeat:
         if transcriber.get_yes_no_input(
                 "Do you want to create a profile from this session? (y/N): ", default='n'):
+            _save_inline_prompts(transcriber, cfg)
             transcriber.create_profile(cfg.used_fields)
 
     # The work is done either way, and main() decides what happens next
@@ -4576,6 +5104,8 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
                 # The model, not the answer: Enter for base is "", and a blank
                 # answer asked again every round
                 "LAST_MODEL_CHOICE": media and cfg.transcribe_audio and cfg.model_name,
+                "LAST_SOURCE_LANGUAGE": (media and cfg.transcribe_audio
+                                         and fields.get("SOURCE_LANGUAGE")),
                 "LAST_TARGET_LANGUAGE": (cfg.transcribe_audio
                                          and ",".join(cfg.target_languages or [])),
                 "LAST_USE_EN_MODEL": fields.get("USE_EN_MODEL"),

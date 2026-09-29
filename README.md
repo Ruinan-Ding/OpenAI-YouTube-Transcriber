@@ -139,7 +139,8 @@ files answers fifteen.
 6. **Transcribe the audio?**
    - [the quality to fetch for it - asked only when nothing else is already
      putting audio on disk, since that copy is reused]
-   - Whisper model, target language, and whether to use the English-specific model
+   - Whisper model, the language spoken (Enter detects it), the language to
+     write, and whether to use the English-specific model
 7. **Refine the transcript with AI?**
    - [backend, prompt, and whether to keep the unrefined copy in `Transcript/Raw/`]
 8. **Save these settings as a profile?**
@@ -169,7 +170,8 @@ Select Whisper model:
 6. Large-v2
 7. Large-v3
 Enter your choice (1-7 or model name, default Base): 2
-Enter the target language for transcription (e.g., 'es' or 'spanish', or several separated by commas or spaces for one transcript each, default 'en'). See supported languages at https://github.com/openai/whisper#supported-languages): en
+Enter the language spoken in the audio (e.g., 'ja' or 'japanese'), or press Enter to detect it:
+Enter the language the transcript should be in: press Enter (or 'auto') for the language spoken, 'en' to translate it into English, or several separated by commas or spaces for one transcript each. Whisper translates into English only; see https://github.com/openai/whisper#supported-languages:
 Use English-specific model? (Recommended only if the video is originally in English) (y/N): n
 Refine the transcript with AI? (y/N): n
 
@@ -247,7 +249,8 @@ DOWNLOAD_YT_TRANSCRIPT=n
 TRANSCRIBE_AUDIO=y
 TRANSCRIBE_AUDIO_QUALITY=
 MODEL_CHOICE=base
-TARGET_LANGUAGE=en
+SOURCE_LANGUAGE=auto
+TARGET_LANGUAGE=auto
 USE_EN_MODEL=n
 AI_REFINEMENT=n
 PROMPT=
@@ -257,7 +260,7 @@ KEEP_TRANSCRIPT=
 REPEAT=n
 ```
 
-These 29 fields are what a saved profile contains. Two more are understood but
+These 30 fields are what a saved profile contains. Two more are understood but
 not written unless the session settled them - `AI_PROVIDER` and `MODEL`, which
 normally live in `config.txt`; a blank line for either would override it with
 nothing. See [In Profiles](#in-profiles).
@@ -297,17 +300,40 @@ so are `MP3` and `mp3`. The name ffmpeg knows the muxer by is accepted too -
 writes `.m4a`, while `ipod`, the muxer behind it, writes that muxer's own first
 choice, `.m4v`.
 
-`TARGET_LANGUAGE` takes more than one language, separated by commas or spaces -
-`TARGET_LANGUAGE=en,fr,ja` writes three transcripts from one download. Each is
-a separate pass, so the audio is fetched once and recognised once per language,
-and `AI_REFINEMENT` runs over every one of them with the same prompt.
-Spacing, case and repeats are noise: `EN, English, fr` and `EN English fr`
-both ask for two. A language Whisper does not support is named and skipped rather
-than failing the run.
+### Languages: what was said, and what to write
 
-With several languages the files are named for what was asked for -
-`clip [Whisper en].txt` and `clip [Whisper fr].txt` - rather than for what the
-model thought it heard, so two passes can never resolve to one filename.
+Two fields, because Whisper needs to know two different things:
+
+| field | means | default |
+|---|---|---|
+| `SOURCE_LANGUAGE` | the language **spoken** in the audio, which Whisper listens for | `auto`: Whisper detects it |
+| `TARGET_LANGUAGE` | the language the transcript is **written** in | `auto`: the language spoken |
+
+Whisper can write two things: the language spoken, and English. So:
+
+| `TARGET_LANGUAGE` | Whisper does |
+|---|---|
+| `auto`, or the language spoken | transcribes it |
+| `en`, when the speech is not English | translates it into English |
+| any other language | transcribes the speech as spoken, and says so - Whisper cannot write it. Refine the transcript with `prompt0-translator.txt` (naming the language on its first line) for that |
+
+Set `SOURCE_LANGUAGE` when detection gets the language wrong - a long music
+intro, or a speaker who opens in another language - since detection listens to
+the first 30 seconds only. A profile with no `SOURCE_LANGUAGE` line at all -
+one written before the field existed - detects, without stopping to ask.
+
+`TARGET_LANGUAGE` takes more than one language, separated by commas or spaces -
+`TARGET_LANGUAGE=auto,en` on a Japanese video writes the Japanese transcript and
+its English translation from one download. `AI_REFINEMENT` runs over every one
+of them with the same prompt. Spacing, case and repeats are noise:
+`EN, English, fr` and `EN English fr` both ask for two. A language Whisper does
+not support is named and skipped rather than failing the run.
+
+The files are named for the language the text is actually in -
+`clip [Whisper ja].txt` and `clip [Whisper en].txt` - so a transcript is never
+labelled with a language it is not in. Two targets that come out the same (`ja`
+and `auto` on Japanese speech, or `fr` which Whisper cannot write) are one file,
+not two copies of it.
 
 ### Naming and placing the files
 
@@ -499,12 +525,23 @@ single format is named exactly as it always was.
 
 The `URL` field accepts any of the supported input formats (full URL, short URL, bare video ID, or URL with extra query parameters - only the video ID is used), and accepts several of them separated by commas or spaces. `URL=clip.mp4, youtu.be/vid3, s` runs three passes in the order given, the last of them a refinement of transcripts already on disk. The rest of the profile is answered once and applies to every pass. Leave `URL` blank and the same question is asked at the start of the run, taking the same answers; a profile with `REPEAT=y` asks it again for each round, so a batch can be a different list every time.
 
+Two sources of one list that would be written under one name - two videos with
+the same title, or `a/clip.mp4` and `b/clip.mp4` - each keep their files: the
+second takes its video ID (`Same title [dQw4w9WgXcQ].mp4`), or a number for a
+local file (`clip (2).mp4`). The same source named twice keeps its one name.
+
+A saved profile writes a value in single quotes wherever dotenv would otherwise
+change it on the way back - a path containing ` #`, `$`, or quotes - and a
+single-quoted value is read exactly as written. An unquoted `${HOME}` in a
+profile you wrote yourself still expands.
+
 ### Included Profiles
 
-- **profile-transcriber.txt**: transcribe only (no downloads)
+- **profile-transcriber.txt**: transcribe only (no downloads), in the language spoken
 - **profile1-video_downloader.txt**: download video with audio
 - **profile2-audio_downloader.txt**: download audio only
-- **profile0-translator.txt**: transcribe into other languages
+- **profile0-translator.txt**: translate the speech into English with Whisper;
+  its comments say how to get another language through `prompt0-translator.txt`
 
 ## AI Transcript Enhancement
 
@@ -571,7 +608,7 @@ Local models require the `transformers` and `torch` packages (included in requir
 
 ### Prompts
 
-Enhancement is guided by a prompt that tells the model what to do with the transcript. Put `.txt` prompt files in `OpenAIYouTubeTranscriber/Prompt/` and the script will offer them for selection, or choose `E` to type a custom prompt in the console.
+Enhancement is guided by a prompt that tells the model what to do with the transcript. Put `.txt` prompt files in `OpenAIYouTubeTranscriber/Prompt/` and the script will offer them for selection, or choose `E` to type a custom prompt in the console. A typed prompt is saved to `Prompt/prompt<N>.txt` when you save the session as a profile, so the profile can name it. An installed copy (`pip install .`) carries the four shipped prompts with it; a prompt of the same name in the working directory's `Prompt/` takes their place.
 
 Example prompt file:
 ```
@@ -774,8 +811,15 @@ says so:
 
 - `video_title.txt` - YouTube's transcript, in the language spoken
 - `video_title [de].txt` - YouTube's German track
-- `video_title [Whisper en].txt` - Whisper's reading of the audio
-- `video_title [Whisper fr].txt` - Whisper's French pass
+- `video_title [Whisper fr].txt` - Whisper's reading of French audio
+- `video_title [Whisper en].txt` - Whisper's English: English speech, or its
+  translation into English
+
+The tag is the language the text is in, whatever was asked for.
+
+A standalone audio file that would share a folder, name and container with the
+merged video - `AUDIO_PATH` and `VIDEO_PATH` one folder, both `mkv` - is written
+as `video_title - Audio.mkv` rather than over the video.
 
 An AI-enhanced transcript is also tagged with the prompt that produced it, taken from
 the prompt filename's `prompt<number>-<description>.txt` shape:
