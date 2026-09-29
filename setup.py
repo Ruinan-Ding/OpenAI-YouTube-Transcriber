@@ -3,6 +3,17 @@ from setuptools import setup
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+# What the project ships, named one by one rather than globbed: Prompt/ and
+# Profile/ are also where a checkout's user saves their own prompts and
+# profiles, and a wheel built there must carry none of them. config.txt,
+# which can hold an API key, is never among them.
+PROMPTS = "openai_youtube_transcriber_prompts"
+PROFILES = "openai_youtube_transcriber_profiles"
+SHIPPED_PROMPTS = ["prompt-refinement.txt", "prompt0-translator.txt",
+                   "prompt1-summarizer.txt", "prompt2-explainer.txt"]
+SAMPLE_PROFILES = ["profile-transcriber.txt", "profile0-translator.txt",
+                   "profile1-video_downloader.txt", "profile2-audio_downloader.txt"]
+
 setup(
     name="openai-youtube-transcriber",
     version="1.2.0",
@@ -21,14 +32,15 @@ setup(
     # One top-level module: OpenAIYouTubeTranscriber/ beside it is the data
     # directory, not a package, so find_packages() found nothing to install
     py_modules=["OpenAIYouTubeTranscriber"],
-    # ...but the prompts it ships have to travel with it: a wheel held the
-    # module alone, and an installed copy offered no prompt at all. They go in
-    # as a package of their own, which the module finds through the import
-    # system. Profiles and config.txt are the user's, and stay in the working
-    # directory - config.txt can hold an API key.
-    packages=["openai_youtube_transcriber_prompts"],
-    package_dir={"openai_youtube_transcriber_prompts": "OpenAIYouTubeTranscriber/Prompt"},
-    package_data={"openai_youtube_transcriber_prompts": ["*.txt"]},
+    # ...but the prompts and sample profiles it ships have to travel with it: a
+    # wheel held the module alone, and an installed copy offered no prompt at
+    # all. Each goes in as a package of data, which the module finds through
+    # the import system; the samples are copied into the working directory's
+    # Profile/ on first run, where the user's own profiles live.
+    packages=[PROMPTS, PROFILES],
+    package_dir={PROMPTS: "OpenAIYouTubeTranscriber/Prompt",
+                 PROFILES: "OpenAIYouTubeTranscriber/Profile"},
+    package_data={PROMPTS: SHIPPED_PROMPTS, PROFILES: SAMPLE_PROFILES},
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
@@ -46,7 +58,8 @@ setup(
     install_requires=[
         "langdetect",
         "yt-dlp",
-        "python-dotenv",
+        # 1.2.3 reads back a quoted value ending in a backslash; see requirements.txt
+        "python-dotenv>=1.2.3",
         "openai-whisper @ git+https://github.com/openai/whisper.git",
     ],
     entry_points={

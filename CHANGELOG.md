@@ -35,7 +35,9 @@ regression test.
 - **A caption request stands for every video of a list** (F07), rather than
   being narrowed to the tracks the first video had.
 - **Saved profiles read back exactly** (F08): values dotenv would change are
-  single-quoted, and single-quoted values are read literally.
+  single-quoted, and single-quoted values are read literally. This needs
+  `python-dotenv>=1.2.3`, the first release to read a quoted value that ends
+  in a backslash; earlier ones lost that value and the line after it.
 - **A typed prompt is saved with the profile** (F09) as `Prompt/prompt<N>.txt`,
   instead of `PROMPT=(inline)`.
 - **A new `config.txt` names the profile actually written** (F10).
@@ -44,9 +46,14 @@ regression test.
   is reported and skipped.
 - **A failed enhancement hands back the text unchanged** (F12), and **every
   chunk respects its size budget** (F13), mixed scripts included: chunks are
-  exact spans of the text rather than `textwrap` output.
-- **Installed copies carry the shipped prompts** (F14); profiles and
-  `config.txt` stay in the working directory.
+  exact spans of the text rather than `textwrap` output. The local backend
+  measures its chunks with the model's own tokenizer, as it already measured
+  the room they have.
+- **Installed copies carry the shipped prompts and sample profiles** (F14).
+  The samples are copied into the working directory's `Profile/` on first
+  run. Each file is named in `setup.py` rather than globbed, so a wheel built
+  from a checkout never carries the user's own prompts or profiles, and never
+  `config.txt`.
 - **WebVTT captions are read by cue block** (F15): cue numbers, `NOTE`, `STYLE`
   and `REGION` blocks are not speech, and `&amp;` is decoded.
 - **`~/clip.mp3` is accepted as a source** (F16).

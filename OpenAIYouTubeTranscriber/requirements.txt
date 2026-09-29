@@ -1,6 +1,8 @@
 langdetect
 yt-dlp
-python-dotenv
+# 1.2.3 is the first to read back a quoted value ending in a backslash, which a
+# saved profile can hold (a Windows folder such as 'D:\Lectures #2\')
+python-dotenv>=1.2.3
 git+https://github.com/openai/whisper.git
 
 # Optional: only needed for AI transcript enhancement. The app runs without

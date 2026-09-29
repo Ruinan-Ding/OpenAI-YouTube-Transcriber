@@ -3525,6 +3525,63 @@ def test_whisper_is_told_the_language_spoken_not_the_one_to_write():
         assert module._offers_en_model(t, cfg, ModelSize.BASE) == offered, (source, targets)
 
 
+def test_detection_runs_through_the_installed_whisper():
+    """spoken_language and the translate task, through Whisper's own code.
+
+    No weights can be fetched here, so the model is a tiny one with random
+    weights: what it detects means nothing, but every call the app makes -
+    ffmpeg decoding, the mel spectrogram, detect_language, the task - is the
+    installed Whisper's, and a change to any of them fails here.
+    """
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    import torch
+    import whisper
+    from whisper.model import ModelDimensions, Whisper
+
+    import OpenAIYouTubeTranscriber as module
+
+    def tiny(n_vocab):
+        return Whisper(ModelDimensions(
+            n_mels=80, n_audio_ctx=1500, n_audio_state=64, n_audio_head=1, n_audio_layer=1,
+            n_vocab=n_vocab, n_text_ctx=448, n_text_state=64, n_text_head=1,
+            n_text_layer=1)).eval()
+
+    torch.manual_seed(0)
+    model, calls = tiny(51865), []
+    real_transcribe = model.transcribe
+
+    def transcribe(path, language=None, **kwargs):
+        calls.append((language, kwargs.get('task', 'transcribe')))
+        # One greedy pass: the weights are random, so a fallback ladder is time wasted
+        return real_transcribe(path, language=language, temperature=0.0, **kwargs)
+
+    model.transcribe = transcribe
+    t = YouTubeTranscriber()
+    saved_load = module.whisper.load_model
+    module.whisper.load_model = lambda name: model
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = os.path.join(tmp, 'tone.wav')
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                            'sine=frequency=300:duration=2', audio], check=True)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                heard = t.spoken_language(model, audio)
+                assert heard in whisper.tokenizer.LANGUAGES, heard
+                # An English-only model is English without asking
+                assert t.spoken_language(tiny(51864), audio) == 'en'
+                t.transcribe_audio_file(audio, 'tiny', 'auto')
+                assert calls == [(None, 'transcribe')], calls
+                calls.clear()
+                t.release_caches()
+                t.transcribe_audio_file(audio, 'tiny', 'en')
+            expected = 'transcribe' if heard == 'en' else 'translate'
+            assert calls == [(heard, expected)], (heard, calls)
+    finally:
+        module.whisper.load_model = saved_load
+
+
 def test_a_caption_request_stands_for_every_video_of_a_list():
     """DOWNLOAD_YT_TRANSCRIPT=en,fr was narrowed to the tracks the first video
     had: a first video without French asked no video for French, and 'en'
@@ -3571,6 +3628,8 @@ def test_a_saved_profile_reads_back_exactly_what_it_saved():
         'VIDEO_RENAME': 'it\'s "quoted"',
         'VIDEO_PATH': r'C:\Users\me\Videos',
         'AUDIO_PATH': r'\\server\share #1\ ',
+        # Before python-dotenv 1.2.3, the backslash ate the closing quote
+        'VIDEO_ONLY_PATH': 'D:\\Lectures #2\\',
         'AUDIO_RENAME': '  padded  ',
         'DOWNLOAD_AUDIO': 'y',
     }
@@ -3725,6 +3784,52 @@ def test_a_failed_enhancement_hands_back_the_text_it_was_given():
         sys.modules.pop('openai', None) if saved is None else sys.modules.update(openai=saved)
 
 
+def test_a_local_chunk_is_sized_by_the_models_own_tokenizer():
+    """The local backend worked out each chunk's share of the context with the
+    model's tokenizer, then cut chunks by the byte estimate. For a tokenizer
+    that counts more tokens than the estimate, every chunk overran its share
+    and left the reply too little room."""
+    import sys
+    import types
+
+    t = YouTubeTranscriber()
+    chunks = []
+
+    class Tokenizer:
+        model_max_length = 1024
+        chat_template = 'yes'
+
+        def apply_chat_template(self, messages, **kwargs):
+            return messages[-1]['content']
+
+        def encode(self, text, **kwargs):
+            return list(text)  # a token a character: four times the estimate
+
+    def pipeline(*args, **kwargs):
+        def generate(prompt, **options):
+            chunks.append(prompt)
+            return [{'generated_text': prompt}]
+        return generate
+
+    transformers = types.SimpleNamespace(
+        AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda _id: Tokenizer()),
+        pipeline=pipeline)
+    text = ' '.join(f'sentence number {i} went by.' for i in range(300))
+    saved = sys.modules.get('transformers')
+    sys.modules['transformers'] = transformers
+    try:
+        with redirect_stdout(io.StringIO()):
+            result = t.enhance_with_local(text, 'tidy', 'any/model')
+    finally:
+        sys.modules.pop('transformers', None) if saved is None else sys.modules.update(
+            transformers=saved)
+    prompt_size = len(f'tidy\n\n{t.ENHANCEMENT_OUTPUT_DIRECTIVE}') + 32
+    share = min((1024 - prompt_size) // 3, 300)
+    assert len(chunks) > 1 and max(len(c) for c in chunks) <= share, (
+        share, max(len(c) for c in chunks))
+    assert result.split() == text.split()
+
+
 def test_the_shipped_prompts_travel_with_an_installed_copy():
     """A wheel held the module alone: installed, the app listed no prompts and
     Enter at the prompt menu selected nothing."""
@@ -3743,18 +3848,29 @@ def test_the_shipped_prompts_travel_with_an_installed_copy():
     finally:
         setuptools.setup = real_setup
         os.chdir(cwd)
-    package = YouTubeTranscriber.PROMPT_PACKAGE
-    assert package in captured['packages'], captured.get('packages')
-    folder = os.path.join(here, captured['package_dir'][package])
-    shipped = sorted(n for n in os.listdir(os.path.join(here, YouTubeTranscriber.PROMPT_DIR))
-                     if n.endswith('.txt'))
-    assert shipped and captured['package_data'][package] == ['*.txt']
-    assert sorted(n for n in os.listdir(folder) if n.endswith('.txt')) == shipped
-    # Nothing of Profile/, where config.txt can hold an API key
-    assert 'Profile' not in repr(captured['package_dir']) + repr(captured['package_data'])
+    # Each package is the folder it ships from, and carries the files git holds
+    # there by name: a glob would take whatever a checkout's user had saved
+    # beside them, and config.txt, which can hold an API key, is never one
+    tracked = subprocess.run(['git', 'ls-files', YouTubeTranscriber.DATA_DIR], cwd=here,
+                             capture_output=True, text=True).stdout.split('\n')
+    for package, folder in ((YouTubeTranscriber.PROMPT_PACKAGE, YouTubeTranscriber.PROMPT_DIR),
+                            (YouTubeTranscriber.PROFILE_PACKAGE,
+                             YouTubeTranscriber.PROFILE_DIR)):
+        assert package in captured['packages'], captured.get('packages')
+        source = captured['package_dir'][package]
+        assert os.path.samefile(os.path.join(here, source), os.path.join(here, folder))
+        names = captured['package_data'][package]
+        assert names and all(os.path.isfile(os.path.join(here, source, n)) for n in names)
+        assert not any('*' in n or n == YouTubeTranscriber.CONFIG_ENV for n in names), names
+        if any(tracked):
+            shipped = sorted(os.path.basename(p) for p in tracked
+                             if os.path.dirname(p) == source and p.endswith('.txt')
+                             and os.path.basename(p) != YouTubeTranscriber.CONFIG_ENV)
+            assert sorted(names) == shipped, (names, shipped)
 
     # Installed, the package is found where site-packages put it, after the
     # working directory's own Prompt/ so an edited copy wins
+    package = YouTubeTranscriber.PROMPT_PACKAGE
     with tempfile.TemporaryDirectory() as site:
         os.makedirs(os.path.join(site, package))
         io.open(os.path.join(site, package, 'prompt-refinement.txt'), 'w').write('TIDY')
@@ -3766,6 +3882,38 @@ def test_the_shipped_prompts_travel_with_an_installed_copy():
             assert installed and os.path.samefile(installed, os.path.join(site, package))
             dirs = t.prompt_dirs()
             assert dirs[-1] == installed, dirs
+        finally:
+            sys.path.remove(site)
+            importlib.invalidate_caches()
+
+
+def test_an_installed_copy_starts_with_the_sample_profiles():
+    """Profiles are listed, loaded and saved in the working directory's
+    Profile/, so an installed copy's samples are copied there on first run -
+    and a Profile/ that already exists is left exactly as it is."""
+    package = YouTubeTranscriber.PROFILE_PACKAGE
+    with tempfile.TemporaryDirectory() as site, tempfile.TemporaryDirectory() as work:
+        os.makedirs(os.path.join(site, package))
+        for name in ('profile-transcriber.txt', 'config.txt', 'notes.md'):
+            io.open(os.path.join(site, package, name), 'w').write('URL=x\n')
+        t = YouTubeTranscriber()
+        t.PROFILE_DIR = os.path.join(work, 'Profile')
+        # A checkout has nothing installed to copy, and makes no Profile/
+        with redirect_stdout(io.StringIO()):
+            t.seed_sample_profiles()
+        assert not os.path.exists(t.PROFILE_DIR)
+        sys.path.insert(0, site)
+        importlib.invalidate_caches()
+        try:
+            with redirect_stdout(io.StringIO()):
+                t.seed_sample_profiles()
+            assert os.listdir(t.PROFILE_DIR) == ['profile-transcriber.txt']
+            assert t.list_profiles() == ['profile-transcriber.txt']
+            # The user's folder is theirs: emptied, it stays empty
+            os.remove(os.path.join(t.PROFILE_DIR, 'profile-transcriber.txt'))
+            with redirect_stdout(io.StringIO()):
+                t.seed_sample_profiles()
+            assert os.listdir(t.PROFILE_DIR) == []
         finally:
             sys.path.remove(site)
             importlib.invalidate_caches()

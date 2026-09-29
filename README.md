@@ -608,7 +608,7 @@ Local models require the `transformers` and `torch` packages (included in requir
 
 ### Prompts
 
-Enhancement is guided by a prompt that tells the model what to do with the transcript. Put `.txt` prompt files in `OpenAIYouTubeTranscriber/Prompt/` and the script will offer them for selection, or choose `E` to type a custom prompt in the console. A typed prompt is saved to `Prompt/prompt<N>.txt` when you save the session as a profile, so the profile can name it. An installed copy (`pip install .`) carries the four shipped prompts with it; a prompt of the same name in the working directory's `Prompt/` takes their place.
+Enhancement is guided by a prompt that tells the model what to do with the transcript. Put `.txt` prompt files in `OpenAIYouTubeTranscriber/Prompt/` and the script will offer them for selection, or choose `E` to type a custom prompt in the console. A typed prompt is saved to `Prompt/prompt<N>.txt` when you save the session as a profile, so the profile can name it. An installed copy (`pip install .`) carries the four shipped prompts with it; a prompt of the same name in the working directory's `Prompt/` takes their place. It carries the four sample profiles too, and copies them into the working directory's `Profile/` the first time it runs there, if there is no `Profile/` yet.
 
 Example prompt file:
 ```

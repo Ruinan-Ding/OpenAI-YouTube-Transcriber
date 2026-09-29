@@ -288,8 +288,9 @@ class YouTubeTranscriber:
     VIDEO_WITHOUT_AUDIO_DIR = os.path.join(DATA_DIR, "VideoWithoutAudio")
     PROFILE_DIR = os.path.join(DATA_DIR, "Profile")
     PROMPT_DIR = os.path.join(DATA_DIR, "Prompt")
-    # The name setup.py installs Prompt/ under, as package data
+    # The names setup.py installs Prompt/ and the sample profiles under, as data
     PROMPT_PACKAGE = "openai_youtube_transcriber_prompts"
+    PROFILE_PACKAGE = "openai_youtube_transcriber_profiles"
     TXT_EXT = ".txt"
     # Filename tag for a prompt that names no description of its own
     REFINED_TAG = " - Refined"
@@ -849,18 +850,48 @@ MODEL=
 
     @classmethod
     def installed_prompt_dir(cls):
-        """The folder an installed copy's shipped prompts are in, or None.
+        """The folder an installed copy's shipped prompts are in, or None."""
+        return cls.installed_data_dir(cls.PROMPT_PACKAGE)
 
-        setup.py installs Prompt/ as a package of data, and the import system
-        is what knows where site-packages put it. A checkout has no such
-        package, and finds its prompts beside the module instead.
+    @staticmethod
+    def installed_data_dir(package):
+        """The folder setup.py installed one package of data into, or None.
+
+        setup.py installs the shipped prompts and sample profiles as packages of
+        data, and the import system is what knows where site-packages put them.
+        A checkout has no such package, and has the files beside the module.
         """
         try:
-            spec = importlib.util.find_spec(cls.PROMPT_PACKAGE)
+            spec = importlib.util.find_spec(package)
         except (ImportError, ValueError):
             return None
         locations = list(spec.submodule_search_locations or []) if spec else []
         return locations[0] if locations else None
+
+    def seed_sample_profiles(self):
+        """Copy the shipped sample profiles into a Profile/ that does not exist yet.
+
+        An installed copy has them in site-packages, and a profile is loaded,
+        listed and saved in the working directory's Profile/. Copied there on
+        first run, they are the user's to edit as a checkout's are. A Profile/
+        that exists is never touched, so one the user emptied stays empty.
+        """
+        if os.path.exists(self.PROFILE_DIR):
+            return
+        source = self.installed_data_dir(self.PROFILE_PACKAGE)
+        samples = sorted(name for name in os.listdir(source)
+                         if name.startswith(self.PROFILE_PREFIX)
+                         and name.endswith(self.ENV_EXT)) if source else []
+        if not samples:
+            return
+        try:
+            os.makedirs(self.PROFILE_DIR)
+            for name in samples:
+                shutil.copyfile(os.path.join(source, name), os.path.join(self.PROFILE_DIR, name))
+        except OSError as e:
+            error(f"Warning: could not copy the sample profiles: {str(e)}")
+            return
+        print(f"Copied {len(samples)} sample profiles to {os.path.abspath(self.PROFILE_DIR)}")
 
     def list_available_prompts(self):
         """List non-empty .txt files in the Prompt/ directory."""
@@ -1075,7 +1106,7 @@ MODEL=
         return cls.chunk_spans(text, max_tokens)[0]
 
     @classmethod
-    def chunk_spans(cls, text, max_tokens=800):
+    def chunk_spans(cls, text, max_tokens=800, count=None):
         """(chunks, seams): chunk_text's chunks, and the exact text between each
         chunk and the next - whitespace, or nothing where a cut had to fall
         inside a word.
@@ -1085,9 +1116,14 @@ MODEL=
         longer than the budget was cut and a space put into it, and a script
         without spaces between words, Thai among them, got one at every cut:
         a failed enhancement still changed the words.
+
+        `count` measures a span in tokens, estimate_tokens by default; a
+        backend that has the model's own tokenizer passes that instead.
         """
+        count = count or cls.estimate_tokens
+
         def fits(span):
-            return cls.estimate_tokens(span) <= max_tokens
+            return count(span) <= max_tokens
 
         # Hindi ends a sentence with a danda and Arabic a question with its own
         # mark, both followed by a space; Chinese and Japanese use a full-width
@@ -1376,7 +1412,12 @@ MODEL=
             print("Skipping local enhancement.")
             return text
 
-        chunks, seams = self.chunk_spans(text, max_tokens=chunk_max)
+        # Measured by the model's own tokenizer, as chunk_max itself was: the
+        # estimate runs high for most models and low for some, and a chunk
+        # over its share leaves the reply too little of the context
+        chunks, seams = self.chunk_spans(
+            text, max_tokens=chunk_max,
+            count=lambda span: len(tokenizer.encode(span, add_special_tokens=False)))
         # Instruct/chat models define a chat template; base models (gpt2 etc.) don't
         has_chat_template = getattr(tokenizer, 'chat_template', None) is not None
 
@@ -5172,6 +5213,8 @@ def main():
             error(f"Error: Cannot create required directory {directory}")
             print("Please check permissions and try again.")
             sys.exit(1)
+    # An installed copy's first run: its sample profiles, where profiles live
+    transcriber.seed_sample_profiles()
 
     try:
         # "Run again?" comes round here rather than re-entering main(), so a
