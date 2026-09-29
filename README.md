@@ -389,6 +389,14 @@ way `DOWNLOAD_AUDIO` saves audio. It takes more than yes and no:
 | `f` / `fetch` | lists what this video offers and lets you pick |
 | `a` / `all` | every track on offer |
 | `en` or `EN, FR` or `en,zh,ja` | those languages; spacing and case are ignored |
+| `original` | the language each video was spoken in; combines with others, `original,de` |
+
+In a list of videos the answer is read again for each one. `y` and `original`
+are each video's own spoken language, `all` is everything that video offers,
+and a track picked from the `f` listing of the first video - the original
+included - is looked for in the next under the same meaning. A regional track
+(`en-US`) that a video lacks is answered by another region of the language
+(`en-GB`), never by another script (`zh-Hans` is not `zh-Hant`).
 
 The transcript of what was said carries no tag - `Me at the zoo.txt` - and every
 other track is named for its language, `Me at the zoo [de].txt`, because a
@@ -529,6 +537,8 @@ Two sources of one list that would be written under one name - two videos with
 the same title, or `a/clip.mp4` and `b/clip.mp4` - each keep their files: the
 second takes its video ID (`Same title [dQw4w9WgXcQ].mp4`), or a number for a
 local file (`clip (2).mp4`). The same source named twice keeps its one name.
+No file is written over another file of the same run, or over a transcript the
+list has still to read: where a name is taken, the later file gets ` (2)`.
 
 A saved profile writes a value in single quotes wherever dotenv would otherwise
 change it on the way back - a path containing ` #`, `$`, or quotes - and a
@@ -819,7 +829,17 @@ The tag is the language the text is in, whatever was asked for.
 
 A standalone audio file that would share a folder, name and container with the
 merged video - `AUDIO_PATH` and `VIDEO_PATH` one folder, both `mkv` - is written
-as `video_title - Audio.mkv` rather than over the video.
+as `video_title - Audio.mkv` rather than over the video. Folders count as one
+when a symlink makes them one.
+
+Audio is copied into its new container as it is only where players accept it
+there: YouTube's Opus asked for as `mp4` becomes AAC, and AAC asked for as
+`wav` becomes PCM, rather than files ffmpeg writes and players refuse.
+Matroska, and a container not listed, take the audio as it is.
+
+When refinement fails for every prompt, the transcript is saved as it came,
+once. When any prompt succeeds, what stays is its output, plus the
+`Transcript/Raw/` copy if `KEEP_TRANSCRIPT` asks for one.
 
 An AI-enhanced transcript is also tagged with the prompt that produced it, taken from
 the prompt filename's `prompt<number>-<description>.txt` shape:

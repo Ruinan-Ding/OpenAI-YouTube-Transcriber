@@ -58,6 +58,49 @@ regression test.
   and `REGION` blocks are not speech, and `&amp;` is decoded.
 - **`~/clip.mp3` is accepted as a source** (F16).
 
+### Fixed after a second review
+
+- **One place settles every output's name.** A batch reserves every file it
+  writes, and every source it has yet to read, comparing folders through
+  symlinks and names without regard to case. A refinement no longer lands on
+  the transcript queued after it, a Whisper transcript on a queued transcript
+  of its name, two audio streams that round to one bitrate on one file, or the
+  audio on the merged video through a symlinked folder.
+- **A local source reached another way is never written over.** `convert_media`
+  compared paths as text, so a symlinked `VIDEO_PATH` - or `C0001.MP4` beside
+  `C0001.mp4` on Windows or macOS - let ffmpeg overwrite the file it read.
+- **A summary never replaces a source whose `Raw/` copy failed to save**, with
+  `KEEP_TRANSCRIPT=y` as with `n`.
+- **A prompt that fails no longer saves the unrefined text** beside another
+  prompt's output; when every prompt fails, the transcript is saved once.
+- **The log names the `Raw/` folder the copy really went to** under
+  `TRANSCRIPT_PATH`.
+- **ffmpeg's output is read as UTF-8.** Read in the locale's encoding (cp1252
+  on Windows), a Japanese filename in it raised and ended the batch.
+- **A superscript digit at a menu asks again** instead of raising.
+- **A video with nothing to pick gives way to the next** while the settings
+  are asked, instead of ending the batch.
+- **Input running out ends the run without a traceback**: exit code 0 once the
+  work asked for is done (a `REPEAT=y` round asking for more), 1 otherwise.
+  A single-source yt-dlp error exits 1 as `DownloadFailed` does.
+- **Profile fields read as their questions do**: `s`/`skip` declines a
+  `*_RENAME` or `*_PATH`, `~` works in a `*_PATH`, `LOAD_PROFILE` is read as
+  dotenv reads it (quotes and a trailing `# comment`), and `USE_EN_MODEL=y`
+  is ignored when `SOURCE_LANGUAGE` or `TARGET_LANGUAGE` rule English out.
+- **A caption pick from the listing stands for each video of a list.** The
+  original is recorded as `original` (also accepted in
+  `DOWNLOAD_YT_TRANSCRIPT`), so the next video's original is taken, not its
+  translation into the first one's language; picking every track is `all`.
+- **Audio is copied only into a container that plays it**: Opus asked for as
+  `mp4` becomes AAC, AAC as `wav` becomes PCM.
+- **Whisper work is not repeated**: `auto,en` on English speech is one pass,
+  a model that failed to load is not tried again for each target and source,
+  and detection decodes the first 30 seconds rather than the whole file.
+- **The local model is given `torch_dtype` or `dtype`**, whichever the
+  installed transformers takes (renamed in 4.56).
+- **Downloads reuse the metadata already fetched** instead of extracting each
+  video again per deliverable.
+
 ## [1.2.0] - 2026-09-12
 
 ### Added
