@@ -1,21 +1,34 @@
 """Settling every setting of a session, from a profile or a person alike."""
 
+from __future__ import annotations
+
 import getpass
 import os
+from collections.abc import Callable
+from typing import TYPE_CHECKING, cast
 
 import yt_dlp
 
-from .answers import SETTINGS, _answer, _is_yes_no, _yes_no, _yn
-from .common import (AIEnhancementMode, DownloadFailed, LocalModel, ModelSize,
-                     Provider, Resolution, YesNo, _is_number, error)
+from .answers import SETTINGS, _answer, _Answers, _is_yes_no, _yes_no, _yn
+from .common import (AIEnhancementMode, DownloadFailed, Info, LocalModel,
+                     ModelSize, Prompt, Provider, Resolution, YesNo,
+                     _is_number, error)
 from .config import _PLACEMENTS, SessionConfig
 from .questions import (_prompt_audio_resolution_input,
                         _prompt_audio_selection, _prompt_format,
                         _prompt_resolution_input, _prompt_resolution_selection,
                         _resolve_format, _resolve_path, _resolve_rename)
 
+if TYPE_CHECKING:
+    from .transcriber import YouTubeTranscriber
 
-def _ai_backend(transcriber, named=None):
+    # A menu of what one video offers, answered with a quality: the default
+    # is what Enter takes
+    Picker = Callable[[YouTubeTranscriber, Info, str], str]
+
+
+def _ai_backend(transcriber: YouTubeTranscriber,
+                named: str | None = None) -> tuple[AIEnhancementMode, Provider | None, str | None]:
     """The enhancement backend: (AIEnhancementMode, Provider, local_model_id).
 
     AI_PROVIDER names it. A blank one is answered by whoever the key on file
@@ -41,7 +54,7 @@ def _ai_backend(transcriber, named=None):
 INLINE_PROMPT = "(inline)"
 
 
-def _select_prompts_interactively(transcriber):
+def _select_prompts_interactively(transcriber: YouTubeTranscriber) -> list[Prompt]:
     """Pick prompt files or type one inline. Returns [(text, label), ...]."""
     filenames, inline_prompt = transcriber.get_prompt_input()
     if filenames:
@@ -52,7 +65,7 @@ def _select_prompts_interactively(transcriber):
     return []
 
 
-def _load_prompts(transcriber, raw):
+def _load_prompts(transcriber: YouTubeTranscriber, raw: str) -> list[Prompt]:
     """Parse a PROMPT field into [(text, label), ...].
 
     Comma- or space-separated, each entry a file in Prompt/ or a path to one
@@ -61,11 +74,11 @@ def _load_prompts(transcriber, raw):
     """
     available = transcriber.list_available_prompts()
 
-    def named(piece):
+    def named(piece: str) -> bool:
         return (piece in available or piece + transcriber.TXT_EXT in available
                 or os.path.isfile(os.path.expanduser(piece)))
 
-    loaded = []
+    loaded: list[Prompt] = []
     for entry in transcriber.split_entries(raw, named):
         label = next((c for c in (entry, entry + transcriber.TXT_EXT)
                       if c in available), entry)
@@ -75,7 +88,7 @@ def _load_prompts(transcriber, raw):
     return loaded
 
 
-def _resolve_api_key(provider):
+def _resolve_api_key(provider: Provider) -> str | None:
     """Get the API key for `provider` from the environment or prompt for it."""
     api_key = provider.resolve_api_key()
     if not api_key:
@@ -90,7 +103,8 @@ def _resolve_api_key(provider):
     return api_key
 
 
-def _placement_gate(transcriber, cfg, answers):
+def _placement_gate(transcriber: YouTubeTranscriber, cfg: SessionConfig,
+                    answers: _Answers) -> bool:
     """Whether this session wants to name or rehouse anything, asked once.
 
     Two questions for each of four deliverables is eight an ordinary run does
@@ -106,13 +120,13 @@ def _placement_gate(transcriber, cfg, answers):
     return cfg.ask_placement
 
 
-def _several(cfg):
+def _several(cfg: SessionConfig) -> bool:
     """Whether this session has several sources, which one name or one opened
     window cannot serve."""
     return len(cfg.sources or []) > 1 or len(cfg.refine_sources or []) > 1
 
 
-def _stem_for(cfg, filename_base, which):
+def _stem_for(cfg: SessionConfig, filename_base: str, which: str) -> str:
     """The name a deliverable is written under. The tags still follow it, so
     the several files one answer can ask for stay distinct.
 
@@ -126,17 +140,18 @@ def _stem_for(cfg, filename_base, which):
     return f"{name} - {filename_base}" if _several(cfg) else name
 
 
-def _dir_for(cfg, which, default):
+def _dir_for(cfg: SessionConfig, which: str, default: str) -> str:
     """Where a deliverable is written, the project's own folder by default."""
     return getattr(cfg, f"{which}_path", "") or default
 
 
-def _settle_placement(transcriber, cfg, stem, answers):
+def _settle_placement(transcriber: YouTubeTranscriber, cfg: SessionConfig, stem: str,
+                      answers: _Answers) -> None:
     """Settle what one deliverable is called and where it is written."""
     _stem, prefix, label, dir_attr = next(p for p in _PLACEMENTS if p[0] == stem)
     default_dir = getattr(transcriber, dir_attr)
 
-    def ask():
+    def ask() -> str:
         # A blank answer asks for the name or folder itself, and a session
         # that declined the one question for all of them keeps the defaults
         return "" if _placement_gate(transcriber, cfg, answers) else "n"
@@ -153,13 +168,13 @@ def _settle_placement(transcriber, cfg, stem, answers):
     cfg.used_fields[f"{prefix}_PATH"] = where or "n"
 
 
-def _yt_transcript_prompt():
+def _yt_transcript_prompt() -> str:
     """Ask what YouTube transcripts to save, if any."""
     return input("Download YouTube's own transcript? (y/N, 'all', 'f' to list, "
                  "or languages like 'en,fr' or 'en fr'): ").strip()
 
 
-def _prompt_yt_transcript_selection(transcriber, info):
+def _prompt_yt_transcript_selection(transcriber: YouTubeTranscriber, info: Info) -> list[str]:
     """List what the video offers and return the keys the user picks."""
     tracks = transcriber.caption_tracks(info)
     original = transcriber.original_caption(info)
@@ -182,7 +197,7 @@ def _prompt_yt_transcript_selection(transcriber, info):
                   else next((key for key in keys if key.lower() == part), None)
                   for part in wanted]
         if all(chosen):
-            return chosen
+            return cast('list[str]', chosen)
         print("Invalid selection. Please try again.")
 
 
@@ -191,7 +206,7 @@ def _prompt_yt_transcript_selection(transcriber, info):
 ORIGINAL_TRACK = "original"
 
 
-def _track_for(tracks, want):
+def _track_for(tracks: dict[str, str], want: str) -> str | None:
     """The caption track `want` names, or None: its whole key first, then a key
     in that language. 'en' is not an en-GB listed ahead of it, as
     caption_language already holds.
@@ -207,20 +222,21 @@ def _track_for(tracks, want):
     if exact or want == primary:
         return exact or next(iter(same), None)
 
-    def script(tag):
+    def script(tag: str) -> str | None:
         return next((part for part in tag.lower().split('-')[1:] if len(part) == 4), None)
 
     return next((key for key in same if script(key) == script(want)), None)
 
 
-def _resolve_track(transcriber, info, tracks, want):
+def _resolve_track(transcriber: YouTubeTranscriber, info: Info, tracks: dict[str, str],
+                   want: str) -> str | None:
     """The track one DOWNLOAD_YT_TRANSCRIPT entry names in this video, or None."""
     if want.strip().lower() == ORIGINAL_TRACK:
         return transcriber.original_caption(info)
     return _track_for(tracks, want)
 
 
-def _settle_yt_transcripts(transcriber, cfg, raw):
+def _settle_yt_transcripts(transcriber: YouTubeTranscriber, cfg: SessionConfig, raw: str) -> None:
     """Turn a DOWNLOAD_YT_TRANSCRIPT answer into the list of tracks to save."""
     cfg.yt_transcript_raw = raw
     answer = raw.strip().lower()
@@ -258,7 +274,8 @@ def _settle_yt_transcripts(transcriber, cfg, raw):
     elif not listing:
         # An explicit language is taken as read: the user asked for that text,
         # whoever or whatever produced it
-        chosen, missing = [], []
+        chosen: list[str] = []
+        missing: list[str] = []
         for want in transcriber.split_entries(raw):
             found = _resolve_track(transcriber, cfg.info, tracks, want)
             (chosen if found else missing).append(want.lower())
@@ -290,7 +307,8 @@ def _settle_yt_transcripts(transcriber, cfg, raw):
     cfg.yt_transcript_raw = ",".join(cfg.yt_transcript_languages)
 
 
-def _settle_target_languages(transcriber, cfg, raw):
+def _settle_target_languages(transcriber: YouTubeTranscriber, cfg: SessionConfig,
+                             raw: str) -> None:
     """Fix which languages to transcribe into, re-asking if none survive."""
     codes, unknown = transcriber.normalize_languages(raw)
     if unknown:
@@ -302,7 +320,8 @@ def _settle_target_languages(transcriber, cfg, raw):
     cfg.target_language = codes[0]
 
 
-def _settle_source_language(transcriber, cfg, raw):
+def _settle_source_language(transcriber: YouTubeTranscriber, cfg: SessionConfig,
+                            raw: str | None) -> None:
     """Fix the language spoken in the audio: a code, or None to detect it.
 
     Separate from the target: Whisper takes the spoken language as a hint for
@@ -322,7 +341,8 @@ def _settle_source_language(transcriber, cfg, raw):
     cfg.used_fields["SOURCE_LANGUAGE"] = cfg.source_language or transcriber.AUTO_LANGUAGE
 
 
-def _offers_en_model(transcriber, cfg, model_enum):
+def _offers_en_model(transcriber: YouTubeTranscriber, cfg: SessionConfig,
+                     model_enum: ModelSize) -> bool:
     """Whether an English-only model could serve: a size that has one, speech
     that is or may be English, and nothing asked for but English or the
     language spoken."""
@@ -332,7 +352,7 @@ def _offers_en_model(transcriber, cfg, model_enum):
             <= {transcriber.DEFAULT_LANGUAGE, transcriber.AUTO_LANGUAGE})
 
 
-def _ensure_metadata(transcriber, cfg):
+def _ensure_metadata(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
     """Load cfg.info if it is not already there.
 
     A quality menu lists what one specific video offers, so it cannot be shown
@@ -348,7 +368,7 @@ def _ensure_metadata(transcriber, cfg):
             _drop_current_source(cfg)
 
 
-def _drop_current_source(cfg):
+def _drop_current_source(cfg: SessionConfig) -> None:
     """Give up on the source the settings are being asked about, for the next.
 
     Raises DownloadFailed if it was the last: then there is no run to set up.
@@ -361,13 +381,14 @@ def _drop_current_source(cfg):
     cfg.info, cfg.video_title = None, ""
 
 
-def _as_height(value):
+def _as_height(value: str) -> str:
     """A bare number is a height: 720 and 720p are the same answer."""
     return f"{value}p" if _is_number(value) and int(value) > 0 else value
 
 
-def _resolve_quality(transcriber, cfg, raw, picker, default=Resolution.HIGHEST.value,
-                     normalize=None):
+def _resolve_quality(transcriber: YouTubeTranscriber, cfg: SessionConfig, raw: str | None,
+                     picker: Picker, default: str = Resolution.HIGHEST.value,
+                     normalize: Callable[[str], str] | None = None) -> str:
     """Settle one quality field on a concrete answer.
 
     Blank and "fetch" both mean "show me what this video has", so an unset
@@ -379,7 +400,7 @@ def _resolve_quality(transcriber, cfg, raw, picker, default=Resolution.HIGHEST.v
     Several values, separated by commas or spaces, are several deliverables:
     the field is returned as the list it was given, for _run_one to walk.
     """
-    values = []
+    values: list[str] = []
     for piece in transcriber.split_entries(raw or ""):
         value = Resolution.normalize(piece)
         if normalize:
@@ -401,7 +422,7 @@ def _resolve_quality(transcriber, cfg, raw, picker, default=Resolution.HIGHEST.v
             _drop_current_source(cfg)
 
 
-def _deliverable_asks(is_local):
+def _deliverable_asks(is_local: bool) -> tuple[str, str, str]:
     """The three deliverable questions, worded for a re-encode or a download.
 
     A local source is cut with ffmpeg rather than fetched, but it is the same
@@ -416,7 +437,7 @@ def _deliverable_asks(is_local):
             "Download audio? (y/N): ")
 
 
-def _settle_sources(cfg):
+def _settle_sources(cfg: SessionConfig) -> None:
     """Point cfg at the entry the video-specific questions are asked about.
 
     Resolutions, audio tiers and caption tracks are a menu of what one video
@@ -424,24 +445,26 @@ def _settle_sources(cfg):
     asking about; with no media at all cfg.url is left unset, which is what a
     refine-only session looks like.
     """
-    media = [entry for entry in cfg.sources if not entry[2]]
+    sources = cfg.sources or []
+    media = [entry for entry in sources if not entry[2]]
     remote = [entry for entry in media if not entry[1]]
     cfg.url, cfg.is_local_file = (remote or media)[0][:2] if media else (None, True)
-    if len(cfg.sources) > 1 or not media:
+    if len(sources) > 1 or not media:
         # One video is a template to point at the next one, but a list is the
         # point of the session: record it so the profile replays the same list
         cfg.used_fields["URL"] = ",".join(
-            ",".join(entry[2]) if entry[2] else entry[0] for entry in cfg.sources)
+            ",".join(entry[2]) if entry[2] else entry[0] or "" for entry in sources)
 
 
-def _settle_quality(transcriber, cfg, answers, field, label, picker,
-                    default=Resolution.HIGHEST.value):
+def _settle_quality(transcriber: YouTubeTranscriber, cfg: SessionConfig, answers: _Answers,
+                    field: str, label: str, picker: Picker,
+                    default: str = Resolution.HIGHEST.value) -> str:
     """Settle one quality field: stated, typed, or picked from the video's list."""
     video = picker is _prompt_resolution_selection
     typed = _prompt_resolution_input if video else _prompt_audio_resolution_input
     normalize = _as_height if video else None
 
-    def shown(raw):
+    def shown(raw: str) -> str:
         value = Resolution.normalize(raw)
         return normalize(value) if normalize else value
 
@@ -451,7 +474,8 @@ def _settle_quality(transcriber, cfg, answers, field, label, picker,
     return value
 
 
-def _settle_format(transcriber, cfg, answers, field, label, default, kind):
+def _settle_format(transcriber: YouTubeTranscriber, cfg: SessionConfig, answers: _Answers,
+                   field: str, label: str, default: str, kind: str) -> str:
     """Settle one format field, asking from ffmpeg's own list if it has none."""
     raw = _answer(answers, field, lambda: _prompt_format(transcriber, label, default, kind))
     value = _resolve_format(transcriber, raw, label, default, kind)
@@ -459,7 +483,7 @@ def _settle_format(transcriber, cfg, answers, field, label, default, kind):
     return value
 
 
-def _configure(transcriber, answers):
+def _configure(transcriber: YouTubeTranscriber, answers: _Answers) -> SessionConfig:
     """Gather the session's settings, from `answers` where it has them.
 
     Every setting is settled here, once, however the session was set up: a
@@ -569,7 +593,7 @@ def _configure(transcriber, answers):
         answers, "SOURCE_LANGUAGE", transcriber.get_source_language_input))
     _settle_target_languages(transcriber, cfg, _answer(
         answers, "TARGET_LANGUAGE", transcriber.get_target_language_input))
-    used_fields["TARGET_LANGUAGE"] = ",".join(cfg.target_languages)
+    used_fields["TARGET_LANGUAGE"] = ",".join(cfg.target_languages or [])
 
     if _offers_en_model(transcriber, cfg, model_enum):
         cfg.use_en_model = _yes_no(
@@ -587,7 +611,8 @@ def _configure(transcriber, answers):
     return _settle_refinement(transcriber, cfg, answers, assumed=refining)
 
 
-def _settle_refinement(transcriber, cfg, answers, assumed=False):
+def _settle_refinement(transcriber: YouTubeTranscriber, cfg: SessionConfig, answers: _Answers,
+                       assumed: bool = False) -> SessionConfig:
     """Settle enhancement: whether, which backend, which prompts, keep the raw.
 
     `assumed` is a refine-only run, where naming transcripts already answered
@@ -611,9 +636,9 @@ def _settle_refinement(transcriber, cfg, answers, assumed=False):
         if backend and backend.lower() != "local" and Provider.from_string(backend) is None:
             # Neither 'local' nor a provider was a local model's name or id,
             # and not an AI_PROVIDER typo to fall back from onto the key's vendor
-            named = backend.lower() in LocalModel.all_model_values()
+            known = backend.lower() in LocalModel.all_model_values()
             cfg.ai_mode, cfg.provider = AIEnhancementMode.LOCAL, None
-            cfg.local_model = LocalModel.get_by_name(backend).hf_model_id if named else backend
+            cfg.local_model = LocalModel.get_by_name(backend).hf_model_id if known else backend
         else:
             cfg.ai_mode, cfg.provider, cfg.local_model = _ai_backend(transcriber, backend)
 
@@ -628,6 +653,8 @@ def _settle_refinement(transcriber, cfg, answers, assumed=False):
             used_fields["PROMPT"] = ",".join(label for _text, label in cfg.prompts)
 
     if cfg.ai_mode == AIEnhancementMode.API:
+        # An API backend is always a provider's: see _ai_backend
+        assert cfg.provider is not None
         cfg.api_key = _resolve_api_key(cfg.provider)
         if cfg.api_key is None:
             cfg.ai_mode = None
@@ -654,7 +681,7 @@ def _settle_refinement(transcriber, cfg, answers, assumed=False):
     return cfg
 
 
-def _create_youtube_with_recovery(transcriber, cfg):
+def _create_youtube_with_recovery(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
     """Fetch video metadata for cfg.url, re-prompting on failure.
 
     Sets cfg.info and cfg.video_title on success. May flip cfg.is_local_file
@@ -662,6 +689,8 @@ def _create_youtube_with_recovery(transcriber, cfg):
     """
     retry_prompt = ("\nEnter a different YouTube video URL, video ID, or local file path, "
                     "or press Enter to give up on this one: ")
+    # Asked only about a source, never a refine-only session's absence of one
+    assert cfg.url is not None
     while True:
         try:
             # extract_info fails for private, removed and region-blocked

@@ -1,14 +1,27 @@
 """Where a setting's answer comes from, and what a gap in it means."""
 
-import os
-from dataclasses import dataclass
+from __future__ import annotations
 
-from .common import YesNo
-from .config import _PLACEMENTS, Session
+import enum
+import os
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import Final
+
+from .common import SourceEntry, YesNo
+from .config import _PLACEMENTS, Session, SessionConfig
 from .transcriber import YouTubeTranscriber
 
-# A gap the question is asked for, rather than one taken as a stated answer
-ASK = object()
+
+class _Gap(enum.Enum):
+    """What a gap in the answers can mean besides an answer: ASK."""
+    ASK = enum.auto()
+
+
+# A gap the question is asked for, rather than one taken as a stated answer.
+# One member of its own enum, so that a type checker tells it from the
+# answers it stands beside.
+ASK: Final = _Gap.ASK
 
 
 @dataclass(frozen=True)
@@ -24,11 +37,11 @@ class Setting:
     # What a profile without the field at all means: ASK, or the answer it is
     # taken as. One written before the field existed does not carry it, and a
     # field that turns something on is off there, as it was then.
-    absent: object = ASK
+    absent: str | _Gap = ASK
     # What the field left blank means, the same way
-    blank: object = ASK
+    blank: str | _Gap = ASK
     # The field's pre-1.2 name, read when this one is not set
-    legacy: str = None
+    legacy: str | None = None
     # Whether a value names one video's own file, which the next video of a
     # repeat would be written over
     one_video: bool = False
@@ -85,30 +98,32 @@ class _Answers:
     What each setting means is decided once, by SETTINGS and _configure; this
     only reads them. `verb` and `origin` word the line reporting one.
     """
-    verb = origin = None
+    verb: str
+    origin: str
+    session: Session
     # Whether a round answered this way is offered to be saved as a profile:
     # one run from a profile already is one
     offers_profile = False
 
-    def lookup(self, setting):
+    def lookup(self, setting: Setting) -> tuple[str, str | None]:
         """(name, value) of the stored answer, the value None if there is none."""
         raise NotImplementedError
 
-    def absent(self, setting):
+    def absent(self, setting: Setting) -> str | _Gap:
         """What no stored answer at all means: ASK, or the answer it stands for."""
         return ASK
 
-    def sources(self, transcriber):
+    def sources(self, transcriber: YouTubeTranscriber) -> list[SourceEntry]:
         """The session's videos, files and transcripts."""
         return transcriber.prompt_for_sources()
 
-    def report(self, name, shown):
+    def report(self, name: str, shown: str) -> None:
         print(f"{self.verb} {name}: {shown} (from {self.origin})")
 
-    def invalid(self, name, value):
+    def invalid(self, name: str, value: str) -> None:
         print(f"Invalid value for {name}: {value} (from {self.origin})")
 
-    def ignored(self, field, why):
+    def ignored(self, field: str, why: str) -> None:
         """Say that a stored answer has no part in this run, and why."""
         _name, value = self.lookup(SETTINGS[field])
         value = (value or "").strip()
@@ -116,7 +131,7 @@ class _Answers:
         if value and value.lower() not in YesNo.all_no_and_skip():
             print(f"Ignoring {field}={value} (from {self.origin}): {why}")
 
-    def carry(self, cfg):
+    def carry(self, cfg: SessionConfig) -> None:
         """Hand the "Run again?" round what it needs from this one."""
         raise NotImplementedError
 
@@ -133,17 +148,18 @@ class _Profile(_Answers):
     """
     verb = "Loaded"
 
-    def __init__(self, name, values, session=None):
+    def __init__(self, name: str, values: Mapping[str, str],
+                 session: Session | None = None) -> None:
         self.origin = name
         self.session = session or Session()
-        self.fields = {}
+        self.fields: dict[str, str] = {}
         for key, value in values.items():
             if key in _PROFILE_FIELDS:
                 self.fields[key] = value
             else:
                 os.environ[key] = value
 
-    def lookup(self, setting):
+    def lookup(self, setting: Setting) -> tuple[str, str | None]:
         name, value = setting.field, self.fields.get(setting.field)
         if not value and setting.legacy and self.fields.get(setting.legacy):
             # Read under its own name, so what is reported is what the profile
@@ -159,26 +175,26 @@ class _Profile(_Answers):
             return name, None
         return name, value
 
-    def absent(self, setting):
+    def absent(self, setting: Setting) -> str | _Gap:
         return setting.absent
 
-    def sources(self, transcriber):
+    def sources(self, transcriber: YouTubeTranscriber) -> list[SourceEntry]:
         # A repeat is the same settings over a new job, so the profile's own
         # URL is not reused. Either way the answer is settled here rather than
         # part way through the run: this is the only prompt that takes a list,
         # or 's' to refine a transcript instead of fetching anything.
         named = "" if self.session.repeat else (self.fields.get("URL") or "")
-        entries = []
+        entries: list[SourceEntry] = []
         if named and named != transcriber.URL_PLACEHOLDER:
             # Whether a video exists is settled by the metadata fetch in
             # _create_youtube_with_recovery, which can re-prompt
             entries = transcriber.source_entries(named, self.origin)
             if entries and all(entry[2] for entry in entries):
-                self.report("URL", f"{sum(len(entry[2]) for entry in entries)} "
+                self.report("URL", f"{sum(len(entry[2] or []) for entry in entries)} "
                                    "transcript(s) to refine")
         return entries or super().sources(transcriber)
 
-    def carry(self, cfg):
+    def carry(self, cfg: SessionConfig) -> None:
         # The next round reloads the profile, and asks for its sources
         self.session.profile = self.origin
 
@@ -191,25 +207,25 @@ class _Remembered(_Answers):
     verb, origin = "Using previous", "last session"
     offers_profile = True
 
-    def __init__(self, session=None):
+    def __init__(self, session: Session | None = None) -> None:
         self.session = session or Session()
 
-    def lookup(self, setting):
+    def lookup(self, setting: Setting) -> tuple[str, str | None]:
         return setting.field, self.session.remembered.get(setting.field)
 
-    def ignored(self, field, why):
+    def ignored(self, field: str, why: str) -> None:
         # The last round's own answer, not a field anyone wrote: a local file
         # after a YouTube video has no stream to pick, and no need to say so
         pass
 
-    def carry(self, cfg):
+    def carry(self, cfg: SessionConfig) -> None:
         """Remember this round's answers for the next - only the ones it was
         asked. A refine-only round asks nothing about media, and a local file
         nothing about YouTube's transcripts; an "n" remembered for a question
         never put answered it in the next round, and a YouTube URL given then
         was neither downloaded nor transcribed."""
         fields, media = cfg.used_fields, bool(cfg.url)
-        remembered = {
+        remembered: dict[str, str | bool | None] = {
             "DOWNLOAD_VIDEO": media and fields.get("DOWNLOAD_VIDEO"),
             "VIDEO_ONLY": media and fields.get("VIDEO_ONLY"),
             "DOWNLOAD_AUDIO": media and fields.get("DOWNLOAD_AUDIO"),
@@ -238,12 +254,16 @@ class _Remembered(_Answers):
         for stem, prefix, _label, _dir in _PLACEMENTS:
             remembered[f"{prefix}_PATH"] = getattr(cfg, f"{stem}_path", "")
         # An empty answer is no answer: kept, it skipped the question and then
-        # filtered on ""
-        self.session.remembered = {key: value for key, value in remembered.items() if value}
+        # filtered on "". What is left is the answers, which are text: a
+        # False above is a question this round was not asked.
+        self.session.remembered = {key: value for key, value in remembered.items()
+                                   if isinstance(value, str) and value}
         self.session.profile = None
 
 
-def _answer(answers, field, ask, valid=None, shown=None):
+def _answer(answers: _Answers, field: str, ask: Callable[[], str],
+            valid: Callable[[str], object] | None = None,
+            shown: Callable[[str], str] | None = None) -> str:
     """The raw answer to one setting: the stored one, or what a gap in it means.
 
     A stored answer `valid` refuses is called invalid and asked for again,
@@ -266,17 +286,18 @@ def _answer(answers, field, ask, valid=None, shown=None):
     return ask() if gap is ASK else gap
 
 
-def _yn(flag):
+def _yn(flag: object) -> str:
     """A yes/no as a profile writes it."""
     return "y" if flag else "n"
 
 
-def _is_yes_no(answer):
+def _is_yes_no(answer: str) -> bool:
     """Whether an answer is a yes or a no. 'skip' declines, as it does elsewhere."""
     return answer.lower() in YesNo.YES.value + YesNo.all_no_and_skip()
 
 
-def _yes_no(transcriber, answers, field, question, default='n'):
+def _yes_no(transcriber: YouTubeTranscriber, answers: _Answers, field: str, question: str,
+            default: str = 'n') -> bool:
     """Settle a yes/no setting, asking `question` if it has no answer."""
     answer = _answer(answers, field,
                      lambda: _yn(transcriber.get_yes_no_input(question, default=default)),

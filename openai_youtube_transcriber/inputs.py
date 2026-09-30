@@ -1,22 +1,23 @@
 """What the user is asked, and what an answer names: a video, a file, a language."""
 
+from __future__ import annotations
+
 import os
 import re
+from collections.abc import Callable
+from typing import cast
 from urllib.parse import parse_qs, urlparse
 
 import whisper
 
-from .common import (AIEnhancementMode, LocalModel, ModelSize, Provider, YesNo,
-                     _is_number, error)
+from .base import TranscriberBase
+from .common import (AIEnhancementMode, LocalModel, ModelSize, Provider,
+                     SourceEntry, YesNo, _is_number, error)
 
 
-class InputsMixin:
+class InputsMixin(TranscriberBase):
     """What the user is asked, and what an answer names."""
 
-    # Source answers meaning "no media; refine what is already on disk". Safe
-    # to reserve: a video ID is 11 characters, and an existing file of the
-    # same name still wins, as one does over an ID-lookalike below.
-    SKIP_SOURCE = ("s", "skip")
     YOUTUBE_HOSTS = ('youtube.com', 'www.youtube.com', 'm.youtube.com',
                      'music.youtube.com', 'youtube-nocookie.com',
                      'www.youtube-nocookie.com', 'youtu.be', 'www.youtu.be')
@@ -29,7 +30,7 @@ class InputsMixin:
                              "or S to refine a transcript (several separated by "
                              "commas or spaces run in turn): ")
 
-    def is_web_url(self, input_str):
+    def is_web_url(self, input_str: str) -> bool:
         """Check if string is a valid http/https URL (no network calls)."""
         try:
             result = urlparse(input_str)
@@ -37,7 +38,7 @@ class InputsMixin:
         except ValueError:
             return False
 
-    def add_scheme_if_missing(self, text):
+    def add_scheme_if_missing(self, text: str) -> str:
         """Accept a YouTube address typed without 'https://'.
 
         Matching the whole host keeps local file paths out of it.
@@ -46,17 +47,17 @@ class InputsMixin:
             return 'https://' + text
         return text
 
-    def is_youtube_video_id(self, text):
+    def is_youtube_video_id(self, text: str) -> bool:
         """Check for a valid 11-character video ID (alphanumerics, dash, underscore)."""
         if len(text) != 11:
             return False
         return bool(re.match(r'^[a-zA-Z0-9_-]{11}$', text))
 
-    def construct_youtube_url(self, video_id):
+    def construct_youtube_url(self, video_id: str) -> str:
         """Build a full YouTube URL from a video ID."""
         return f"https://www.youtube.com/watch?v={video_id}"
 
-    def is_youtube_url(self, url):
+    def is_youtube_url(self, url: str) -> bool:
         """Check a URL names a single YouTube video (watch, short, embed forms).
 
         Shape only: whether the video actually exists is settled by the single
@@ -77,7 +78,7 @@ class InputsMixin:
             return 'v' in parse_qs(parsed.query)
         return bool(self.YOUTUBE_VIDEO_PATH.match(parsed.path))
 
-    def get_yes_no_input(self, prompt_text, default="y"):
+    def get_yes_no_input(self, prompt_text: str, default: str = "y") -> bool:
         """Prompt user for yes/no input with validation."""
         while True:
             user_input = input(prompt_text).strip().lower()
@@ -90,7 +91,7 @@ class InputsMixin:
             else:
                 print(f"Invalid input. Please enter one of {YesNo.YES.value + YesNo.NO.value}.")
 
-    def resolve_source(self, text, origin=None):
+    def resolve_source(self, text: str, origin: str | None = None) -> tuple[str, bool] | None:
         """One media entry as (url, is_local_file), or None if it names nothing.
 
         `origin` is the profile the entry came from, and only changes the
@@ -122,7 +123,7 @@ class InputsMixin:
             print("Invalid input. Please enter valid YouTube URL, video ID, or local file path")
         return None
 
-    def source_entries(self, text, origin=None):
+    def source_entries(self, text: str, origin: str | None = None) -> list[SourceEntry]:
         """Resolve a source answer into the passes it asks for. [] if one fails.
 
         An answer is a list: videos, media files and transcripts in any order,
@@ -130,7 +131,7 @@ class InputsMixin:
         and a set refine_sources is a pass with no media at all - 's', which
         asks which transcripts, or a .txt path naming them outright.
         """
-        entries = []
+        entries: list[SourceEntry] = []
         # An existing path is one entry however many spaces are in it; a URL
         # never has one, so only the separators are left to split on
         for piece in self.split_entries(
@@ -147,7 +148,7 @@ class InputsMixin:
             entries.append(resolved + (None,))
         return entries
 
-    def prompt_for_sources(self, prompt_text=None):
+    def prompt_for_sources(self, prompt_text: str | None = None) -> list[SourceEntry]:
         """Prompt until every entry of the answer is usable. Returns the entries."""
         while True:
             entries = self.source_entries(
@@ -155,7 +156,8 @@ class InputsMixin:
             if entries:
                 return entries
 
-    def prompt_for_source(self, prompt_text, allow_skip=False):
+    def prompt_for_source(self, prompt_text: str,
+                          allow_skip: bool = False) -> tuple[str, bool] | None:
         """Prompt for one media source. Returns (url, is_local_file).
 
         The list belongs at the top of a session; a source asked for halfway
@@ -180,7 +182,7 @@ class InputsMixin:
             if resolved:
                 return resolved
 
-    def get_model_choice_input(self):
+    def get_model_choice_input(self) -> str:
         """Prompt for Whisper model selection (1-7 or name)."""
         while True:
             prompt = (
@@ -201,7 +203,8 @@ class InputsMixin:
                 print("Invalid input. Please enter a valid model choice or number (1-7).")
 
     @staticmethod
-    def resolve_transcript_language(detected, fallback):
+    def resolve_transcript_language(detected: str | None,
+                                    fallback: str | None) -> str | None:
         """Reduce a langdetect code to one Whisper knows, else `fallback`.
 
         Keeps region tags ('zh-cn') and detection failures out of the filename.
@@ -210,7 +213,7 @@ class InputsMixin:
         return base if base in whisper.tokenizer.LANGUAGES else fallback
 
     @staticmethod
-    def normalize_language(text):
+    def normalize_language(text: str) -> str | None:
         """Resolve a language code or name to Whisper's 2-letter code, or None.
 
         Must return a code: callers compare against DEFAULT_LANGUAGE to pick .en models.
@@ -220,7 +223,8 @@ class InputsMixin:
         return code if code in whisper.tokenizer.LANGUAGES else None
 
     @staticmethod
-    def split_entries(text, is_whole=None):
+    def split_entries(text: str | None,
+                      is_whole: Callable[[str], object] | None = None) -> list[str]:
         """Split a list answer on commas, spaces, or both.
 
         "a,b", "a, b" and "a b" are the same two entries. Entries can contain
@@ -234,7 +238,7 @@ class InputsMixin:
             return []
         if is_whole and is_whole(text):
             return [text]
-        entries = []
+        entries: list[str] = []
         for part in text.split(','):
             part = part.strip()
             if not part:
@@ -245,19 +249,20 @@ class InputsMixin:
                 entries.extend(part.split())
         return entries
 
-    def normalize_languages(self, text):
+    def normalize_languages(self, text: str | None) -> tuple[list[str], list[str]]:
         """Split a comma- or space-separated answer into Whisper codes.
 
         Returns (codes, unknown). Order is kept and repeats collapse, so
         "en, English, fr" asks for two transcripts rather than three. 'auto',
         the language spoken, is kept as it is.
         """
-        def code_of(piece):
+        def code_of(piece: str) -> str | None:
             if piece.strip().lower() == self.AUTO_LANGUAGE:
                 return self.AUTO_LANGUAGE
             return self.normalize_language(piece)
 
-        codes, unknown = [], []
+        codes: list[str] = []
+        unknown: list[str] = []
         for part in self.split_entries(text, lambda piece: code_of(piece) is not None):
             code = code_of(part)
             if code is None:
@@ -266,7 +271,7 @@ class InputsMixin:
                 codes.append(code)
         return codes, unknown
 
-    def get_target_language_input(self):
+    def get_target_language_input(self) -> str:
         """Prompt for the language to write, or several separated by commas or spaces."""
         while True:
             prompt = (
@@ -287,7 +292,7 @@ class InputsMixin:
             print(f"Not a supported language: {', '.join(unknown) or answer}. Please "
                   "refer to the supported languages list and try again.")
 
-    def get_source_language_input(self):
+    def get_source_language_input(self) -> str:
         """Prompt for the language spoken in the audio; Enter has Whisper detect it."""
         while True:
             answer = input("Enter the language spoken in the audio (e.g., 'ja' or "
@@ -300,7 +305,7 @@ class InputsMixin:
             print(f"Not a supported language: {answer}. Please refer to "
                   "https://github.com/openai/whisper#supported-languages and try again.")
 
-    def _validate_hf_model(self, model_name):
+    def _validate_hf_model(self, model_name: str) -> bool:
         """Check whether a HuggingFace model ID (e.g. 'microsoft/phi-2') exists."""
         try:
             from huggingface_hub import model_info
@@ -314,7 +319,7 @@ class InputsMixin:
         except Exception:
             return False
 
-    def get_ai_provider_input(self):
+    def get_ai_provider_input(self) -> tuple[AIEnhancementMode, Provider | None, str | None]:
         """Prompt for the enhancement backend.
 
         Returns (API, provider, None) or (LOCAL, None, model_id). Only reached
@@ -360,7 +365,7 @@ class InputsMixin:
             else:
                 print(f"Model '{model_id}' not found on HuggingFace. Please try again.")
 
-    def _resolve_prompt_choice(self, token, prompts):
+    def _resolve_prompt_choice(self, token: str, prompts: list[str]) -> str | None:
         """One entry of a selection: a number, a name in Prompt/, or a path."""
         token = token.strip()
         if _is_number(token) and 1 <= int(token) <= len(prompts):
@@ -370,7 +375,7 @@ class InputsMixin:
                 return candidate
         return token if os.path.exists(os.path.expanduser(token)) else None
 
-    def get_prompt_input(self):
+    def get_prompt_input(self) -> tuple[list[str] | None, str | None]:
         """Prompt for prompt files or a custom prompt.
 
         Returns (filenames, None) for files, (None, text) for an inline prompt,
@@ -402,13 +407,13 @@ class InputsMixin:
                           user_input,
                           lambda piece: self._resolve_prompt_choice(piece, prompts))]
             if chosen and None not in chosen:
-                return (chosen, None)
+                return (cast('list[str]', chosen), None)
             print("Invalid selection. Please try again.")
 
-    def _get_inline_prompt(self):
+    def _get_inline_prompt(self) -> tuple[None, str | None]:
         """Read a multi-line prompt from the console; (None, text) or (None, None)."""
         print("Enter your custom prompt (press Enter twice to finish):")
-        lines = []
+        lines: list[str] = []
         while True:
             line = input()
             if line == '':

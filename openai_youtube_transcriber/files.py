@@ -1,5 +1,7 @@
 """The app's folders, and the text files it reads and writes in them."""
 
+from __future__ import annotations
+
 import codecs
 import importlib.util
 import itertools
@@ -8,17 +10,19 @@ import re
 import shutil
 import subprocess
 import sys
+from typing import cast
 
-from .common import Resolution, _is_number, error
+from .base import TranscriberBase
+from .common import Prompt, Resolution, _is_number, error
 
 
-class FilesMixin:
+class FilesMixin(TranscriberBase):
     """The app's folders, and the text files it keeps in them."""
 
     # Filename tag for a prompt that names no description of its own
     REFINED_TAG = " - Refined"
 
-    def ensure_directory_exists(self, directory_path):
+    def ensure_directory_exists(self, directory_path: str) -> bool:
         """Create directory if it doesn't exist. Returns True on success."""
         try:
             os.makedirs(directory_path, exist_ok=True)
@@ -27,7 +31,7 @@ class FilesMixin:
             error(f"Error creating directory {directory_path}: {str(e)}")
             return False
 
-    def prompt_dirs(self):
+    def prompt_dirs(self) -> list[str]:
         """Where Prompt/ may be: beside the script, under the working directory,
         and where an installed copy keeps the prompts it shipped with.
 
@@ -46,12 +50,12 @@ class FilesMixin:
                 if d and os.path.isdir(d)]
 
     @classmethod
-    def installed_prompt_dir(cls):
+    def installed_prompt_dir(cls) -> str | None:
         """The folder an installed copy's shipped prompts are in, or None."""
         return cls.installed_data_dir(cls.PROMPT_PACKAGE)
 
     @staticmethod
-    def installed_data_dir(package):
+    def installed_data_dir(package: str) -> str | None:
         """The folder the build installed one package of data into, or None.
 
         pyproject.toml installs the shipped prompts and sample profiles as packages of
@@ -65,7 +69,7 @@ class FilesMixin:
         locations = list(spec.submodule_search_locations or []) if spec else []
         return locations[0] if locations else None
 
-    def seed_sample_profiles(self):
+    def seed_sample_profiles(self) -> None:
         """Copy the shipped sample profiles into a Profile/ that does not exist yet.
 
         An installed copy has them in site-packages, and a profile is loaded,
@@ -76,9 +80,11 @@ class FilesMixin:
         if os.path.exists(self.PROFILE_DIR):
             return
         source = self.installed_data_dir(self.PROFILE_PACKAGE)
+        if source is None:
+            return
         samples = sorted(name for name in os.listdir(source)
                          if name.startswith(self.PROFILE_PREFIX)
-                         and name.endswith(self.ENV_EXT)) if source else []
+                         and name.endswith(self.ENV_EXT))
         if not samples:
             return
         try:
@@ -90,9 +96,9 @@ class FilesMixin:
             return
         print(f"Copied {len(samples)} sample profiles to {os.path.abspath(self.PROFILE_DIR)}")
 
-    def list_available_prompts(self):
+    def list_available_prompts(self) -> list[str]:
         """List non-empty .txt files in the Prompt/ directory."""
-        found = {}
+        found: dict[str, bool] = {}
         for prompt_dir in self.prompt_dirs():
             for f in os.listdir(prompt_dir):
                 if (f.endswith(self.TXT_EXT) and f not in found
@@ -100,7 +106,7 @@ class FilesMixin:
                     found[f] = True
         return sorted(found)
 
-    def load_prompt_file(self, filename):
+    def load_prompt_file(self, filename: str) -> str:
         """Load prompt text from Prompt/<filename>, or from a path to one anywhere.
 
         Prompt/ is looked in first, so the short names in a profile go on
@@ -119,7 +125,7 @@ class FilesMixin:
         return content
 
     @staticmethod
-    def decode_text(data):
+    def decode_text(data: bytes) -> str:
         """A text file's bytes as text: UTF-8, with or without a BOM, or UTF-16/32
         with one.
 
@@ -138,7 +144,7 @@ class FilesMixin:
         # As text mode reads it: a file saved on Windows is the same words
         return text.replace('\r\n', '\n').replace('\r', '\n')
 
-    def read_text_file(self, path, what):
+    def read_text_file(self, path: str, what: str) -> str | None:
         """The text of a transcript or prompt, or None, having said why not.
 
         A file some other editor saved in another encoding raised out of the
@@ -154,12 +160,12 @@ class FilesMixin:
                   f"(or UTF-16 with a BOM) and try again.")
         return None
 
-    def is_transcript_file(self, path):
+    def is_transcript_file(self, path: str) -> bool:
         """Is this an existing .txt file, i.e. a transcript rather than media?"""
         return bool(path) and path.lower().endswith(self.TXT_EXT) and \
             os.path.isfile(os.path.expanduser(path))
 
-    def transcript_sources(self, text):
+    def transcript_sources(self, text: str) -> list[str] | None:
         """The transcripts `text` names, or None if it names something else.
 
         Commas or spaces separate several. A path that is itself a file wins
@@ -172,7 +178,7 @@ class FilesMixin:
             return [os.path.expanduser(part) for part in parts]
         return None
 
-    def named_transcripts(self, text):
+    def named_transcripts(self, text: str | None) -> list[str] | None:
         """The transcripts a source answer names, or None if it names media.
 
         's' asks which; a path to a .txt, or several of them, names them
@@ -184,13 +190,13 @@ class FilesMixin:
             return self.select_transcripts() or None
         return self.transcript_sources(text)
 
-    def list_available_transcripts(self):
+    def list_available_transcripts(self) -> list[str]:
         """Transcripts to refine, Transcript/Raw/ first.
 
         Raw/ holds the originals earlier refinements moved out of the way, so
         it is the first place to look for something to try another prompt on.
         """
-        found = []
+        found: list[str] = []
         for folder in (self.RAW_TRANSCRIPT_DIR, self.TRANSCRIPT_DIR):
             if not os.path.isdir(folder):
                 continue
@@ -199,14 +205,14 @@ class FilesMixin:
                          and os.path.isfile(os.path.join(folder, name)))
         return found
 
-    def _resolve_transcript_choice(self, token, found):
+    def _resolve_transcript_choice(self, token: str, found: list[str]) -> str | None:
         """One entry of a selection: a number in the list, or a path."""
         token = token.strip()
         if _is_number(token) and 1 <= int(token) <= len(found):
             return found[int(token) - 1]
         return token if self.is_transcript_file(token) else None
 
-    def select_transcripts(self):
+    def select_transcripts(self) -> list[str]:
         """Pick transcripts to refine. [] if the user backs out.
 
         Enter cancels rather than taking the first file: this list is a whole
@@ -233,10 +239,10 @@ class FilesMixin:
                           user_input,
                           lambda piece: self._resolve_transcript_choice(piece, found))]
             if chosen and None not in chosen:
-                return [os.path.expanduser(path) for path in chosen]
+                return [os.path.expanduser(path) for path in cast('list[str]', chosen)]
             print("Invalid selection. Please try again.")
 
-    def read_transcript(self, path):
+    def read_transcript(self, path: str) -> str:
         """Read a transcript to refine. Empty string if unreadable or empty."""
         content = self.read_text_file(path, "transcript")
         if content is None:
@@ -246,10 +252,12 @@ class FilesMixin:
             print(f"Warning: Transcript is empty: {path}")
         return content
 
-    def startfile(self, fn):
+    def startfile(self, fn: str) -> None:
         """Open file with system default app (cross-platform)."""
         try:
-            if os.name == 'nt':
+            # sys.platform rather than os.name: the same test, and the one a
+            # type checker knows os.startfile exists behind
+            if sys.platform == 'win32':
                 os.startfile(fn)
             elif os.name == 'posix':
                 opener = 'open' if sys.platform == 'darwin' else 'xdg-open'
@@ -260,12 +268,13 @@ class FilesMixin:
             # and the rest of a batch is still owed.
             print(f"Note: could not open {os.path.basename(fn)}: {str(e)}")
 
-    def sanitize_filename(self, text):
+    def sanitize_filename(self, text: str) -> str:
         """Strip invalid characters from filename; never returns an empty name."""
         cleaned = "".join(c for c in text if c.isalnum() or c in "._- ").strip()
         return cleaned or "untitled"
 
-    def save_transcript(self, text, filename, output_dir, open_after=True):
+    def save_transcript(self, text: str, filename: str, output_dir: str,
+                        open_after: bool = True) -> bool:
         """Write transcript text to output_dir/filename; open it unless told not to.
 
         The Transcript/Raw/ original is saved with open_after=False - only the
@@ -305,7 +314,7 @@ class FilesMixin:
         return True
 
     @staticmethod
-    def write_text_atomically(path, text):
+    def write_text_atomically(path: str, text: str) -> None:
         """Write `text` to `path` so that a failed write leaves the file there whole.
 
         The text goes to a file beside it and is swapped in. Opened with 'w', a
@@ -337,7 +346,7 @@ class FilesMixin:
             raise
 
     @staticmethod
-    def quality_tag(*qualities):
+    def quality_tag(*qualities: str | None) -> str:
         """Bracketed quality tag for a media filename, e.g. " [720p low]".
 
         The best available needs no label, so "highest" and blanks are dropped
@@ -349,7 +358,7 @@ class FilesMixin:
                  if quality and str(quality) != Resolution.HIGHEST.value]
         return f" [{' '.join(parts)}]" if parts else ""
 
-    def prompt_suffix(self, prompt_label):
+    def prompt_suffix(self, prompt_label: str | None) -> str:
         """The " - desc" filename tag for the prompt that refined a transcript.
 
         Follows the profile naming convention, prompt<digits>-<desc>.txt, but
@@ -370,14 +379,15 @@ class FilesMixin:
             return self.REFINED_TAG
         return f" - {desc}"
 
-    def tagged_prompts(self, prompts):
+    def tagged_prompts(self, prompts: list[Prompt] | None) -> list[tuple[str, str, str]]:
         """(text, label, tag) per prompt, with the filename tags made distinct.
 
         Two prompts can want the same tag - prompt0-translator.txt and
         prompt1-translator.txt both read as "translator" - and the second would
         otherwise overwrite the first.
         """
-        tagged, seen = [], set()
+        tagged: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
         for text, label in prompts or []:
             tag = self.prompt_suffix(label)
             base, n = tag, 2
@@ -388,7 +398,7 @@ class FilesMixin:
         return tagged
 
     @staticmethod
-    def is_refinement(original_text, text):
+    def is_refinement(original_text: str | None, text: str) -> bool:
         """Did enhancement actually change the words?
 
         Compared on words rather than characters: the chunker rejoins on blank
@@ -396,9 +406,9 @@ class FilesMixin:
         """
         return original_text is not None and original_text.split() != text.split()
 
-    def save_final_transcript(self, text, filename, original_text=None,
-                              original_filename=None, keep_original=True,
-                              open_after=True, output_dir=None):
+    def save_final_transcript(self, text: str, filename: str, original_text: str | None = None,
+                              original_filename: str | None = None, keep_original: bool = True,
+                              open_after: bool = True, output_dir: str | None = None) -> bool:
         """Save the finished transcript to Transcript/. Returns True on success.
 
         original_text is the text before enhancement, passed under
@@ -418,7 +428,8 @@ class FilesMixin:
         # The original first: the refinement can be named onto the very file it
         # was read from, and written second, a Raw/ save that failed left the
         # words that file held nowhere at all
-        if keep_original and self.is_refinement(original_text, text):
+        if (keep_original and original_text is not None
+                and self.is_refinement(original_text, text)):
             raw_name = original_filename or filename
             if self.save_transcript(original_text, raw_name, raw_dir,
                                     open_after=False):
@@ -432,7 +443,7 @@ class FilesMixin:
               f"{os.path.abspath(os.path.join(final_dir, filename))}")
         return True
 
-    def list_profiles(self):
+    def list_profiles(self) -> list[str]:
         """List profile files in the Profile/ directory, sorted by name.
 
         Accepts: profile.txt, profile<number>.txt, profile-<desc>.txt,
@@ -443,7 +454,7 @@ class FilesMixin:
         pattern = rf"^{re.escape(self.PROFILE_PREFIX)}(?:\d+)?(?:-.*)?{re.escape(self.ENV_EXT)}$"
         return sorted(f for f in os.listdir(self.PROFILE_DIR) if re.match(pattern, f))
 
-    def create_profile(self, profile_fields):
+    def create_profile(self, profile_fields: dict[str, str]) -> None:
         """Save current session settings as a reusable profile file."""
         if not os.path.exists(self.PROFILE_DIR):
             print(f"Creating profile directory: {self.PROFILE_DIR}")
@@ -452,7 +463,7 @@ class FilesMixin:
         existing_profiles = self.list_profiles()
         num_pattern = (rf"^{re.escape(self.PROFILE_PREFIX)}(?P<num>\d+)"
                        rf"(?:-.*)?{re.escape(self.ENV_EXT)}$")
-        existing_numbers = []
+        existing_numbers: list[int] = []
         for f in existing_profiles:
             m = re.match(num_pattern, f)
             if m:
@@ -497,7 +508,7 @@ class FilesMixin:
                   "No changes were made to it.")
 
     @staticmethod
-    def env_value(value):
+    def env_value(value: str | None) -> str:
         """A profile value written so that dotenv reads back exactly it.
 
         Unquoted, " #" starts a comment, ${...} expands and edge spaces are
@@ -511,7 +522,7 @@ class FilesMixin:
             return text
         return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
-    def verify_file_writable(self, file_path):
+    def verify_file_writable(self, file_path: str) -> bool:
         """Check if file path is writable (creates parent dirs if needed)."""
         try:
             if os.path.exists(file_path):
@@ -531,7 +542,7 @@ class FilesMixin:
         except OSError:
             return False
 
-    def get_free_disk_space(self, directory):
+    def get_free_disk_space(self, directory: str) -> int | None:
         """Get available disk space in bytes for the given directory."""
         try:
             if os.path.exists(directory):

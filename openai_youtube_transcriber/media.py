@@ -1,21 +1,24 @@
 """What ffmpeg and ffprobe say of a file, and what they make of it."""
 
+from __future__ import annotations
+
 import os
 import re
 import subprocess
 
+from .base import TranscriberBase
 from .common import FFMPEG_RUN, _is_number, _same_file, error
 
 
-class MediaMixin:
+class MediaMixin(TranscriberBase):
     """What ffmpeg and ffprobe say of a file, and what they make of it."""
 
     # ffmpeg's lists of what it can write, which do not change while the process
     # runs. Shared by every session.
-    _format_cache = {}
-    _extension_cache = {}
+    _format_cache: dict[str, list[str]] = {}
+    _extension_cache: dict[str, str | None] = {}
 
-    def is_valid_media_file(self, path):
+    def is_valid_media_file(self, path: str) -> bool:
         """Check if path is a supported audio/video file."""
         if not os.path.exists(path):
             return False
@@ -29,7 +32,7 @@ class MediaMixin:
         file_ext = os.path.splitext(path)[1].lower()
         return file_ext in valid_extensions
 
-    def get_file_format(self, file_path):
+    def get_file_format(self, file_path: str) -> str | None:
         """Get media format using ffprobe, or None if this is not media.
 
         Quiet about failing: is_valid_media_file uses this to ask a question,
@@ -74,7 +77,7 @@ class MediaMixin:
     # more into it than they play: Opus into .mp4, AAC into .wav. Audio in
     # any other codec is re-encoded to the container's own; Matroska, and a
     # container not named here, take what they are given.
-    AUDIO_CODECS = {
+    AUDIO_CODECS: dict[str, tuple[str, ...]] = {
         'mp4': PORTABLE_AUDIO, 'm4v': PORTABLE_AUDIO, 'mov': PORTABLE_AUDIO,
         'm4a': ('aac', 'alac'), 'm4b': ('aac', 'alac'), 'aac': ('aac',),
         'mp3': ('mp3',), 'flac': ('flac',), 'opus': ('opus',),
@@ -84,12 +87,12 @@ class MediaMixin:
     }
 
     @classmethod
-    def audio_plays_in(cls, codec, container):
+    def audio_plays_in(cls, codec: str | None, container: str) -> bool:
         """Whether audio in `codec` may be copied into `container` as it is."""
         return container not in cls.AUDIO_CODECS or codec in cls.AUDIO_CODECS[container]
 
     @classmethod
-    def ffmpeg_formats(cls, kind):
+    def ffmpeg_formats(cls, kind: str) -> list[str]:
         """Names ffmpeg accepts for `kind`: 'container' or 'video'.
 
         Read from the installed ffmpeg rather than hardcoded, so the menu can
@@ -108,7 +111,7 @@ class MediaMixin:
             cached[kind] = []
             return cached[kind]
 
-        names = set()
+        names: set[str] = set()
         for line in listing.splitlines():
             parts = line.split()
             if len(parts) < 2 or not parts[0].startswith(('E', 'V', 'A', 'D', 'S', '.')):
@@ -128,7 +131,7 @@ class MediaMixin:
         return cached[kind]
 
     @classmethod
-    def format_extension(cls, name):
+    def format_extension(cls, name: str) -> str | None:
         """The extension ffmpeg writes for a format, or None if it writes no file.
 
         A muxer is not always named after the extension people type - MKV is
@@ -153,7 +156,7 @@ class MediaMixin:
         return cached[name]
 
     @staticmethod
-    def stream_property(path, kind, entry):
+    def stream_property(path: str, kind: str, entry: str) -> str | None:
         """One ffprobe field of a file's first video or audio stream, or None.
 
         None covers every way of not knowing: no such stream, no ffprobe, and a
@@ -172,23 +175,23 @@ class MediaMixin:
         return None if value in ("", "N/A") else value
 
     @classmethod
-    def stream_codec(cls, path, kind):
+    def stream_codec(cls, path: str, kind: str) -> str | None:
         """The codec of a file's first video or audio stream, or None."""
         return cls.stream_property(path, kind, 'codec_name')
 
     @classmethod
-    def source_height(cls, path):
+    def source_height(cls, path: str) -> int | None:
         """The height of a file's video, or None if it has none to read."""
         value = cls.stream_property(path, 'video', 'height')
         return int(value) if value and _is_number(value) else None
 
     @classmethod
-    def source_bitrate(cls, path):
+    def source_bitrate(cls, path: str) -> int | None:
         """A file's audio bitrate in kbps, or None if it is not recorded."""
         value = cls.stream_property(path, 'audio', 'bit_rate')
         return round(int(value) / 1000) if value and _is_number(value) else None
 
-    def strip_audio(self, path):
+    def strip_audio(self, path: str) -> str:
         """Drop a file's audio track, copying the video rather than re-encoding.
 
         A height YouTube publishes only as a progressive stream matches no
@@ -218,8 +221,9 @@ class MediaMixin:
         os.replace(silent, path)
         return path
 
-    def convert_media(self, source, target_format, kind, output_dir, filename_stem,
-                      height=None, bitrate=None, replace_source=True):
+    def convert_media(self, source: str, target_format: str, kind: str, output_dir: str,
+                      filename_stem: str, height: int | None = None, bitrate: int | None = None,
+                      replace_source: bool = True) -> str | None:
         """Re-encode `source` into target_format. Returns the new path, or None.
 
         Streams are copied where the container allows it, so asking for the
@@ -304,7 +308,7 @@ class MediaMixin:
         return self._discard(target)
 
     @staticmethod
-    def _discard(path):
+    def _discard(path: str) -> None:
         """Remove a half-written output and return None, for a failed ffmpeg run."""
         try:
             if os.path.exists(path):
@@ -313,7 +317,8 @@ class MediaMixin:
             pass
         return None
 
-    def combine_audio_video(self, video_path, audio_path, output_path):
+    def combine_audio_video(self, video_path: str, audio_path: str,
+                            output_path: str) -> str | None:
         """Merge separate video and audio files using ffmpeg.
 
         Nothing is re-encoded that the container will accept as it is: both

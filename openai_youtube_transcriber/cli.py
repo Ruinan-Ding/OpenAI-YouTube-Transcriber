@@ -1,21 +1,23 @@
 """A session: its rounds, "Run again?", and the entry point."""
 
+from __future__ import annotations
+
 import itertools
 import os
 import sys
 
 import yt_dlp
 
-from .answers import _answer, _is_yes_no, _yn
+from .answers import _answer, _Answers, _is_yes_no, _yn
 from .common import DownloadFailed, YesNo, error
-from .config import Session
+from .config import Session, SessionConfig
 from .pipeline import _run_pipeline
 from .profiles import _select_profile
 from .settings import INLINE_PROMPT, _configure
 from .transcriber import YouTubeTranscriber
 
 
-def _save_inline_prompts(transcriber, cfg):
+def _save_inline_prompts(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
     """Give each prompt typed at the console a file, so a profile can name it.
 
     PROMPT holds names, and a typed prompt has none: the profile said
@@ -26,8 +28,10 @@ def _save_inline_prompts(transcriber, cfg):
     if not any(label == INLINE_PROMPT for _text, label in cfg.prompts or []):
         return
     folders = transcriber.prompt_dirs() + [transcriber.PROMPT_DIR]
-    labels = []
-    for text, label in cfg.prompts:
+    labels: list[str] = []
+    # None while a typed prompt has no file of its own
+    label: str | None
+    for text, label in cfg.prompts or []:
         if label == INLINE_PROMPT:
             label = next((name for name in transcriber.list_available_prompts()
                           if transcriber.load_prompt_file(name) == text.strip()), None)
@@ -48,7 +52,7 @@ def _save_inline_prompts(transcriber, cfg):
     cfg.used_fields["PROMPT"] = ",".join(labels)
 
 
-def _ask_repeat(transcriber, session):
+def _ask_repeat(transcriber: YouTubeTranscriber, session: Session) -> bool:
     """Ask whether to run again; the default flips to yes after the first repeat."""
     default_repeat = 'y' if session.asked else 'n'
     prompt_text = ("Run again? (Y/n): " if default_repeat == 'y'
@@ -58,7 +62,8 @@ def _ask_repeat(transcriber, session):
     return repeat
 
 
-def _finish_session(transcriber, cfg, answers, session):
+def _finish_session(transcriber: YouTubeTranscriber, cfg: SessionConfig, answers: _Answers,
+                    session: Session) -> bool:
     """Offer to save a profile, then say whether to run again.
 
     A repeat hands the next round what it needs through `session`; main() is
@@ -96,7 +101,7 @@ def _finish_session(transcriber, cfg, answers, session):
     return repeat
 
 
-def main():
+def main() -> None:
     """Run sessions until the user stops asking for another."""
     # Redirected to a file on Windows, stdout is cp1252: a Japanese title, path
     # or transcript raised mid-run, before the transcript it printed was saved

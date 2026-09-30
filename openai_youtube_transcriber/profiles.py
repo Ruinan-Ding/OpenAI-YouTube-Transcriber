@@ -1,16 +1,23 @@
 """Choosing a profile, and reading one."""
 
+from __future__ import annotations
+
 import os
 import re
+from typing import TYPE_CHECKING
 
 from dotenv import dotenv_values, load_dotenv
 from dotenv.parser import parse_stream
 
-from .answers import _Profile, _Remembered
+from .answers import _Answers, _Profile, _Remembered
 from .common import YesNo, _is_number
+from .config import Session
+
+if TYPE_CHECKING:
+    from .transcriber import YouTubeTranscriber
 
 
-def _prompt_profile_selection(transcriber, profiles):
+def _prompt_profile_selection(transcriber: YouTubeTranscriber, profiles: list[str]) -> str | None:
     """List profiles and return the chosen filename, or None if skipped."""
     print("Available profiles:")
     for i, profile in enumerate(profiles):
@@ -41,7 +48,7 @@ def _prompt_profile_selection(transcriber, profiles):
         print("Invalid profile selection.")
 
 
-def _profile_file(transcriber, answer):
+def _profile_file(transcriber: YouTubeTranscriber, answer: str) -> tuple[str, str] | None:
     """Find the profile an answer names. Returns (name, path), or None.
 
     A full path, or one under ~, is read where it is, and its name is that whole
@@ -60,7 +67,7 @@ def _profile_file(transcriber, answer):
     return None
 
 
-def _select_profile(transcriber, session):
+def _select_profile(transcriber: YouTubeTranscriber, session: Session) -> _Answers:
     """Decide whether to run from a profile, and load it if so.
 
     A repeat round reloads the profile it ran under; otherwise config.txt's
@@ -68,8 +75,20 @@ def _select_profile(transcriber, session):
     Returns where the round's answers come from: a _Profile, or what the
     round before remembered.
     """
-    def load(name, path):
+    def load(name: str, path: str) -> _Profile:
         return _Profile(name, _read_profile(path), session)
+
+    def chosen(name: str) -> _Answers:
+        """The profile picked from the list, loaded."""
+        found = _profile_file(transcriber, name)
+        if found is None:
+            # Listed, but not a file to read: a folder named like a profile,
+            # or one deleted while the list was on screen
+            print(f"Profile not found: {name}. Using interactive mode.")
+            return _Remembered(session)
+        answers = load(*found)
+        print(f"Loaded profile: {name}")
+        return answers
 
     # Repeat of a profile-driven session: reload the same profile
     if session.repeat and session.profile:
@@ -102,9 +121,7 @@ def _select_profile(transcriber, session):
             print("Switching to default/interactive mode.")
             return _Remembered(session)
 
-        answers = load(*_profile_file(transcriber, profile_name))
-        print(f"Loaded profile: {profile_name}")
-        return answers
+        return chosen(profile_name)
 
     print(f"config.txt detected in the {transcriber.PROFILE_DIR} directory.")
     load_dotenv(dotenv_path=config_env_path, override=True)
@@ -148,19 +165,17 @@ def _select_profile(transcriber, session):
     if profile_name is None:
         return _Remembered(session)
 
-    answers = load(*_profile_file(transcriber, profile_name))
-    print(f"Loaded profile: {profile_name}")
-    return answers
+    return chosen(profile_name)
 
 
-def _single_quoted(line):
+def _single_quoted(line: str) -> bool:
     """Whether one KEY=value line of a profile gives its value in single quotes."""
     text = re.sub(r'^export\s+', '', line.lstrip())
     _key, sep, value = text.partition('=')
     return bool(sep) and value.lstrip(' \t').startswith("'")
 
 
-def _read_profile(path):
+def _read_profile(path: str) -> dict[str, str]:
     """A profile's lines as a dict, a single-quoted value taken literally.
 
     As dotenv reads them, except that dotenv expands ${...} in

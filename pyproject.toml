@@ -74,6 +74,8 @@ openai_youtube_transcriber_profiles = "OpenAIYouTubeTranscriber/Profile"
 # profiles, and a wheel built there must carry none of them. config.txt, which
 # can hold an API key, is never among them.
 [tool.setuptools.package-data]
+# PEP 561: the annotations are the package's types, for code that imports it
+openai_youtube_transcriber = ["py.typed"]
 openai_youtube_transcriber_prompts = [
     "prompt-refinement.txt", "prompt0-translator.txt",
     "prompt1-summarizer.txt", "prompt2-explainer.txt",
@@ -82,3 +84,27 @@ openai_youtube_transcriber_profiles = [
     "profile-transcriber.txt", "profile0-translator.txt",
     "profile1-video_downloader.txt", "profile2-audio_downloader.txt",
 ]
+
+[tool.mypy]
+# The oldest Python the package runs on, so that a later one's feature fails here
+python_version = "3.10"
+files = ["openai_youtube_transcriber", "OpenAIYouTubeTranscriber.py"]
+strict = true
+# yt-dlp and Whisper publish no types, so everything they return is Any. A
+# function handing it on says what it is, and that is taken as it stands
+# rather than cast at every return.
+warn_return_any = false
+warn_unreachable = true
+enable_error_code = ["truthy-bool", "redundant-expr", "ignore-without-code"]
+
+[[tool.mypy.overrides]]
+# Published without type information
+module = ["whisper", "yt_dlp", "langdetect"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The AI backends, which only the ai extra installs. Reading the typed ones
+# would be most of the check's time, for calls the app makes a handful of.
+module = ["openai", "anthropic", "transformers", "torch", "huggingface_hub"]
+ignore_missing_imports = true
+follow_imports = "skip"

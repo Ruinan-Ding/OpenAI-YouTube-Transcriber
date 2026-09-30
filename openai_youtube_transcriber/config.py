@@ -1,74 +1,77 @@
 """What a session is set to do, and what a run carries from one round to the next."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
-from .common import AIEnhancementMode, ModelSize, Provider
+from .common import (AIEnhancementMode, Info, ModelSize, Prompt, Provider,
+                     SourceEntry)
 
 
 @dataclass
 class SessionConfig:
     """Settings gathered for one transcription session (interactively or from a profile)."""
-    url: str = None
+    url: str | None = None
     is_local_file: bool = False
     # Every pass this session makes, in order: (url, is_local_file,
     # refine_sources). The two fields above are whichever pass is running.
-    sources: list = None
+    sources: list[SourceEntry] | None = None
     # Transcripts already on disk to refine. Set means this pass downloads and
     # transcribes nothing: it is the refinement.
-    refine_sources: list = None
-    info: dict = None
+    refine_sources: list[str] | None = None
+    info: Info | None = None
     video_title: str = ""
     download_video: bool = False
     video_only: bool = False
-    video_resolution: str = None
-    video_audio_resolution: str = None
-    video_rename: str = None
-    video_path: str = None
-    video_format: str = None
-    video_only_resolution: str = None
-    video_only_rename: str = None
-    video_only_path: str = None
-    video_only_format: str = None
+    video_resolution: str | None = None
+    video_audio_resolution: str | None = None
+    video_rename: str | None = None
+    video_path: str | None = None
+    video_format: str | None = None
+    video_only_resolution: str | None = None
+    video_only_rename: str | None = None
+    video_only_path: str | None = None
+    video_only_format: str | None = None
     download_audio: bool = False
-    audio_resolution: str = None
-    audio_rename: str = None
-    audio_path: str = None
-    audio_format: str = None
-    transcribe_audio_quality: str = None
+    audio_resolution: str | None = None
+    audio_rename: str | None = None
+    audio_path: str | None = None
+    audio_format: str | None = None
+    transcribe_audio_quality: str | None = None
     transcribe_audio: bool = True
     yt_transcript_raw: str = ""
-    yt_transcript_languages: list = None
+    yt_transcript_languages: list[str] | None = None
     yt_transcript_all: bool = False
     model_choice: str = ""
     model_name: str = ModelSize.BASE.value
     # The language spoken in the audio; None has Whisper detect it
-    source_language: str = None
+    source_language: str | None = None
     target_language: str = ""
-    target_languages: list = None
+    target_languages: list[str] | None = None
     use_en_model: bool = False
-    ai_mode: AIEnhancementMode = None
-    provider: Provider = None
-    local_model: str = None
-    prompts: list = None
-    api_key: str = None
-    transcript_rename: str = None
-    transcript_path: str = None
+    ai_mode: AIEnhancementMode | None = None
+    provider: Provider | None = None
+    local_model: str | None = None
+    prompts: list[Prompt] | None = None
+    api_key: str | None = None
+    transcript_rename: str | None = None
+    transcript_path: str | None = None
     # Whether this session wants to name or rehouse anything, asked once at the
     # first deliverable rather than twice per deliverable. Not a profile field:
     # a profile carries the answers themselves.
-    ask_placement: bool = None
+    ask_placement: bool | None = None
     keep_transcript: bool = True
-    used_fields: dict = field(default_factory=dict)
+    used_fields: dict[str, str] = field(default_factory=dict)
     # The filename each source of this batch writes under, casefolded, and the
     # source it belongs to: two sources with one title must not share one
-    claimed_names: dict = field(default_factory=dict)
+    claimed_names: dict[str, str | None] = field(default_factory=dict)
     # The folder this pass fetches merge-only video streams into, its own
-    video_scratch: str = None
+    video_scratch: str | None = None
     # Every file this batch writes or has yet to read, by _file_key, and whose
     # it is: (source identity, deliverable). See _take_path.
-    taken: dict = field(default_factory=dict)
+    taken: dict[tuple[str, str], tuple[str | None, object]] = field(default_factory=dict)
     # The source the running pass is about, as _source_identity has it
-    identity: object = None
+    identity: str | None = None
 
 
 # The deliverables that can be renamed and rehoused. Both questions are the
@@ -93,6 +96,6 @@ class Session:
     every way out of main() had to remember to clear them.
     """
     repeat: bool = False
-    profile: str = None
-    remembered: dict = field(default_factory=dict)
+    profile: str | None = None
+    remembered: dict[str, str] = field(default_factory=dict)
     asked: int = 0
