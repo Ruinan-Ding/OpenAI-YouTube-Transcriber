@@ -30,6 +30,28 @@ pip install -r requirements-dev.txt
 pip install -e .
 ```
 
+## Code Layout
+
+The app is the `openai_youtube_transcriber` package. `OpenAIYouTubeTranscriber.py`
+is only the script that runs it, kept so `python OpenAIYouTubeTranscriber.py` and
+code that imports that module still work. The modules build on each other in
+this order, and none imports one above it:
+
+| Module | What it holds |
+|---|---|
+| `common` | The words everything is written in: yes/no, qualities, Whisper models, AI providers, `error()` |
+| `inputs`, `files`, `youtube`, `media`, `transcription`, `enhancement` | One mixin each: what the user is asked; the app's folders and text files; yt-dlp; ffmpeg; Whisper; refining with a model |
+| `transcriber` | `YouTubeTranscriber`, made of those mixins, and what they share: where the files live, what a profile holds |
+| `config` | `SessionConfig`, what a session is set to do, and `Session`, what a run carries between rounds |
+| `answers` | The `SETTINGS` table, and where an answer comes from: a profile or the round before |
+| `profiles`, `questions` | Choosing and reading a profile; the menus and typed answers |
+| `settings` | `_configure`: every setting settled, for a profile and a person alike |
+| `naming`, `transcripts` | What each file is called; refining and saving transcripts |
+| `pipeline` | One pass per source: `_Pass` and its steps |
+| `cli` | The session's rounds, "Run again?", and `main()` |
+
+`openai-youtube-transcriber`, once installed, runs `openai_youtube_transcriber.cli:main`.
+
 ## Workflow
 
 **Run the app to test changes:**
@@ -50,11 +72,14 @@ python test_transcriber.py       # the same tests, no pytest needed
 
 The tests are plain functions and plain `assert`, so they run either way.
 Under pytest, `conftest.py` puts back everything a test patched - environment
-variables, module attributes, stand-in modules - after every test, so one that
-fails halfway cannot break the ones after it; without pytest, every test still
-runs and each failure is listed. The pipeline cases merge and re-encode real
-files through the installed ffmpeg, and are reported as skipped (`-ra` lists
-them) where it is missing. Only the network calls are faked.
+variables, `input()`, the attributes of every module in the package and of
+`YouTubeTranscriber` and its mixins, stand-in modules - after every test, so
+one that fails halfway cannot break the ones after it; without pytest, every
+test still runs and each failure is listed. A test patches a function in the
+module that calls it, and answers the console through `builtins.input`. The
+pipeline cases merge and re-encode real files through the installed ffmpeg,
+and are reported as skipped (`-ra` lists them) where it is missing. Only the
+network calls are faked.
 
 There is no auto-formatter. This codebase is 100 columns and single-quoted;
 black defaults to 88 and double quotes, so it is not enabled. `flake8` (with
