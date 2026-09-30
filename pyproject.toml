@@ -24,7 +24,7 @@ classifiers = [
     "Environment :: Console",
     "Topic :: Multimedia :: Video :: Conversion",
 ]
-# 3.10+ is required by the match/case in _run_pipeline
+# 3.10+ is required by the match/case in YouTubeMixin.video_format
 requires-python = ">=3.10"
 # Kept in step with OpenAIYouTubeTranscriber/requirements.txt
 dependencies = [
@@ -47,18 +47,21 @@ Changelog = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/blob/main
 Issues = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues"
 
 [project.scripts]
-openai-youtube-transcriber = "OpenAIYouTubeTranscriber:main"
+openai-youtube-transcriber = "openai_youtube_transcriber.cli:main"
 
 [tool.setuptools]
-# One top-level module: OpenAIYouTubeTranscriber/ beside it is the data
-# directory, not a package, so package discovery would find nothing to install
+# Named rather than discovered: OpenAIYouTubeTranscriber/ beside them is the
+# data directory, not a package. The app is openai_youtube_transcriber; the
+# script of the old name stays, for `python OpenAIYouTubeTranscriber.py` and
+# code that imports it.
 py-modules = ["OpenAIYouTubeTranscriber"]
-# ...but the prompts and sample profiles it ships have to travel with it: a
-# wheel held the module alone, and an installed copy offered no prompt at all.
-# Each goes in as a package of data, which the module finds through the import
+# The prompts and sample profiles it ships have to travel with it: a wheel
+# held the module alone, and an installed copy offered no prompt at all. Each
+# goes in as a package of data, which the app finds through the import
 # system; the samples are copied into the working directory's Profile/ on
 # first run, where the user's own profiles live.
-packages = ["openai_youtube_transcriber_prompts", "openai_youtube_transcriber_profiles"]
+packages = ["openai_youtube_transcriber", "openai_youtube_transcriber_prompts",
+            "openai_youtube_transcriber_profiles"]
 # Only the files named below, never whatever else a checkout holds
 include-package-data = false
 
