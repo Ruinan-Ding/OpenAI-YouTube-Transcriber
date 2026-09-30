@@ -2751,7 +2751,7 @@ MODEL=
 
         Unquoted, " #" starts a comment, ${...} expands and edge spaces are
         dropped: "/tmp/Part #2.mp3" came back as "/tmp/Part". Such a value is
-        single-quoted, which _load_profile reads literally, with its
+        single-quoted, which _read_profile reads literally, with its
         backslashes and quotes escaped; anything else is left as it was, so
         a profile stays as plain to edit as before.
         """
@@ -2876,26 +2876,20 @@ _PLACEMENTS = (
 )
 
 
-# Session-scoped environment keys used to carry state across "Run again?" repeats
-_SESSION_ENV_KEYS = (
-    "_REPEAT_INVOCATION", "_REPEAT_PROFILE_NAME", "_REPEAT_ASK_COUNT",
-    "LAST_DOWNLOAD_VIDEO", "LAST_VIDEO_ONLY", "LAST_VIDEO_RESOLUTION",
-    "LAST_VIDEO_AUDIO_RESOLUTION", "LAST_VIDEO_ONLY_RESOLUTION",
-    "LAST_AUDIO_RESOLUTION", "LAST_TRANSCRIBE_AUDIO_QUALITY",
-    "LAST_VIDEO_FORMAT", "LAST_VIDEO_ONLY_FORMAT", "LAST_AUDIO_FORMAT",
-    "LAST_KEEP_TRANSCRIPT",
-    "LAST_DOWNLOAD_AUDIO", "LAST_TRANSCRIBE_AUDIO", "LAST_MODEL_CHOICE",
-    "LAST_SOURCE_LANGUAGE", "LAST_TARGET_LANGUAGE", "LAST_USE_EN_MODEL", "LAST_AI_REFINEMENT",
-    "LAST_DOWNLOAD_YT_TRANSCRIPT", "LAST_PLACEMENT"
-) + tuple(f"LAST_{prefix}_{suffix}"
-          for _stem, prefix, _label, _dir in _PLACEMENTS
-          for suffix in ("RENAME", "PATH"))
+@dataclass
+class Session:
+    """What one run of the app carries from a round into the next.
 
-
-def _clear_session_env():
-    """Remove all repeat-session environment variables."""
-    for key in _SESSION_ENV_KEYS:
-        os.environ.pop(key, None)
+    Whether this round repeats the one before, the profile a repeat reloads,
+    what an interactive round was told, and how often "Run again?" has been
+    asked. It lived in the process environment as _REPEAT_* and LAST_*
+    variables: one a shell happened to set was read as the app's own, and
+    every way out of main() had to remember to clear them.
+    """
+    repeat: bool = False
+    profile: str = None
+    remembered: dict = field(default_factory=dict)
+    asked: int = 0
 
 
 # A gap the question is asked for, rather than one taken as a stated answer
@@ -2952,6 +2946,8 @@ SETTINGS = {setting.field: setting for setting in (
     Setting("AI_REFINEMENT", legacy="AI_ENHANCEMENT"),
     Setting("PROMPT"),
     Setting("KEEP_TRANSCRIPT"),
+    # Settled after the round rather than before it
+    Setting("REPEAT"),
     # Not a profile field: a profile carries the placement answers themselves,
     # and this is the one question a session asks in their place
     Setting("PLACEMENT"),
@@ -2961,6 +2957,11 @@ SETTINGS = {setting.field: setting for setting in (
     Setting(f"{prefix}_{suffix}", absent="n", blank="", one_video=suffix == "RENAME")
     for _stem, prefix, _label, _dir in _PLACEMENTS for suffix in ("RENAME", "PATH"))}
 
+# What a profile describes a session with. Anything else in one is
+# configuration, as config.txt's lines are: see _Profile.
+_PROFILE_FIELDS = frozenset(SETTINGS) | {"URL"} | {
+    setting.legacy for setting in SETTINGS.values() if setting.legacy}
+
 
 class _Answers:
     """Where a session's answers are kept: a profile, or the last round's.
@@ -2969,6 +2970,9 @@ class _Answers:
     only reads them. `verb` and `origin` word the line reporting one.
     """
     verb = origin = None
+    # Whether a round answered this way is offered to be saved as a profile:
+    # one run from a profile already is one
+    offers_profile = False
 
     def lookup(self, setting):
         """(name, value) of the stored answer, the value None if there is none."""
@@ -2996,23 +3000,41 @@ class _Answers:
         if value and value.lower() not in YesNo.all_no_and_skip():
             print(f"Ignoring {field}={value} (from {self.origin}): {why}")
 
+    def carry(self, cfg):
+        """Hand the "Run again?" round what it needs from this one."""
+        raise NotImplementedError
+
 
 class _Profile(_Answers):
-    """A profile's fields, which _load_profile put in the environment."""
+    """A profile: the fields it describes a session with.
+
+    Its other lines - AI_PROVIDER, MODEL, API_KEY, whatever config.txt could
+    carry - are configuration, which the enhancement backends read from the
+    environment, and go there, over config.txt's own, as the whole profile
+    used to. Only configuration does: a field read from the environment was
+    whoever's had set it, so a shell's URL answered for a profile naming none,
+    and a field's meaning when left out was never reached.
+    """
     verb = "Loaded"
 
-    def __init__(self, name):
+    def __init__(self, name, values, session=None):
         self.origin = name
-        self.repeat = os.environ.get("_REPEAT_INVOCATION", "") == "1"
+        self.session = session or Session()
+        self.fields = {}
+        for key, value in values.items():
+            if key in _PROFILE_FIELDS:
+                self.fields[key] = value
+            else:
+                os.environ[key] = value
 
     def lookup(self, setting):
-        name, value = setting.field, os.getenv(setting.field)
-        if not value and setting.legacy and os.getenv(setting.legacy):
-            # Read under its own name rather than copied into the new one,
-            # which would leak into the next profile of a repeat
-            name, value = setting.legacy, os.getenv(setting.legacy)
+        name, value = setting.field, self.fields.get(setting.field)
+        if not value and setting.legacy and self.fields.get(setting.legacy):
+            # Read under its own name, so what is reported is what the profile
+            # says, rather than copied into the new one
+            name, value = setting.legacy, self.fields[setting.legacy]
         stated = (value or "").strip().lower()
-        if (setting.one_video and self.repeat and stated
+        if (setting.one_video and self.session.repeat and stated
                 and stated not in YesNo.all_no_and_skip()):
             # A repeat takes a new URL and keeps the rest, but a name was for
             # the last round's video, and on this one it overwrote that file.
@@ -3029,7 +3051,7 @@ class _Profile(_Answers):
         # URL is not reused. Either way the answer is settled here rather than
         # part way through the run: this is the only prompt that takes a list,
         # or 's' to refine a transcript instead of fetching anything.
-        named = "" if self.repeat else (os.getenv("URL") or "")
+        named = "" if self.session.repeat else (self.fields.get("URL") or "")
         entries = []
         if named and named != transcriber.URL_PLACEHOLDER:
             # Whether a video exists is settled by the metadata fetch in
@@ -3040,24 +3062,69 @@ class _Profile(_Answers):
                                    "transcript(s) to refine")
         return entries or super().sources(transcriber)
 
+    def carry(self, cfg):
+        # The next round reloads the profile, and asks for its sources
+        self.session.profile = self.origin
+
 
 class _Remembered(_Answers):
-    """What the round a "Run again?" repeats was told, kept as LAST_* variables.
+    """What an interactive round was told, for the "Run again?" round after it.
 
-    Only the questions that round was asked are there, so a gap is asked.
+    Only the questions that round was asked are kept, so a gap is asked.
     """
     verb, origin = "Using previous", "last session"
+    offers_profile = True
+
+    def __init__(self, session=None):
+        self.session = session or Session()
 
     def lookup(self, setting):
-        # Only what a round remembers: a LAST_ name of anyone else's in the
-        # environment answers nothing here
-        key = f"LAST_{setting.field}"
-        return setting.field, os.environ.get(key) if key in _SESSION_ENV_KEYS else None
+        return setting.field, self.session.remembered.get(setting.field)
 
     def ignored(self, field, why):
         # The last round's own answer, not a field anyone wrote: a local file
         # after a YouTube video has no stream to pick, and no need to say so
         pass
+
+    def carry(self, cfg):
+        """Remember this round's answers for the next - only the ones it was
+        asked. A refine-only round asks nothing about media, and a local file
+        nothing about YouTube's transcripts; an "n" remembered for a question
+        never put answered it in the next round, and a YouTube URL given then
+        was neither downloaded nor transcribed."""
+        fields, media = cfg.used_fields, bool(cfg.url)
+        remembered = {
+            "DOWNLOAD_VIDEO": media and fields.get("DOWNLOAD_VIDEO"),
+            "VIDEO_ONLY": media and fields.get("VIDEO_ONLY"),
+            "DOWNLOAD_AUDIO": media and fields.get("DOWNLOAD_AUDIO"),
+            "TRANSCRIBE_AUDIO": media and fields.get("TRANSCRIBE_AUDIO"),
+            "DOWNLOAD_YT_TRANSCRIPT": media and not cfg.is_local_file and cfg.yt_transcript_raw,
+            # The model, not the answer: Enter for base is "", and a blank
+            # answer asked again every round
+            "MODEL_CHOICE": media and cfg.transcribe_audio and cfg.model_name,
+            "SOURCE_LANGUAGE": media and cfg.transcribe_audio and fields.get("SOURCE_LANGUAGE"),
+            "TARGET_LANGUAGE": cfg.transcribe_audio and ",".join(cfg.target_languages or []),
+            "USE_EN_MODEL": fields.get("USE_EN_MODEL"),
+            "KEEP_TRANSCRIPT": fields.get("KEEP_TRANSCRIPT"),
+            "AI_REFINEMENT": media and fields.get("AI_REFINEMENT"),
+            "PLACEMENT": None if cfg.ask_placement is None else _yn(cfg.ask_placement),
+            "VIDEO_RESOLUTION": cfg.video_resolution,
+            "VIDEO_AUDIO_RESOLUTION": cfg.video_audio_resolution,
+            "VIDEO_ONLY_RESOLUTION": cfg.video_only_resolution,
+            "AUDIO_RESOLUTION": cfg.audio_resolution,
+            "TRANSCRIBE_AUDIO_QUALITY": cfg.transcribe_audio_quality,
+            "VIDEO_FORMAT": cfg.video_format,
+            "VIDEO_ONLY_FORMAT": cfg.video_only_format,
+            "AUDIO_FORMAT": cfg.audio_format,
+        }
+        # Where files go carries over, but not what they are called: a name
+        # was for that video, and on the next it overwrites that video's file
+        for stem, prefix, _label, _dir in _PLACEMENTS:
+            remembered[f"{prefix}_PATH"] = getattr(cfg, f"{stem}_path", "")
+        # An empty answer is no answer: kept, it skipped the question and then
+        # filtered on ""
+        self.session.remembered = {key: value for key, value in remembered.items() if value}
+        self.session.profile = None
 
 
 def _answer(answers, field, ask, valid=None, shown=None):
@@ -3400,27 +3467,28 @@ def _profile_file(transcriber, answer):
     return None
 
 
-def _select_profile(transcriber):
+def _select_profile(transcriber, session):
     """Decide whether to run from a profile, and load it if so.
 
     A repeat round reloads the profile it ran under; otherwise config.txt's
     LOAD_PROFILE answers, and failing that the user picks from a list.
-    Returns (load_profile, profile_name).
+    Returns where the round's answers come from: a _Profile, or what the
+    round before remembered.
     """
-    repeat_invocation = os.environ.get("_REPEAT_INVOCATION", "") == "1"
-    repeat_profile_name = os.environ.get("_REPEAT_PROFILE_NAME")
+    def load(name, path):
+        return _Profile(name, _read_profile(path), session)
 
     # Repeat of a profile-driven session: reload the same profile
-    if repeat_invocation and repeat_profile_name:
-        found = _profile_file(transcriber, repeat_profile_name)
+    if session.repeat and session.profile:
+        found = _profile_file(transcriber, session.profile)
         if found:
-            _load_profile(found[1])
+            answers = load(*found)
             print(f"Loaded profile (repeat): {found[0]}")
-            return True, found[0]
-        print(f"Profile not found for repeat: {repeat_profile_name}. Falling back to selection.")
-    # Repeat of an interactive session: stay interactive (LAST_* answers apply)
-    elif repeat_invocation:
-        return False, None
+            return answers
+        print(f"Profile not found for repeat: {session.profile}. Falling back to selection.")
+    # Repeat of an interactive session: stay interactive, with its answers
+    elif session.repeat:
+        return _Remembered(session)
 
     config_env_path = os.path.join(transcriber.PROFILE_DIR, transcriber.CONFIG_ENV)
 
@@ -3428,22 +3496,22 @@ def _select_profile(transcriber):
         print(f"config.txt not found in the {transcriber.PROFILE_DIR} directory.")
         if not os.path.exists(transcriber.PROFILE_DIR):
             print("Switching to default/interactive mode.")
-            return False, None
+            return _Remembered(session)
 
         profiles = transcriber.list_profiles()
         if not profiles:
             print("No profiles found. Switching to default/interactive mode.")
-            return False, None
+            return _Remembered(session)
 
         print("Found existing profiles. Checking if you want to use one of them...")
         profile_name = _prompt_profile_selection(transcriber, profiles)
         if profile_name is None:
             print("Switching to default/interactive mode.")
-            return False, None
+            return _Remembered(session)
 
-        _load_profile(_profile_file(transcriber, profile_name)[1])
+        answers = load(*_profile_file(transcriber, profile_name))
         print(f"Loaded profile: {profile_name}")
-        return True, profile_name
+        return answers
 
     print(f"config.txt detected in the {transcriber.PROFILE_DIR} directory.")
     load_dotenv(dotenv_path=config_env_path, override=True)
@@ -3467,29 +3535,29 @@ def _select_profile(transcriber):
         if found:
             profile_name, profile_path = found
             print(f"Loading profile: {profile_name}")
-            _load_profile(profile_path)
+            answers = load(profile_name, profile_path)
             print(f"Loaded profile: {profile_name}")
-            return True, profile_name
+            return answers
         print(f"Profile not found: {load_profile_str}. Using interactive mode.")
-        return False, None
+        return _Remembered(session)
 
     if lower_lp in YesNo.NO.value + YesNo.SKIP.value:
         print("Using default/interactive mode.")
-        return False, None
+        return _Remembered(session)
 
     # LOAD_PROFILE is yes/blank: offer the available profiles
     profiles = transcriber.list_profiles()
     if not profiles:
         print("No profiles found. Switching to default/interactive mode.")
-        return False, None
+        return _Remembered(session)
 
     profile_name = _prompt_profile_selection(transcriber, profiles)
     if profile_name is None:
-        return False, None
+        return _Remembered(session)
 
-    _load_profile(_profile_file(transcriber, profile_name)[1])
+    answers = load(*_profile_file(transcriber, profile_name))
     print(f"Loaded profile: {profile_name}")
-    return True, profile_name
+    return answers
 
 
 def _single_quoted(line):
@@ -3499,10 +3567,10 @@ def _single_quoted(line):
     return bool(sep) and value.lstrip(' \t').startswith("'")
 
 
-def _load_profile(path):
-    """Load a profile into the environment, a single-quoted value taken literally.
+def _read_profile(path):
+    """A profile's lines as a dict, a single-quoted value taken literally.
 
-    As load_dotenv(override=True) did, except that dotenv expands ${...} in
+    As dotenv reads them, except that dotenv expands ${...} in
     every value however it is quoted: a saved PROMPT=/tmp/prompt-${COURSE}.txt
     came back naming another file. A value the app writes is single-quoted
     wherever dotenv would otherwise change it, and in single quotes it now
@@ -3512,10 +3580,9 @@ def _load_profile(path):
         literal = {binding.key: _single_quoted(binding.original.string)
                    for binding in parse_stream(handle) if binding.key}
     raw = dotenv_values(path, interpolate=False)
-    for key, value in dotenv_values(path).items():
-        value = raw[key] if literal.get(key) else value
-        if value is not None:
-            os.environ[key] = value
+    values = {key: raw[key] if literal.get(key) else value
+              for key, value in dotenv_values(path).items()}
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def _prompt_format(transcriber, label, default, kind):
@@ -4159,18 +4226,6 @@ def _configure(transcriber, answers):
                                         "model size, SOURCE_LANGUAGE or TARGET_LANGUAGE.")
 
     return _settle_refinement(transcriber, cfg, answers, assumed=refining)
-
-
-def _configure_interactive(transcriber):
-    """Gather the session's settings by asking, reusing what a repeat's last
-    round was told."""
-    return _configure(transcriber, _Remembered())
-
-
-def _configure_from_profile(transcriber, profile_name):
-    """Gather the session's settings from the loaded profile, asking for what
-    it leaves open and what it gets wrong."""
-    return _configure(transcriber, _Profile(profile_name))
 
 
 def _settle_refinement(transcriber, cfg, answers, assumed=False):
@@ -5258,46 +5313,39 @@ def _save_inline_prompts(transcriber, cfg):
     cfg.used_fields["PROMPT"] = ",".join(labels)
 
 
-def _ask_repeat(transcriber):
-    """Ask the user whether to run again; the default flips to yes after the first repeat."""
-    repeat_ask_count = int(os.environ.get("_REPEAT_ASK_COUNT", "0"))
-    default_repeat = 'y' if repeat_ask_count > 0 else 'n'
+def _ask_repeat(transcriber, session):
+    """Ask whether to run again; the default flips to yes after the first repeat."""
+    default_repeat = 'y' if session.asked else 'n'
     prompt_text = ("Run again? (Y/n): " if default_repeat == 'y'
                    else "Run again? Hit Enter to repeat (y/N): ")
     repeat = transcriber.get_yes_no_input(prompt_text, default=default_repeat)
-    os.environ["_REPEAT_ASK_COUNT"] = str(repeat_ask_count + 1)
-    return repeat, ("y" if repeat else "n")
+    session.asked += 1
+    return repeat
 
 
-def _finish_session(transcriber, cfg, load_profile, profile_name):
+def _finish_session(transcriber, cfg, answers, session):
     """Offer to save a profile, then say whether to run again.
 
-    A repeat leaves this session's answers in the environment for the next
-    round to pick up; main() is what goes round.
+    A repeat hands the next round what it needs through `session`; main() is
+    what goes round.
     """
     did_something_useful = (cfg.download_audio or cfg.download_video
                             or cfg.video_only or cfg.transcribe_audio
                             or bool(cfg.yt_transcript_languages)
                             or any(e[2] for e in cfg.sources or []))
-    is_repeat = os.environ.get("_REPEAT_INVOCATION", "") == "1"
 
-    repeat = False
-    repeat_value = ""
     try:
-        repeat_setting = (os.getenv("REPEAT", "") or "") if load_profile else ""
-        if load_profile and repeat_setting.lower() in YesNo.YES.value:
-            repeat, repeat_value = True, "y"
-        elif load_profile and repeat_setting.lower() in YesNo.NO.value:
-            repeat, repeat_value = False, "n"
-        else:
-            # Blank or invalid REPEAT setting, or interactive mode -> ask the user
-            repeat, repeat_value = _ask_repeat(transcriber)
+        # A profile's REPEAT answers it, as any field is answered; else asked
+        answer = _answer(answers, "REPEAT", lambda: _yn(_ask_repeat(transcriber, session)),
+                         valid=_is_yes_no)
+        repeat = answer.lower() in YesNo.YES.value
+        repeat_value = _yn(repeat)
     except Exception:
         repeat, repeat_value = False, ""
 
     cfg.used_fields["REPEAT"] = repeat_value
 
-    if not load_profile and did_something_useful and not is_repeat:
+    if answers.offers_profile and did_something_useful and not session.repeat:
         if transcriber.get_yes_no_input(
                 "Do you want to create a profile from this session? (y/N): ", default='n'):
             _save_inline_prompts(transcriber, cfg)
@@ -5307,65 +5355,8 @@ def _finish_session(transcriber, cfg, load_profile, profile_name):
     transcriber.release_caches()
 
     if repeat:
-        if not load_profile:
-            # Remember this session's answers so the repeat run can reuse them -
-            # only the ones it was asked. A refine-only round asks nothing about
-            # media, and a local file nothing about YouTube's transcripts; an "n"
-            # remembered for a question never put answered it in the next round,
-            # and a YouTube URL given then was neither downloaded nor transcribed
-            fields, media = cfg.used_fields, bool(cfg.url)
-            remembered = {
-                "LAST_DOWNLOAD_VIDEO": media and fields.get("DOWNLOAD_VIDEO"),
-                "LAST_VIDEO_ONLY": media and fields.get("VIDEO_ONLY"),
-                "LAST_DOWNLOAD_AUDIO": media and fields.get("DOWNLOAD_AUDIO"),
-                "LAST_TRANSCRIBE_AUDIO": media and fields.get("TRANSCRIBE_AUDIO"),
-                "LAST_DOWNLOAD_YT_TRANSCRIPT": (media and not cfg.is_local_file
-                                                and cfg.yt_transcript_raw),
-                # The model, not the answer: Enter for base is "", and a blank
-                # answer asked again every round
-                "LAST_MODEL_CHOICE": media and cfg.transcribe_audio and cfg.model_name,
-                "LAST_SOURCE_LANGUAGE": (media and cfg.transcribe_audio
-                                         and fields.get("SOURCE_LANGUAGE")),
-                "LAST_TARGET_LANGUAGE": (cfg.transcribe_audio
-                                         and ",".join(cfg.target_languages or [])),
-                "LAST_USE_EN_MODEL": fields.get("USE_EN_MODEL"),
-                "LAST_KEEP_TRANSCRIPT": fields.get("KEEP_TRANSCRIPT"),
-                "LAST_AI_REFINEMENT": media and fields.get("AI_REFINEMENT"),
-                "LAST_PLACEMENT": (None if cfg.ask_placement is None
-                                   else "y" if cfg.ask_placement else "n"),
-            }
-            for key, value in remembered.items():
-                if value:
-                    os.environ[key] = value
-                else:
-                    os.environ.pop(key, None)
-            # Where files go carries over, but not what they are called: a name
-            # was for that video, and on the next it overwrites that video's file
-            for _stem, prefix, _label, _dir in _PLACEMENTS:
-                os.environ.pop(f"LAST_{prefix}_RENAME", None)
-                path = getattr(cfg, f"{_stem}_path", "")
-                if path:
-                    os.environ[f"LAST_{prefix}_PATH"] = path
-                else:
-                    os.environ.pop(f"LAST_{prefix}_PATH", None)
-            # Storing "" would make the next run skip the prompt, then filter on ""
-            for key, value in (
-                    ("LAST_VIDEO_RESOLUTION", cfg.video_resolution),
-                    ("LAST_VIDEO_AUDIO_RESOLUTION", cfg.video_audio_resolution),
-                    ("LAST_VIDEO_ONLY_RESOLUTION", cfg.video_only_resolution),
-                    ("LAST_AUDIO_RESOLUTION", cfg.audio_resolution),
-                    ("LAST_TRANSCRIBE_AUDIO_QUALITY",
-                     cfg.transcribe_audio_quality),
-                    ("LAST_VIDEO_FORMAT", cfg.video_format),
-                    ("LAST_VIDEO_ONLY_FORMAT", cfg.video_only_format),
-                    ("LAST_AUDIO_FORMAT", cfg.audio_format)):
-                if value:
-                    os.environ[key] = value
-                else:
-                    os.environ.pop(key, None)
-        os.environ["_REPEAT_INVOCATION"] = "1"
-        if load_profile and profile_name:
-            os.environ["_REPEAT_PROFILE_NAME"] = profile_name
+        answers.carry(cfg)
+        session.repeat = True
         print("Repeating session as requested...")
     return repeat
 
@@ -5395,42 +5386,35 @@ def main():
     # An installed copy's first run: its sample profiles, where profiles live
     transcriber.seed_sample_profiles()
 
-    try:
-        # "Run again?" comes round here rather than re-entering main(), so a
-        # long batch is one frame however many rounds it runs
-        while True:
-            # How far this round got, for the exit code if input runs out
-            stage = "asking"
-            try:
-                load_profile, profile_name = _select_profile(transcriber)
-                if load_profile:
-                    cfg = _configure_from_profile(transcriber, profile_name)
-                else:
-                    cfg = _configure_interactive(transcriber)
+    session = Session()
+    # "Run again?" comes round here rather than re-entering main(), so a long
+    # batch is one frame however many rounds it runs
+    while True:
+        # How far this round got, for the exit code if input runs out
+        stage = "asking"
+        try:
+            answers = _select_profile(transcriber, session)
+            cfg = _configure(transcriber, answers)
 
-                stage = "running"
-                _run_pipeline(transcriber, cfg)
-                stage = "finished"
-                if not _finish_session(transcriber, cfg, load_profile, profile_name):
-                    return
-            except (DownloadFailed, yt_dlp.utils.DownloadError):
-                # Already reported where it happened, and the only source is
-                # gone: one exit code for the run rather than one per step.
-                # yt-dlp prints its own error before raising.
-                sys.exit(1)
-            except EOFError:
-                # Input ran out: an unattended run was asked something nobody
-                # is there to answer. That ended in a traceback. After a round
-                # that finished - the offer to save a profile, or a REPEAT=y
-                # profile asking for the next round's sources - the work asked
-                # for is done, and it ends as a success.
-                repeating = os.environ.get("_REPEAT_INVOCATION", "") == "1"
-                done = stage == "finished" or (stage == "asking" and repeating)
-                print("\nNo more input." + ("" if done else " The run is incomplete."))
-                sys.exit(0 if done else 1)
-    finally:
-        # Whatever ends the session, its answers must not reach the next one
-        _clear_session_env()
+            stage = "running"
+            _run_pipeline(transcriber, cfg)
+            stage = "finished"
+            if not _finish_session(transcriber, cfg, answers, session):
+                return
+        except (DownloadFailed, yt_dlp.utils.DownloadError):
+            # Already reported where it happened, and the only source is
+            # gone: one exit code for the run rather than one per step.
+            # yt-dlp prints its own error before raising.
+            sys.exit(1)
+        except EOFError:
+            # Input ran out: an unattended run was asked something nobody is
+            # there to answer. That ended in a traceback. After a round that
+            # finished - the offer to save a profile, or a REPEAT=y profile
+            # asking for the next round's sources - the work asked for is
+            # done, and it ends as a success.
+            done = stage == "finished" or (stage == "asking" and session.repeat)
+            print("\nNo more input." + ("" if done else " The run is incomplete."))
+            sys.exit(0 if done else 1)
 
 
 if __name__ == "__main__":
