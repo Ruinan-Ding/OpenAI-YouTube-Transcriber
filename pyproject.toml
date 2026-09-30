@@ -1,0 +1,81 @@
+[build-system]
+# 77 is the first to read the SPDX license string below
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openai-youtube-transcriber"
+version = "1.2.0"
+description = "Extract and transcribe YouTube audio using OpenAI Whisper"
+readme = "README.md"
+authors = [{ name = "Ruinan Ding" }]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+keywords = ["youtube", "whisper", "transcription", "subtitles", "yt-dlp", "ffmpeg"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Office/Business",
+    "Environment :: Console",
+    "Topic :: Multimedia :: Video :: Conversion",
+]
+# 3.10+ is required by the match/case in _run_pipeline
+requires-python = ">=3.10"
+# Kept in step with OpenAIYouTubeTranscriber/requirements.txt
+dependencies = [
+    "langdetect",
+    "yt-dlp",
+    # 1.2.3 is the first to read back a quoted value ending in a backslash,
+    # which a saved profile can hold (a Windows folder such as 'D:\Lectures #2\')
+    "python-dotenv>=1.2.3",
+    "openai-whisper @ git+https://github.com/openai/whisper.git",
+]
+
+[project.optional-dependencies]
+# AI transcript enhancement. The app runs without them, and says what to
+# install when a backend that needs one is picked.
+ai = ["openai", "anthropic", "transformers", "torch"]
+
+[project.urls]
+Homepage = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber"
+Changelog = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues"
+
+[project.scripts]
+openai-youtube-transcriber = "OpenAIYouTubeTranscriber:main"
+
+[tool.setuptools]
+# One top-level module: OpenAIYouTubeTranscriber/ beside it is the data
+# directory, not a package, so package discovery would find nothing to install
+py-modules = ["OpenAIYouTubeTranscriber"]
+# ...but the prompts and sample profiles it ships have to travel with it: a
+# wheel held the module alone, and an installed copy offered no prompt at all.
+# Each goes in as a package of data, which the module finds through the import
+# system; the samples are copied into the working directory's Profile/ on
+# first run, where the user's own profiles live.
+packages = ["openai_youtube_transcriber_prompts", "openai_youtube_transcriber_profiles"]
+# Only the files named below, never whatever else a checkout holds
+include-package-data = false
+
+[tool.setuptools.package-dir]
+openai_youtube_transcriber_prompts = "OpenAIYouTubeTranscriber/Prompt"
+openai_youtube_transcriber_profiles = "OpenAIYouTubeTranscriber/Profile"
+
+# What the project ships, named one by one rather than globbed: Prompt/ and
+# Profile/ are also where a checkout's user saves their own prompts and
+# profiles, and a wheel built there must carry none of them. config.txt, which
+# can hold an API key, is never among them.
+[tool.setuptools.package-data]
+openai_youtube_transcriber_prompts = [
+    "prompt-refinement.txt", "prompt0-translator.txt",
+    "prompt1-summarizer.txt", "prompt2-explainer.txt",
+]
+openai_youtube_transcriber_profiles = [
+    "profile-transcriber.txt", "profile0-translator.txt",
+    "profile1-video_downloader.txt", "profile2-audio_downloader.txt",
+]

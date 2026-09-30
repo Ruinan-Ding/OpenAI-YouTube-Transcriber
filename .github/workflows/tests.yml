@@ -9,8 +9,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # The Node 24 majors: v4 and v5 run on Node 20, which Actions has deprecated
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -26,4 +27,6 @@ jobs:
 
       - run: flake8
       - run: isort --check-only .
-      - run: python test_transcriber.py
+      # -ra lists every skip, so a test that could not run here is not
+      # mistaken for one that passed
+      - run: python -m pytest -ra test_transcriber.py

@@ -112,6 +112,7 @@ pip install --upgrade -r OpenAIYouTubeTranscriber/requirements.txt
 To install the package in editable mode and get the `openai-youtube-transcriber` console command:
 ```bash
 pip install -e .
+pip install -e ".[ai]"   # also the optional AI enhancement backends
 ```
 
 ## Usage
@@ -931,8 +932,8 @@ pip install -r requirements-dev.txt
 
 Common tasks:
 ```bash
-make lint    # Check for code quality issues
-make test    # Run the self-check suite
+make lint    # flake8 and isort, as CI runs them
+make test    # The test suite, under pytest
 make run     # Run the app
 ```
 

@@ -109,6 +109,24 @@ regression test.
   next round arrived without its leading `/`. ffmpeg and ffprobe now get no
   stdin, as the ffmpeg runs of yt-dlp and Whisper already did.
 
+### Development
+
+- **`pyproject.toml` replaces `setup.py`.** Same package, module, data files
+  and console command; the optional AI backends are now the `ai` extra
+  (`pip install ".[ai]"`).
+- **The tests run under pytest** (`make test`, and in CI with `-ra`), and
+  still without it (`python test_transcriber.py`). `conftest.py` restores
+  whatever a test patched after every test, so a failure cannot leak into the
+  next; the plain runner now runs every test and lists each failure instead of
+  stopping at the first; a test that cannot run here (no ffmpeg, no symlinks)
+  is reported as skipped instead of passing silently.
+- **CI and hooks are current**: `actions/checkout@v7` and
+  `actions/setup-python@v7` (Node 24; the v4/v5 majors ran on the deprecated
+  Node 20), isort 9.0.2, flake8 7.4.1 from its own repository (the mirror
+  was archived) and pre-commit-hooks v6.0.0. `make lint` runs isort as well
+  as flake8, as CI does. Ten files gained the final newline the repository's
+  own end-of-file hook asks for.
+
 ## [1.2.0] - 2026-09-12
 
 ### Added

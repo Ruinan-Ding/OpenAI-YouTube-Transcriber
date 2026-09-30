@@ -1033,6 +1033,22 @@ def test_a_refined_transcript_is_not_deleted_before_its_raw_copy_is_saved():
             assert os.path.exists(source) == survives, prompt
 
 
+class _Skipped(Exception):
+    """A test that cannot run here: no ffmpeg, no symlinks."""
+
+
+def _skip(reason):
+    """Skip the running test, where the old print-and-return passed it quietly.
+
+    pytest is told, so it reports a skip rather than a pass; without pytest the
+    runner at the bottom of this file prints it.
+    """
+    if 'pytest' in sys.modules:
+        import pytest
+        pytest.skip(reason)
+    raise _Skipped(reason)
+
+
 def _ffmpeg_available():
     try:
         subprocess.run(['ffmpeg', '-hide_banner', '-version'],
@@ -1058,8 +1074,7 @@ def test_ffmpeg_leaves_stdin_to_the_prompts():
     and so took the first character of whatever answer was waiting there: a
     path piped to a profile's next round arrived without its leading slash."""
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
     with tempfile.TemporaryDirectory() as tmp:
         clip = _make_clip(os.path.join(tmp, 'clip.mp3'), 'audio')
@@ -1102,8 +1117,7 @@ def test_a_video_only_file_has_no_audio_however_the_stream_was_served():
     to carry the audio tier it fetched rather than the one it was handed.
     """
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
     assert t.video_format('144p').endswith('/best')
 
@@ -1147,8 +1161,7 @@ def test_conversion_copies_what_it_can_and_leaves_nothing_behind():
     cost a remux rather than a generation of quality loss.
     """
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
 
     assert t.format_extension('matroska') == 'mkv'
@@ -1215,8 +1228,7 @@ def test_pipeline_fetches_each_stream_once_and_names_what_it_saved():
     fetched to produce them.
     """
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     import OpenAIYouTubeTranscriber as module
 
     info = _plain_info()
@@ -2267,8 +2279,7 @@ def test_a_local_source_is_re_encoded_but_never_replaced():
     land on that file is skipped rather than written over it.
     """
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
     with tempfile.TemporaryDirectory() as tmp:
         source = _make_clip(os.path.join(tmp, 'clip.mp4'), 'video')
@@ -3338,8 +3349,7 @@ def test_the_audio_never_lands_on_the_merged_video():
 
     # Remote, through the real merge and conversion
     if not _ffmpeg_available():
-        print('    (skipped the download half: no ffmpeg)')
-        return
+        _skip('no ffmpeg for the download half')
     with tempfile.TemporaryDirectory() as tmp:
         t = YouTubeTranscriber()
         t.VIDEO_DIR, t.AUDIO_DIR = os.path.join(tmp, 'Video'), os.path.join(tmp, 'Audio')
@@ -3562,8 +3572,7 @@ def test_detection_runs_through_the_installed_whisper():
     installed Whisper's, and a change to any of them fails here.
     """
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     import torch
     import whisper
     from whisper.model import ModelDimensions, Whisper
@@ -3861,21 +3870,18 @@ def test_a_local_chunk_is_sized_by_the_models_own_tokenizer():
 def test_the_shipped_prompts_travel_with_an_installed_copy():
     """A wheel held the module alone: installed, the app listed no prompts and
     Enter at the prompt menu selected nothing."""
-    import runpy
-
-    import setuptools
+    # setuptools' own reader, as the build reads it (and one that needs no
+    # tomllib, which Python 3.10 does not have)
+    from setuptools.config.pyprojecttoml import read_configuration
 
     here = os.path.dirname(os.path.abspath(__file__))
-    captured = {}
-    real_setup = setuptools.setup
-    setuptools.setup = lambda **kwargs: captured.update(kwargs)
-    cwd = os.getcwd()
-    try:
-        os.chdir(here)
-        runpy.run_path(os.path.join(here, 'setup.py'))
-    finally:
-        setuptools.setup = real_setup
-        os.chdir(cwd)
+    project = read_configuration(os.path.join(here, 'pyproject.toml'))
+    tool = project['tool']['setuptools']
+    captured = {'packages': tool['packages'], 'package_dir': tool['package-dir'],
+                'package_data': tool['package-data']}
+    assert tool['include-package-data'] is False, 'only the files named, never a glob'
+    assert project['project']['scripts'] == {
+        'openai-youtube-transcriber': 'OpenAIYouTubeTranscriber:main'}
     # Each package is the folder it ships from, and carries the files git holds
     # there by name: a glob would take whatever a checkout's user had saved
     # beside them, and config.txt, which can hold an API key, is never one
@@ -3984,8 +3990,7 @@ def test_a_source_reached_by_another_path_is_still_never_written_over():
     symlink - or a name in another case on Windows or macOS - got past the
     check, and ffmpeg -y wrote over the file it was reading."""
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
     with tempfile.TemporaryDirectory() as tmp:
         folder = os.path.join(tmp, 'A')
@@ -3996,8 +4001,7 @@ def test_a_source_reached_by_another_path_is_still_never_written_over():
         try:
             os.symlink(folder, alias, target_is_directory=True)
         except (OSError, NotImplementedError):
-            print('    (skipped: no symlinks here)')
-            return
+            _skip('no symlinks here')
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             made = t.convert_media(source, 'mp3', 'audio', alias, 'clip', bitrate=32,
                                    replace_source=False)
@@ -4090,7 +4094,7 @@ def test_no_deliverable_or_queued_source_is_written_over():
         try:
             os.symlink(videos, link, target_is_directory=True)
         except (OSError, NotImplementedError):
-            return
+            _skip('no symlinks here')
         t = YouTubeTranscriber()
         written = []
         t.convert_media = lambda source, target, kind, folder, stem, **kw: written.append(
@@ -4170,8 +4174,7 @@ def test_ffmpeg_output_is_read_as_utf8_whatever_the_locale():
     cp1252 on Windows - so a Japanese filename in its log ended the batch.
     Run here under an ASCII locale, which fails the same way."""
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     with tempfile.TemporaryDirectory() as tmp:
         io.open(os.path.join(tmp, 'あいう.mp3'), 'w').write('not media')
         code = ('import os, sys\n'
@@ -4346,8 +4349,7 @@ def test_audio_is_copied_only_into_a_container_that_plays_it():
     """A stream copy put YouTube's Opus in an .mp4 and AAC in a .wav: ffmpeg
     writes both, and most players refuse them."""
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     t = YouTubeTranscriber()
     with tempfile.TemporaryDirectory() as tmp:
         opus, aac = os.path.join(tmp, 'a.webm'), os.path.join(tmp, 'b.m4a')
@@ -4450,8 +4452,7 @@ def test_a_download_reuses_the_metadata_already_fetched():
     ones the file names were made from. Through the real yt-dlp, on a stream
     served from disk."""
     if not _ffmpeg_available():
-        print('    (skipped: no ffmpeg)')
-        return
+        _skip('no ffmpeg')
     import yt_dlp
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -4483,8 +4484,25 @@ def test_a_download_reuses_the_metadata_already_fetched():
 
 
 if __name__ == '__main__':
+    # Without pytest: every test runs, and each failure is reported with its
+    # traceback, where the first one used to stop the run and hide the rest.
+    # pytest (see conftest.py) also restores what a failed test left patched.
+    import traceback
+
+    failed = []
     for name, fn in sorted(globals().items()):
         if name.startswith('test_'):
-            fn()
-            print(f'ok  {name}')
+            try:
+                fn()
+            except _Skipped as reason:
+                print(f'skip {name} ({reason})')
+            except Exception:
+                failed.append(name)
+                print(f'FAIL {name}')
+                traceback.print_exc()
+            else:
+                print(f'ok  {name}')
+    if failed:
+        print(f'{len(failed)} failed: {", ".join(failed)}')
+        sys.exit(1)
     print('all passed')
