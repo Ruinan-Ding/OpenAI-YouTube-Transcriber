@@ -4005,6 +4005,25 @@ def test_the_shipped_prompts_travel_with_an_installed_copy():
             importlib.invalidate_caches()
 
 
+def test_a_checkout_run_from_elsewhere_still_finds_its_prompts():
+    """`python /path/to/OpenAIYouTubeTranscriber.py` run from another folder
+    lists the repo's own Prompt/, found beside the script. The code moved one
+    folder down into the package, and "beside this file" pointed into it."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo_prompts = os.path.join(here, YouTubeTranscriber.PROMPT_DIR)
+    cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as elsewhere:
+        os.chdir(elsewhere)
+        try:
+            t = YouTubeTranscriber()
+            dirs = t.prompt_dirs()
+            prompts = t.list_available_prompts()
+        finally:
+            os.chdir(cwd)
+    assert any(os.path.samefile(d, repo_prompts) for d in dirs), dirs
+    assert 'prompt-refinement.txt' in prompts, prompts
+
+
 def test_an_installed_copy_starts_with_the_sample_profiles():
     """Profiles are listed, loaded and saved in the working directory's
     Profile/, so an installed copy's samples are copied there on first run -

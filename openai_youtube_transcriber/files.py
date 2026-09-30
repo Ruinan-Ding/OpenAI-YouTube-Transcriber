@@ -28,16 +28,19 @@ class FilesMixin:
             return False
 
     def prompt_dirs(self):
-        """Where Prompt/ may be: beside this file, under the working directory,
+        """Where Prompt/ may be: beside the script, under the working directory,
         and where an installed copy keeps the prompts it shipped with.
 
         Every other folder is made relative to the working directory, and that
         is where an installed `openai-youtube-transcriber` keeps the user's own
-        prompts; the copy beside the module is the repo's own, and still comes
+        prompts; the copy beside the script is the repo's own, and still comes
         first. The shipped ones come last, so a prompt edited in the working
         directory is not shadowed by the original it was copied from.
         """
-        beside = os.path.join(os.path.dirname(__file__), self.PROMPT_DIR)
+        # The script, and the repo's OpenAIYouTubeTranscriber/ beside it, are
+        # one folder up from this package: beside this file is inside it
+        package = os.path.dirname(os.path.abspath(__file__))
+        beside = os.path.join(os.path.dirname(package), self.PROMPT_DIR)
         return [d for d in dict.fromkeys((beside, os.path.abspath(self.PROMPT_DIR),
                                           self.installed_prompt_dir()))
                 if d and os.path.isdir(d)]
