@@ -1,5 +1,114 @@
 # Changelog
 
+## [Unreleased]
+
+Fixes for the sixteen findings in `docs/CODE_REVIEW_REPORT.md`, each with a
+regression test.
+
+### Changed
+
+- **Whisper is told the language spoken, not the one to write** (F06). A new
+  `SOURCE_LANGUAGE` field names the spoken language, and by default (`auto`)
+  Whisper detects it. `TARGET_LANGUAGE` is the language to write: `auto` (now
+  what Enter takes) is the language spoken, `en` is Whisper's own translation
+  into English, and any other language, which Whisper cannot write, comes back
+  as the spoken-language transcript with a note pointing at
+  `prompt0-translator.txt`. Transcripts are named for the language they are
+  in, and two targets that come out the same are saved once. Before, the
+  target was passed as Whisper's spoken-language hint, so French asked of
+  English speech was decoded as if it were French, and files were labelled by
+  what was asked for. `profile0-translator.txt` now translates into English.
+
+### Fixed
+
+- **A refinement renamed onto its own source is no longer deleted** (F01). The
+  source is never retired when an output landed on its path, the Raw/ copy is
+  written before the refinement, and transcripts are written atomically.
+- **A refinement that failed to save no longer retires its source** (F02):
+  only a whole refinement that actually landed replaces it.
+- **Audio no longer overwrites the merged video** in a shared folder and
+  container (F03); it becomes `<name> - Audio.<ext>`, remote and local alike.
+- **Sources of one list with one name keep their own files** (F04): the second
+  takes its video ID, or a number, and the same source twice keeps its name.
+- **Scratch cleanup deletes only what the pass fetched** (F05), in a folder of
+  its own under `Video/Temp`, even when the pass fails part way.
+- **A caption request stands for every video of a list** (F07), rather than
+  being narrowed to the tracks the first video had.
+- **Saved profiles read back exactly** (F08): values dotenv would change are
+  single-quoted, and single-quoted values are read literally. This needs
+  `python-dotenv>=1.2.3`, the first release to read a quoted value that ends
+  in a backslash; earlier ones lost that value and the line after it.
+- **A typed prompt is saved with the profile** (F09) as `Prompt/prompt<N>.txt`,
+  instead of `PROMPT=(inline)`.
+- **A new `config.txt` names the profile actually written** (F10).
+- **A transcript or prompt in another encoding no longer ends the run** (F11):
+  UTF-16 and BOM-marked files are read, and anything else that is not UTF-8
+  is reported and skipped.
+- **A failed enhancement hands back the text unchanged** (F12), and **every
+  chunk respects its size budget** (F13), mixed scripts included: chunks are
+  exact spans of the text rather than `textwrap` output. The local backend
+  measures its chunks with the model's own tokenizer, as it already measured
+  the room they have.
+- **Installed copies carry the shipped prompts and sample profiles** (F14).
+  The samples are copied into the working directory's `Profile/` on first
+  run. Each file is named in `setup.py` rather than globbed, so a wheel built
+  from a checkout never carries the user's own prompts or profiles, and never
+  `config.txt`.
+- **WebVTT captions are read by cue block** (F15): cue numbers, `NOTE`, `STYLE`
+  and `REGION` blocks are not speech, and `&amp;` is decoded.
+- **`~/clip.mp3` is accepted as a source** (F16).
+
+### Fixed after a second review
+
+- **One place settles every output's name.** A batch reserves every file it
+  writes, and every source it has yet to read, comparing folders through
+  symlinks and names without regard to case. A refinement no longer lands on
+  the transcript queued after it, a Whisper transcript on a queued transcript
+  of its name, two audio streams that round to one bitrate on one file, or the
+  audio on the merged video through a symlinked folder.
+- **A local source reached another way is never written over.** `convert_media`
+  compared paths as text, so a symlinked `VIDEO_PATH` - or `C0001.MP4` beside
+  `C0001.mp4` on Windows or macOS - let ffmpeg overwrite the file it read.
+- **A summary never replaces a source whose `Raw/` copy failed to save**, with
+  `KEEP_TRANSCRIPT=y` as with `n`.
+- **A prompt that fails no longer saves the unrefined text** beside another
+  prompt's output; when every prompt fails, the transcript is saved once.
+- **The log names the `Raw/` folder the copy really went to** under
+  `TRANSCRIPT_PATH`.
+- **ffmpeg's output is read as UTF-8.** Read in the locale's encoding (cp1252
+  on Windows), a Japanese filename in it raised and ended the batch.
+- **A superscript digit at a menu asks again** instead of raising.
+- **A video with nothing to pick gives way to the next** while the settings
+  are asked, instead of ending the batch.
+- **Input running out ends the run without a traceback**: exit code 0 once the
+  work asked for is done (a `REPEAT=y` round asking for more), 1 otherwise.
+  A single-source yt-dlp error exits 1 as `DownloadFailed` does.
+- **Profile fields read as their questions do**: `s`/`skip` declines a
+  `*_RENAME` or `*_PATH`, `~` works in a `*_PATH`, `LOAD_PROFILE` is read as
+  dotenv reads it (quotes and a trailing `# comment`), and `USE_EN_MODEL=y`
+  is ignored when `SOURCE_LANGUAGE` or `TARGET_LANGUAGE` rule English out.
+- **A caption pick from the listing stands for each video of a list.** The
+  original is recorded as `original` (also accepted in
+  `DOWNLOAD_YT_TRANSCRIPT`), so the next video's original is taken, not its
+  translation into the first one's language; picking every track is `all`.
+- **Audio is copied only into a container that plays it**: Opus asked for as
+  `mp4` becomes AAC, AAC as `wav` becomes PCM.
+- **Whisper work is not repeated**: `auto,en` on English speech is one pass,
+  a model that failed to load is not tried again for each target and source,
+  and detection decodes the first 30 seconds rather than the whole file.
+- **The local model is given `torch_dtype` or `dtype`**, whichever the
+  installed transformers takes (renamed in 4.56).
+- **Downloads reuse the metadata already fetched** instead of extracting each
+  video again per deliverable.
+
+### Also fixed
+
+- **ffmpeg no longer reads the keyboard.** It takes its commands from stdin
+  while it works: `q` stopped a re-encode part way, and the first character
+  of an answer waiting after it was eaten, so a path piped to a profile's
+  next round arrived without its leading `/`. ffmpeg and ffprobe now get no
+  stdin, as the ffmpeg runs of yt-dlp and Whisper already did.
+
 ## [1.2.0] - 2026-09-12
 
 ### Added

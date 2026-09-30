@@ -1,5 +1,9 @@
 #translator
 #Change values after the equals sign (=)
+#
+#Whisper translates the speech into English by itself (TARGET_LANGUAGE=en).
+#It writes no other language: for one, set TARGET_LANGUAGE=auto, AI_REFINEMENT=y
+#and PROMPT=prompt0-translator.txt, naming the language on that prompt's first line.
 
 URL=<Insert_YouTube_link_or_local_path_to_audio_or_video>
 DOWNLOAD_VIDEO=n
@@ -22,7 +26,8 @@ DOWNLOAD_YT_TRANSCRIPT=n
 TRANSCRIBE_AUDIO=y
 TRANSCRIBE_AUDIO_QUALITY=lowest
 MODEL_CHOICE=base
-TARGET_LANGUAGE=
+SOURCE_LANGUAGE=auto
+TARGET_LANGUAGE=en
 USE_EN_MODEL=n
 AI_REFINEMENT=n
 PROMPT=

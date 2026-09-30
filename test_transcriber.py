@@ -1,6 +1,8 @@
 # Self-check for the parsing/chunking logic. Run with: python test_transcriber.py
 
 import ast
+import codecs
+import importlib
 import inspect
 import io
 import json
@@ -1049,6 +1051,34 @@ def _make_clip(path, kind):
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i', source]
                    + codec + [path], capture_output=True, check=True)
     return path
+
+
+def test_ffmpeg_leaves_stdin_to_the_prompts():
+    """ffmpeg reads its keyboard commands from stdin as it works - q stops it -
+    and so took the first character of whatever answer was waiting there: a
+    path piped to a profile's next round arrived without its leading slash."""
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        clip = _make_clip(os.path.join(tmp, 'clip.mp3'), 'audio')
+        read_end, write_end = os.pipe()
+        os.write(write_end, b'/next/answer\n')
+        os.close(write_end)
+        saved = os.dup(0)
+        os.dup2(read_end, 0)
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                converted = t.convert_media(clip, 'wav', 'audio', tmp, 'converted',
+                                            replace_source=False)
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+        left = os.read(read_end, 64)
+        os.close(read_end)
+    assert converted, 'the conversion itself failed'
+    assert left == b'/next/answer\n', left
 
 
 def _plain_info():
@@ -2544,10 +2574,11 @@ def test_a_profile_on_the_old_field_name_still_runs_unattended():
 
 
 def test_several_target_languages_are_several_transcripts():
-    """One audio, one pass per language, one file each.
+    """One audio, one pass per language, one file per language written.
 
-    The files are named for what was asked for rather than what the model
-    thought it heard - two languages must not resolve to one filename.
+    The files are named for the language the text is in. They were named for
+    what was asked for, so French asked of Italian speech - which Whisper
+    cannot write - was saved as "[Whisper fr]" with Italian in it.
     """
     import OpenAIYouTubeTranscriber as module
 
@@ -2572,28 +2603,33 @@ def test_several_target_languages_are_several_transcripts():
             io.open(path, 'w').write('x')
             return path, os.path.abspath(path)
 
-        def fake_transcribe(path, model_name, language):
-            passes.append((language, model_name))
-            # The model mishears both passes as the same language, which used
-            # to be enough to make two transcripts overwrite each other
-            return f'words for {language}', 'it'
+        def fake_transcribe(path, model_name, target, source=None):
+            passes.append((target, model_name, source))
+            # Italian speech: Whisper writes Italian, or translates into English
+            language = 'en' if target == 'en' else 'it'
+            return f'words in {language}', language
 
         t.download_audio_stream = fake_audio
         t.transcribe_audio_file = fake_transcribe
 
         cfg = module.SessionConfig(
             url='https://youtu.be/x', info=_plain_info(), video_title='clip',
-            transcribe_audio=True, target_languages=['en', 'fr'],
+            transcribe_audio=True, target_languages=['en', 'fr', 'auto'],
             target_language='en', transcribe_audio_quality='lowest',
             used_fields={})
-        with redirect_stdout(io.StringIO()):
+        log = io.StringIO()
+        with redirect_stdout(log):
             module._run_pipeline(t, cfg)
 
+        # French could not be written, so it came back Italian - as the spoken
+        # language itself does, and that is one file, not two of one text
         found = sorted(os.listdir(t.TRANSCRIPT_DIR))
-        assert found == ['clip [Whisper en].txt', 'clip [Whisper fr].txt'], found
+        assert found == ['clip [Whisper en].txt', 'clip [Whisper it].txt'], found
         assert io.open(os.path.join(t.TRANSCRIPT_DIR, 'clip [Whisper en].txt'),
-                       encoding='utf-8').read() == 'words for en'
-        assert passes == [('en', 'base'), ('fr', 'base')], passes
+                       encoding='utf-8').read() == 'words in en'
+        assert 'The auto transcript is the it one already saved' in log.getvalue()
+        assert passes == [('en', 'base', None), ('fr', 'base', None),
+                          ('auto', 'base', None)], passes
         # One download served both passes
         assert len(fetched) == 1, fetched
 
@@ -3172,6 +3208,1278 @@ def test_output_the_console_cannot_encode_does_not_end_the_run():
                          env=dict(os.environ, PYTHONIOENCODING='cp1252'))
     assert run.returncode == 1 and b'UnicodeEncodeError' not in run.stderr, run.stderr[-300:]
     assert b'???' in run.stdout and b'Missing required' in run.stdout, run.stdout
+
+
+def _refine_setup(tmp):
+    """A transcriber refining into tmp/Transcript, every reply the text uppercased."""
+    t = YouTubeTranscriber()
+    t.startfile = lambda *a: None
+    t.enhance_text = lambda text, *a, **k: text.upper()
+    t.TRANSCRIPT_DIR = os.path.join(tmp, 'Transcript')
+    t.RAW_TRANSCRIPT_DIR = os.path.join(t.TRANSCRIPT_DIR, 'Raw')
+    os.makedirs(t.TRANSCRIPT_DIR, exist_ok=True)
+    return t
+
+
+def _tree(root):
+    """Every file under root, relative path -> contents."""
+    return {os.path.relpath(os.path.join(base, name), root).replace(os.sep, '/'):
+            io.open(os.path.join(base, name), encoding='utf-8', errors='replace').read()
+            for base, _dirs, names in os.walk(root) for name in names}
+
+
+def test_a_refinement_renamed_onto_its_own_source_is_not_deleted():
+    """Refining 'talk - refinement.txt' with TRANSCRIPT_RENAME=talk names the
+    output 'talk - refinement.txt' again. The save wrote over the source, and
+    retiring the source then deleted the refinement just saved."""
+    import OpenAIYouTubeTranscriber as module
+
+    for keep in (False, True):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = _refine_setup(tmp)
+            source = os.path.join(t.TRANSCRIPT_DIR, 'talk - refinement.txt')
+            io.open(source, 'w', encoding='utf-8').write('the only words')
+            cfg = module.SessionConfig(
+                used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL,
+                refine_sources=[source], prompts=[('TIDY', 'prompt-refinement.txt')],
+                transcript_rename='talk', keep_transcript=keep)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                module._refine_transcripts(t, cfg)
+            found = _tree(tmp)
+        expected = {'Transcript/talk - refinement.txt': 'THE ONLY WORDS'}
+        if keep:
+            expected['Transcript/Raw/talk.txt'] = 'the only words'
+        assert found == expected, (keep, found)
+
+    # A summary is not a refinement: written over a source that keeps no copy,
+    # it would be the end of the words, so it is not written there at all
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        source = os.path.join(t.TRANSCRIPT_DIR, 'talk - summarizer.txt')
+        io.open(source, 'w', encoding='utf-8').write('the only words')
+        cfg = module.SessionConfig(
+            used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL,
+            refine_sources=[source], prompts=[('BRIEF', 'prompt1-summarizer.txt')],
+            transcript_rename='talk', keep_transcript=False)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._refine_transcripts(t, cfg)
+        assert _tree(tmp) == {'Transcript/talk - summarizer.txt': 'the only words'}
+
+    # The write itself is all or nothing: a failed one leaves the file whole
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        path = os.path.join(t.TRANSCRIPT_DIR, 'talk.txt')
+        io.open(path, 'w', encoding='utf-8').write('the only words')
+        os.chmod(path, 0o640)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            assert not t.save_transcript('unencodable \ud800', 'talk.txt', t.TRANSCRIPT_DIR,
+                                         open_after=False)
+            assert io.open(path, encoding='utf-8').read() == 'the only words'
+            assert t.save_transcript('new words', 'talk.txt', t.TRANSCRIPT_DIR,
+                                     open_after=False)
+        assert io.open(path, encoding='utf-8').read() == 'new words'
+        assert os.listdir(t.TRANSCRIPT_DIR) == ['talk.txt'], os.listdir(t.TRANSCRIPT_DIR)
+        if os.name == 'posix':
+            assert os.stat(path).st_mode & 0o777 == 0o640
+
+
+def test_a_refinement_that_failed_to_save_never_retires_its_source():
+    """A summary saved and a refinement that failed to: the refinement set its
+    flag on the reply rather than the save, the summary's success set the
+    other, and KEEP_TRANSCRIPT=n then deleted the only full transcript."""
+    import OpenAIYouTubeTranscriber as module
+
+    summary = ('BRIEF', 'prompt1-summarizer.txt')
+    refinement = ('TIDY', 'prompt-refinement.txt')
+    for prompts in ([summary, refinement], [refinement, summary]):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = _refine_setup(tmp)
+            t.save_transcript = lambda text, name, folder, real=t.save_transcript, **k: (
+                'refinement' not in name and real(text, name, folder, **k))
+            source = os.path.join(t.TRANSCRIPT_DIR, 'talk.txt')
+            io.open(source, 'w', encoding='utf-8').write('the only words')
+            cfg = module.SessionConfig(
+                used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL,
+                refine_sources=[source], prompts=prompts, keep_transcript=False)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                module._refine_transcripts(t, cfg)
+            found = _tree(tmp)
+        assert found == {'Transcript/talk.txt': 'the only words',
+                         'Transcript/talk - summarizer.txt': 'THE ONLY WORDS'}, found
+
+
+def test_the_audio_never_lands_on_the_merged_video():
+    """VIDEO_FORMAT=mkv and AUDIO_FORMAT=mkv in one folder: the merged video was
+    clip.mkv, and the audio converted after it was written to clip.mkv too."""
+    import OpenAIYouTubeTranscriber as module
+
+    # Local: the same three files, re-encoded from a file on disk
+    t = YouTubeTranscriber()
+    written = []
+
+    def convert_media(source, target, kind, folder, stem, **kwargs):
+        written.append((kind, os.path.join(folder, f'{stem}.{target}')))
+        return written[-1][1]
+
+    t.convert_media = convert_media
+    t.stream_codec = lambda source, kind: 'h264' if kind == 'video' else 'aac'
+    t.source_height = lambda source: 720
+    t.source_bitrate = lambda source: 128
+    out = os.path.join(tempfile.gettempdir(), 'out')
+    cfg = module.SessionConfig(
+        url='clip.mp4', is_local_file=True, used_fields={}, download_video=True,
+        video_format='mkv', download_audio=True, audio_format='mkv,mp3',
+        video_path=out, audio_path=out)
+    with redirect_stdout(io.StringIO()):
+        module._local_deliverables(t, cfg, 'clip')
+    assert written == [('both', os.path.join(out, 'clip.mkv')),
+                       ('audio', os.path.join(out, 'clip - Audio.mkv')),
+                       ('audio', os.path.join(out, 'clip.mp3'))], written
+
+    # Remote, through the real merge and conversion
+    if not _ffmpeg_available():
+        print('    (skipped the download half: no ffmpeg)')
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        t = YouTubeTranscriber()
+        t.VIDEO_DIR, t.AUDIO_DIR = os.path.join(tmp, 'Video'), os.path.join(tmp, 'Audio')
+        seed_video = _make_clip(os.path.join(tmp, 'seed.mp4'), 'video')
+        seed_audio = _make_clip(os.path.join(tmp, 'seed.mp3'), 'audio')
+
+        def fake_video(url, selector, output_dir, stem):
+            os.makedirs(output_dir, exist_ok=True)
+            return shutil.copyfile(seed_video, os.path.join(output_dir, stem + '.mp4'))
+
+        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+            folder = os.path.join(t.AUDIO_DIR, t.TEMP_DIR) if is_temp else keep_in
+            os.makedirs(folder, exist_ok=True)
+            path = shutil.copyfile(seed_audio, os.path.join(folder, stem + '.mp3'))
+            return path, os.path.abspath(path)
+
+        t.download_format = fake_video
+        t.download_audio_stream = fake_audio
+        out = os.path.join(tmp, 'out')
+        cfg = module.SessionConfig(
+            url='https://youtu.be/x', info=_plain_info(), video_title='clip',
+            used_fields={}, transcribe_audio=False,
+            download_video=True, video_resolution='highest', video_audio_resolution='highest',
+            video_format='mkv', video_path=out,
+            download_audio=True, audio_resolution='highest', audio_format='mkv', audio_path=out)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_pipeline(t, cfg)
+        assert sorted(os.listdir(out)) == ['clip - Audio.mkv', 'clip.mkv'], os.listdir(out)
+        assert t.stream_codec(os.path.join(out, 'clip.mkv'), 'video') is not None
+        assert t.stream_codec(os.path.join(out, 'clip - Audio.mkv'), 'video') is None
+
+
+def test_two_sources_with_one_title_keep_a_file_each():
+    """Two videos titled alike were written to one name, and downloads overwrite:
+    a two-video run left one audio file. The same source twice is a repeat,
+    and keeps its one name."""
+    import OpenAIYouTubeTranscriber as module
+
+    with tempfile.TemporaryDirectory() as tmp:
+        t = YouTubeTranscriber()
+        t.AUDIO_DIR = os.path.join(tmp, 'Audio')
+        titles = {'https://youtu.be/AAAAAAAAAAA': 'Same title',
+                  'https://youtu.be/BBBBBBBBBBB': 'Same title',
+                  'https://youtu.be/CCCCCCCCCCC': 'Same title?'}
+        t.fetch_video_info = lambda url: dict(
+            _plain_info(), id=url[-11:], title=titles[url], webpage_url=url)
+
+        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+            os.makedirs(keep_in, exist_ok=True)
+            path = os.path.join(keep_in, stem + '.webm')
+            io.open(path, 'w', encoding='utf-8').write(info['id'])
+            return path, os.path.abspath(path)
+
+        t.download_audio_stream = fake_audio
+        sources = [(url, False, None) for url in titles] + [
+            ('https://youtu.be/AAAAAAAAAAA', False, None)]
+        cfg = module.SessionConfig(
+            sources=sources, used_fields={}, transcribe_audio=False,
+            download_audio=True, audio_resolution='highest', audio_format='original')
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_pipeline(t, cfg)
+        found = _tree(t.AUDIO_DIR)
+    # "Same title?" cleans to "Same title" as well, and is a third video
+    assert found == {'Same title.webm': 'AAAAAAAAAAA',
+                     'Same title [BBBBBBBBBBB].webm': 'BBBBBBBBBBB',
+                     'Same title [CCCCCCCCCCC].webm': 'CCCCCCCCCCC'}, found
+
+    # Local files of one name from two folders, and transcripts to refine likewise
+    cfg = module.SessionConfig(used_fields={})
+    first, second = [module._claim_name(cfg, 'clip', path) for path in ('/a/clip', '/b/clip')]
+    assert (first, second) == ('clip', 'clip (2)')
+    assert module._claim_name(cfg, 'CLIP', '/c/clip') == 'CLIP (3)', 'case alone is no difference'
+    assert module._claim_name(cfg, 'clip', '/a/clip') == 'clip'
+
+
+def test_scratch_cleanup_deletes_only_what_the_pass_fetched():
+    """Merge-only video streams went to the shared Video/Temp, and cleanup
+    emptied the whole folder: with VIDEO_PATH pointed at it, the merge it had
+    just made went too, along with anything else kept there."""
+    import OpenAIYouTubeTranscriber as module
+
+    with tempfile.TemporaryDirectory() as tmp:
+        t = YouTubeTranscriber()
+        t.VIDEO_DIR, t.AUDIO_DIR = os.path.join(tmp, 'Video'), os.path.join(tmp, 'Audio')
+        shared = os.path.join(t.VIDEO_DIR, t.TEMP_DIR)
+        os.makedirs(shared)
+        sentinel = os.path.join(shared, 'keep me.txt')
+        io.open(sentinel, 'w', encoding='utf-8').write('not yours')
+        scratch, failing = [], [False]
+
+        def fake_video(url, selector, output_dir, stem):
+            scratch.append(output_dir)
+            path = os.path.join(output_dir, stem + '.webm')
+            io.open(path, 'w', encoding='utf-8').write('video')
+            return path
+
+        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+            if failing[0]:
+                raise module.DownloadFailed('gone')
+            folder = os.path.join(t.AUDIO_DIR, t.TEMP_DIR)
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, stem + '.webm')
+            io.open(path, 'w', encoding='utf-8').write('audio')
+            return path, os.path.abspath(path)
+
+        def combine(video, audio, output):
+            io.open(output, 'w', encoding='utf-8').write('merged')
+            return output
+
+        t.download_format, t.download_audio_stream = fake_video, fake_audio
+        t.combine_audio_video = combine
+        for fail in (False, True):
+            failing[0] = fail
+            scratch.clear()
+            cfg = module.SessionConfig(
+                sources=[('https://youtu.be/x', False, None)] * 2, info=_plain_info(),
+                url='https://youtu.be/x', video_title='clip', used_fields={},
+                transcribe_audio=False, download_video=True, video_resolution='highest',
+                video_audio_resolution='highest', video_format='mkv', video_path=shared)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                module._run_pipeline(t, cfg)
+            # Its own folder each pass, and gone after it, failed or not
+            assert scratch and all(os.path.dirname(s) == shared for s in scratch), scratch
+            assert not any(os.path.exists(s) for s in scratch), scratch
+            assert io.open(sentinel, encoding='utf-8').read() == 'not yours'
+        assert sorted(os.listdir(shared)) == ['clip.mkv', 'keep me.txt'], os.listdir(shared)
+
+
+def test_whisper_is_told_the_language_spoken_not_the_one_to_write():
+    """Whisper's `language` is the language spoken. Handed the target, it
+    decoded Italian speech as French; English, the one language it can
+    translate into, was never asked of it as a translation."""
+    import whisper
+
+    import OpenAIYouTubeTranscriber as module
+
+    calls = []
+
+    class Model:
+        is_multilingual = True
+
+        def transcribe(self, path, language=None, task='transcribe'):
+            calls.append((language, task))
+            if task == 'translate':
+                return {'text': 'words in english', 'language': language}
+            heard = language or 'it'
+            return {'text': f'parole in {heard}', 'language': heard}
+
+    saved_load = module.whisper.load_model
+    module.whisper.load_model = lambda name: Model()
+    t = YouTubeTranscriber()
+    detected = ['it']
+    t.spoken_language = lambda model, path: detected[0]
+    log = io.StringIO()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = os.path.join(tmp, 'clip.mp3')
+            io.open(audio, 'wb').close()
+
+            def run(target, source=None):
+                calls.clear()
+                t.release_caches()
+                with redirect_stdout(log), redirect_stderr(io.StringIO()):
+                    return t.transcribe_audio_file(audio, 'base', target, source), calls[:]
+
+            # The language spoken, detected: no hint, and named for what was heard
+            assert run('auto') == (('parole in it', 'it'), [(None, 'transcribe')])
+            # English is a translation, of the language detected first
+            assert run('en') == (('words in english', 'en'), [('it', 'translate')])
+            # ...and a transcription of English speech
+            detected[0] = 'en'
+            assert run('en')[1] == [('en', 'transcribe')]
+            # A language Whisper cannot write is not forced on it as a hint:
+            # the speech is transcribed as spoken, and named for that
+            detected[0] = 'it'
+            assert run('fr') == (('parole in it', 'it'), [(None, 'transcribe')])
+            assert 'Whisper translates into English only' in log.getvalue()
+            # A spoken language named outright is the hint
+            assert run('auto', 'de') == (('parole in de', 'de'), [('de', 'transcribe')])
+            assert run('en', 'de')[1] == [('de', 'translate')]
+            # No detection to be had: Whisper's own, then a translation if needed
+            detected[0] = None
+            assert run('en') == (('words in english', 'en'),
+                                 [(None, 'transcribe'), ('it', 'translate')])
+    finally:
+        module.whisper.load_model = saved_load
+
+    # What spoken_language calls is Whisper's own API, whose weights are not here
+    assert 'n_mels' in inspect.signature(whisper.log_mel_spectrogram).parameters
+    assert hasattr(whisper.model.Whisper, 'detect_language')
+    assert hasattr(whisper.model.Whisper, 'is_multilingual')
+
+    # The spoken language is its own answer; the English-only model is offered
+    # only where the speech may be English and nothing else is asked for
+    cfg = module.SessionConfig(used_fields={})
+    for raw, source in (('Japanese', 'ja'), ('auto', None), ('EN', 'en')):
+        module._settle_source_language(t, cfg, raw)
+        assert cfg.source_language == source, raw
+    assert cfg.used_fields['SOURCE_LANGUAGE'] == 'en'
+    module.input = lambda prompt='': ''
+    try:
+        with redirect_stdout(io.StringIO()):
+            module._settle_source_language(t, cfg, 'klingon')
+    finally:
+        del module.input
+    assert cfg.source_language is None and cfg.used_fields['SOURCE_LANGUAGE'] == 'auto'
+    assert t.normalize_languages('auto, English') == (['auto', 'en'], [])
+    for source, targets, offered in ((None, ['auto'], True), ('en', ['en'], True),
+                                     ('ja', ['auto'], False), (None, ['en', 'fr'], False)):
+        cfg.source_language, cfg.target_languages = source, targets
+        assert module._offers_en_model(t, cfg, ModelSize.BASE) == offered, (source, targets)
+
+
+def test_detection_runs_through_the_installed_whisper():
+    """spoken_language and the translate task, through Whisper's own code.
+
+    No weights can be fetched here, so the model is a tiny one with random
+    weights: what it detects means nothing, but every call the app makes -
+    ffmpeg decoding, the mel spectrogram, detect_language, the task - is the
+    installed Whisper's, and a change to any of them fails here.
+    """
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    import torch
+    import whisper
+    from whisper.model import ModelDimensions, Whisper
+
+    import OpenAIYouTubeTranscriber as module
+
+    def tiny(n_vocab):
+        return Whisper(ModelDimensions(
+            n_mels=80, n_audio_ctx=1500, n_audio_state=64, n_audio_head=1, n_audio_layer=1,
+            n_vocab=n_vocab, n_text_ctx=448, n_text_state=64, n_text_head=1,
+            n_text_layer=1)).eval()
+
+    torch.manual_seed(0)
+    model, calls = tiny(51865), []
+    real_transcribe = model.transcribe
+
+    def transcribe(path, language=None, **kwargs):
+        calls.append((language, kwargs.get('task', 'transcribe')))
+        # One greedy pass: the weights are random, so a fallback ladder is time wasted
+        return real_transcribe(path, language=language, temperature=0.0, **kwargs)
+
+    model.transcribe = transcribe
+    t = YouTubeTranscriber()
+    saved_load = module.whisper.load_model
+    module.whisper.load_model = lambda name: model
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = os.path.join(tmp, 'tone.wav')
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                            'sine=frequency=300:duration=2', audio], check=True)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                heard = t.spoken_language(model, audio)
+                assert heard in whisper.tokenizer.LANGUAGES, heard
+                # An English-only model is English without asking
+                assert t.spoken_language(tiny(51864), audio) == 'en'
+                t.transcribe_audio_file(audio, 'tiny', 'auto')
+                assert calls == [(None, 'transcribe')], calls
+                calls.clear()
+                t.release_caches()
+                t.transcribe_audio_file(audio, 'tiny', 'en')
+            expected = 'transcribe' if heard == 'en' else 'translate'
+            assert calls == [(heard, expected)], (heard, calls)
+    finally:
+        module.whisper.load_model = saved_load
+
+
+def test_a_caption_request_stands_for_every_video_of_a_list():
+    """DOWNLOAD_YT_TRANSCRIPT=en,fr was narrowed to the tracks the first video
+    had: a first video without French asked no video for French, and 'en'
+    settled as the first video's en-US missed the next video's en-GB."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    t.startfile = lambda *a: None
+    fetched = []
+    t.fetch_caption_text = lambda info, key: fetched.append(key) or f'the {key} words'
+    videos = [('https://youtu.be/first', False, None), ('https://youtu.be/second', False, None)]
+
+    def track(key):
+        return [{'url': f'https://x/t?lang={key}', 'name': key}]
+
+    for raw, first, second, want in (
+            ('en,fr', {'en': track('en')}, {'en': track('en'), 'fr': track('fr')}, ['en', 'fr']),
+            ('en', {'en-US': track('en-US')}, {'en-GB': track('en-GB')}, ['en-GB']),
+            ('en,en-us', {'en-US': track('en-US')}, {'en-US': track('en-US')}, ['en-US'])):
+        fetched.clear()
+        cfg = module.SessionConfig(url=videos[0][0], info={'subtitles': first},
+                                   used_fields={}, sources=videos)
+        with tempfile.TemporaryDirectory() as tmp:
+            t.TRANSCRIPT_DIR = os.path.join(tmp, 'Transcript')
+            t.RAW_TRANSCRIPT_DIR = os.path.join(t.TRANSCRIPT_DIR, 'Raw')
+            with redirect_stdout(io.StringIO()):
+                module._settle_yt_transcripts(t, cfg, raw)
+                cfg.info = {'subtitles': second}
+                module._save_yt_transcripts(t, cfg, 'clip')
+        assert fetched == want, (raw, fetched)
+
+
+def test_a_saved_profile_reads_back_exactly_what_it_saved():
+    """Written raw, ' #' started a comment and ${...} expanded on the way back:
+    /tmp/Part #2.mp3 came back /tmp/Part, and a prompt path took another
+    variable's value into its name."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    values = {
+        'URL': '/tmp/Part #2.mp3,/tmp/other.mp3',
+        'TRANSCRIPT_PATH': '/tmp/Course #2',
+        'PROMPT': '/tmp/prompt-${COURSE}.txt',
+        'VIDEO_RENAME': 'it\'s "quoted"',
+        'VIDEO_PATH': r'C:\Users\me\Videos',
+        'AUDIO_PATH': r'\\server\share #1\ ',
+        # Before python-dotenv 1.2.3, the backslash ate the closing quote
+        'VIDEO_ONLY_PATH': 'D:\\Lectures #2\\',
+        'AUDIO_RENAME': '  padded  ',
+        'DOWNLOAD_AUDIO': 'y',
+    }
+    keys = tuple(values) + ('COURSE', 'LATER')
+    saved = {key: os.environ.get(key) for key in keys}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            t.PROFILE_DIR = tmp
+            with redirect_stdout(io.StringIO()):
+                t.create_profile(values)
+            path = os.path.join(tmp, t.DEFAULT_PROFILE)
+            lines = io.open(path, encoding='utf-8').read().splitlines()
+            # Plain values stay plain to edit
+            assert 'DOWNLOAD_AUDIO=y' in lines and r'VIDEO_PATH=C:\Users\me\Videos' in lines
+            os.environ['COURSE'] = 'unrelated'
+            module._load_profile(path)
+            for key, value in values.items():
+                assert os.environ[key] == value, (key, os.environ[key], value)
+            # A hand-written, unquoted ${...} still expands, as it always did
+            io.open(path, 'a', encoding='utf-8').write('\nLATER=${COURSE}/x\n')
+            module._load_profile(path)
+            assert os.environ['LATER'] == 'unrelated/x'
+    finally:
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.update({key: value})
+
+
+def test_a_typed_prompt_is_saved_where_a_profile_can_name_it():
+    """A typed prompt was saved to the profile as PROMPT=(inline): its words
+    were nowhere, and replaying the profile found no such prompt file."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        t.PROMPT_DIR = os.path.join(tmp, 'Prompt')
+        cfg = module.SessionConfig(
+            used_fields={'PROMPT': '(inline),prompt-refinement.txt'},
+            prompts=[('Keep it short.', module.INLINE_PROMPT),
+                     ('TIDY', 'prompt-refinement.txt')])
+        with redirect_stdout(io.StringIO()):
+            module._save_inline_prompts(t, cfg)
+            first = cfg.used_fields['PROMPT']
+            # Saved again, the file already there is named rather than a copy made
+            module._save_inline_prompts(t, cfg)
+            loaded = module._load_prompts(t, cfg.used_fields['PROMPT'])
+        assert cfg.used_fields['PROMPT'] == first == 'prompt0.txt,prompt-refinement.txt', first
+        assert os.listdir(t.PROMPT_DIR) == ['prompt0.txt']
+        assert loaded[0] == ('Keep it short.', 'prompt0.txt'), loaded
+        # ...and it tags its output as the typed prompt did
+        assert t.prompt_suffix('prompt0.txt') == t.prompt_suffix(module.INLINE_PROMPT)
+
+
+def test_a_new_config_names_the_profile_actually_written():
+    """config.txt was written first, naming profile.txt, while a folder that
+    already had a profile got profile0.txt: the next run loaded nothing."""
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        t.PROFILE_DIR = tmp
+        io.open(os.path.join(tmp, 'profile-transcriber.txt'), 'w').write('URL=x\n')
+        with redirect_stdout(io.StringIO()):
+            t.create_profile(dict(t.DEFAULT_FIELDS))
+        config = dotenv_values(os.path.join(tmp, t.CONFIG_ENV))
+        assert config['LOAD_PROFILE'] == 'profile0.txt', config
+        assert os.path.exists(os.path.join(tmp, 'profile0.txt'))
+
+
+def test_a_text_file_in_another_encoding_does_not_end_the_run():
+    """A transcript or prompt saved by another editor raised UnicodeDecodeError
+    out of the reader, taking the transcripts after it down too."""
+    import OpenAIYouTubeTranscriber as module
+
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        files = {'utf16.txt': 'Grüße aus Köln'.encode('utf-16'),
+                 'bom.txt': codecs.BOM_UTF8 + 'with a BOM'.encode('utf-8'),
+                 'crlf.txt': b'line one\r\nline two',
+                 'cp1252.txt': 'caf\xe9 cr\xe8me'.encode('cp1252')}
+        for name, data in files.items():
+            io.open(os.path.join(tmp, name), 'wb').write(data)
+        log = io.StringIO()
+        with redirect_stdout(log), redirect_stderr(log):
+            assert t.read_transcript(os.path.join(tmp, 'utf16.txt')) == 'Grüße aus Köln'
+            assert t.read_transcript(os.path.join(tmp, 'bom.txt')) == 'with a BOM'
+            assert t.read_transcript(os.path.join(tmp, 'crlf.txt')) == 'line one\nline two'
+            assert t.read_transcript(os.path.join(tmp, 'cp1252.txt')) == ''
+            assert t.load_prompt_file(os.path.join(tmp, 'cp1252.txt')) == ''
+        assert 'is not UTF-8 text' in log.getvalue()
+
+        # One unreadable transcript is skipped, and the next is still refined -
+        # and retired, its UTF-16 read back the same way to check the Raw/ copy
+        bad = os.path.join(t.TRANSCRIPT_DIR, 'a.txt')
+        good = os.path.join(t.TRANSCRIPT_DIR, 'b.txt')
+        io.open(bad, 'wb').write(files['cp1252.txt'])
+        io.open(good, 'wb').write(files['utf16.txt'])
+        cfg = module.SessionConfig(used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL,
+                                   refine_sources=[bad, good],
+                                   prompts=[('TIDY', 'prompt-refinement.txt')])
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._refine_transcripts(t, cfg)
+        found = _tree(t.TRANSCRIPT_DIR)
+        assert found['b - refinement.txt'] == 'GRÜSSE AUS KÖLN', found
+        assert found['Raw/b.txt'] == 'Grüße aus Köln' and 'b.txt' not in found, found
+        assert os.path.exists(bad)
+
+
+def test_a_failed_enhancement_hands_back_the_text_it_was_given():
+    """Oversized sentences were wrapped with textwrap, which cut long words and
+    rejoined them on a space - Thai, with no spaces between words, took one
+    at every cut - so a backend that failed on every chunk still changed the
+    words, and the result passed for a refinement."""
+    import sys
+    import types
+
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+
+    def down(chunk):
+        raise RuntimeError('backend down')
+
+    for text in ('x' * 10000, 'ภาษาไทย' * 1000, 'a ' * 1800 + '中' * 1500,
+                 ' ' + ' '.join(f'word{i}' for i in range(3000)) + '\n',
+                 'line one\nline two\n' * 400):
+        chunks, seams = t.chunk_spans(text, max_tokens=300)
+        assert len(chunks) > 1 and len(seams) == len(chunks) - 1
+        # Every chunk inside the budget, by the estimate that set it - a mixed
+        # sentence sized by its average character came to 566 of 300
+        assert max(t.estimate_tokens(c) for c in chunks) <= 300, text[:20]
+        assert ''.join(c + s for c, s in zip(chunks, seams + [''])) == text.strip()
+        with redirect_stdout(io.StringIO()):
+            merged = t._run_chunked_enhancement(chunks, 'fake', down, seams)
+        assert merged == text.strip(), text[:20]
+        assert not t.is_refinement(text, merged)
+    # A cut between a Thai letter and its vowel sign would open a chunk on the sign
+    thai = t.chunk_text('ภาษาไทย' * 1000, max_tokens=300)
+    assert not any(module.unicodedata.category(c[0])[0] == 'M' for c in thai)
+
+    # Through a backend, whose replies all come back empty
+    reply = types.SimpleNamespace(choices=[types.SimpleNamespace(
+        finish_reason='stop', message=types.SimpleNamespace(content=None))])
+    openai = types.SimpleNamespace(OpenAI=lambda **kwargs: types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(
+            create=lambda **kwargs: reply))))
+    saved = sys.modules.get('openai')
+    sys.modules['openai'] = openai
+    try:
+        with redirect_stdout(io.StringIO()):
+            text = 'ภาษาไทย' * 3000
+            assert t.enhance_with_openai_compatible(
+                text, 'tidy', 'key', module.Provider.OPENAI) == text
+    finally:
+        sys.modules.pop('openai', None) if saved is None else sys.modules.update(openai=saved)
+
+
+def test_a_local_chunk_is_sized_by_the_models_own_tokenizer():
+    """The local backend worked out each chunk's share of the context with the
+    model's tokenizer, then cut chunks by the byte estimate. For a tokenizer
+    that counts more tokens than the estimate, every chunk overran its share
+    and left the reply too little room."""
+    import sys
+    import types
+
+    t = YouTubeTranscriber()
+    chunks = []
+
+    class Tokenizer:
+        model_max_length = 1024
+        chat_template = 'yes'
+
+        def apply_chat_template(self, messages, **kwargs):
+            return messages[-1]['content']
+
+        def encode(self, text, **kwargs):
+            return list(text)  # a token a character: four times the estimate
+
+    def pipeline(*args, **kwargs):
+        def generate(prompt, **options):
+            chunks.append(prompt)
+            return [{'generated_text': prompt}]
+        return generate
+
+    transformers = types.SimpleNamespace(
+        AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda _id: Tokenizer()),
+        pipeline=pipeline)
+    text = ' '.join(f'sentence number {i} went by.' for i in range(300))
+    saved = sys.modules.get('transformers')
+    sys.modules['transformers'] = transformers
+    try:
+        with redirect_stdout(io.StringIO()):
+            result = t.enhance_with_local(text, 'tidy', 'any/model')
+    finally:
+        sys.modules.pop('transformers', None) if saved is None else sys.modules.update(
+            transformers=saved)
+    prompt_size = len(f'tidy\n\n{t.ENHANCEMENT_OUTPUT_DIRECTIVE}') + 32
+    share = min((1024 - prompt_size) // 3, 300)
+    assert len(chunks) > 1 and max(len(c) for c in chunks) <= share, (
+        share, max(len(c) for c in chunks))
+    assert result.split() == text.split()
+
+
+def test_the_shipped_prompts_travel_with_an_installed_copy():
+    """A wheel held the module alone: installed, the app listed no prompts and
+    Enter at the prompt menu selected nothing."""
+    import runpy
+
+    import setuptools
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    captured = {}
+    real_setup = setuptools.setup
+    setuptools.setup = lambda **kwargs: captured.update(kwargs)
+    cwd = os.getcwd()
+    try:
+        os.chdir(here)
+        runpy.run_path(os.path.join(here, 'setup.py'))
+    finally:
+        setuptools.setup = real_setup
+        os.chdir(cwd)
+    # Each package is the folder it ships from, and carries the files git holds
+    # there by name: a glob would take whatever a checkout's user had saved
+    # beside them, and config.txt, which can hold an API key, is never one
+    tracked = subprocess.run(['git', 'ls-files', YouTubeTranscriber.DATA_DIR], cwd=here,
+                             capture_output=True, text=True).stdout.split('\n')
+    for package, folder in ((YouTubeTranscriber.PROMPT_PACKAGE, YouTubeTranscriber.PROMPT_DIR),
+                            (YouTubeTranscriber.PROFILE_PACKAGE,
+                             YouTubeTranscriber.PROFILE_DIR)):
+        assert package in captured['packages'], captured.get('packages')
+        source = captured['package_dir'][package]
+        assert os.path.samefile(os.path.join(here, source), os.path.join(here, folder))
+        names = captured['package_data'][package]
+        assert names and all(os.path.isfile(os.path.join(here, source, n)) for n in names)
+        assert not any('*' in n or n == YouTubeTranscriber.CONFIG_ENV for n in names), names
+        if any(tracked):
+            shipped = sorted(os.path.basename(p) for p in tracked
+                             if os.path.dirname(p) == source and p.endswith('.txt')
+                             and os.path.basename(p) != YouTubeTranscriber.CONFIG_ENV)
+            assert sorted(names) == shipped, (names, shipped)
+
+    # Installed, the package is found where site-packages put it, after the
+    # working directory's own Prompt/ so an edited copy wins
+    package = YouTubeTranscriber.PROMPT_PACKAGE
+    with tempfile.TemporaryDirectory() as site:
+        os.makedirs(os.path.join(site, package))
+        io.open(os.path.join(site, package, 'prompt-refinement.txt'), 'w').write('TIDY')
+        sys.path.insert(0, site)
+        importlib.invalidate_caches()
+        try:
+            t = YouTubeTranscriber()
+            installed = t.installed_prompt_dir()
+            assert installed and os.path.samefile(installed, os.path.join(site, package))
+            dirs = t.prompt_dirs()
+            assert dirs[-1] == installed, dirs
+        finally:
+            sys.path.remove(site)
+            importlib.invalidate_caches()
+
+
+def test_an_installed_copy_starts_with_the_sample_profiles():
+    """Profiles are listed, loaded and saved in the working directory's
+    Profile/, so an installed copy's samples are copied there on first run -
+    and a Profile/ that already exists is left exactly as it is."""
+    package = YouTubeTranscriber.PROFILE_PACKAGE
+    with tempfile.TemporaryDirectory() as site, tempfile.TemporaryDirectory() as work:
+        os.makedirs(os.path.join(site, package))
+        for name in ('profile-transcriber.txt', 'config.txt', 'notes.md'):
+            io.open(os.path.join(site, package, name), 'w').write('URL=x\n')
+        t = YouTubeTranscriber()
+        t.PROFILE_DIR = os.path.join(work, 'Profile')
+        # A checkout has nothing installed to copy, and makes no Profile/
+        with redirect_stdout(io.StringIO()):
+            t.seed_sample_profiles()
+        assert not os.path.exists(t.PROFILE_DIR)
+        sys.path.insert(0, site)
+        importlib.invalidate_caches()
+        try:
+            with redirect_stdout(io.StringIO()):
+                t.seed_sample_profiles()
+            assert os.listdir(t.PROFILE_DIR) == ['profile-transcriber.txt']
+            assert t.list_profiles() == ['profile-transcriber.txt']
+            # The user's folder is theirs: emptied, it stays empty
+            os.remove(os.path.join(t.PROFILE_DIR, 'profile-transcriber.txt'))
+            with redirect_stdout(io.StringIO()):
+                t.seed_sample_profiles()
+            assert os.listdir(t.PROFILE_DIR) == []
+        finally:
+            sys.path.remove(site)
+            importlib.invalidate_caches()
+
+
+def test_webvtt_is_read_as_cue_blocks():
+    """Read line by line, a cue's number and all but the first line of a NOTE
+    were saved as speech, and '&amp;' stayed encoded."""
+    vtt = '\n'.join([
+        'WEBVTT', 'Kind: captions', '',
+        'STYLE', '::cue { color: lime }', '',
+        '1', '00:00:00.000 --> 00:00:01.000', 'Tom &amp; Jerry', '',
+        'NOTE', 'private', 'annotation', '',
+        'intro-2', '00:00:01.000 --> 00:00:02.000 align:start',
+        '<v Roger>Hello</v> &lt;b&gt; is text', '',
+    ])
+    assert YouTubeTranscriber.captions_to_text(vtt, '.vtt') == 'Tom & Jerry Hello <b> is text'
+    assert YouTubeTranscriber.captions_to_text(vtt.replace('\n', '\r\n'), '.vtt') == (
+        'Tom & Jerry Hello <b> is text')
+
+
+def test_a_home_relative_media_path_is_a_source():
+    """~ was expanded to recognise the path, then the unexpanded one checked."""
+    t = YouTubeTranscriber()
+    saved = {key: os.environ.get(key) for key in ('HOME', 'USERPROFILE')}
+    with tempfile.TemporaryDirectory() as home:
+        io.open(os.path.join(home, 'clip.mp3'), 'wb').close()
+        os.environ.update(HOME=home, USERPROFILE=home)
+        try:
+            with redirect_stdout(io.StringIO()):
+                entries = t.source_entries('~/clip.mp3')
+        finally:
+            for key, value in saved.items():
+                os.environ.pop(key, None) if value is None else os.environ.update({key: value})
+    assert entries == [(os.path.join(home, 'clip.mp3'), True, None)], entries
+
+
+def test_a_source_reached_by_another_path_is_still_never_written_over():
+    """convert_media compared paths as text, so a folder reached through a
+    symlink - or a name in another case on Windows or macOS - got past the
+    check, and ffmpeg -y wrote over the file it was reading."""
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = os.path.join(tmp, 'A')
+        os.makedirs(folder)
+        source = _make_clip(os.path.join(folder, 'clip.mp3'), 'audio')
+        before = io.open(source, 'rb').read()
+        alias = os.path.join(tmp, 'B')
+        try:
+            os.symlink(folder, alias, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            print('    (skipped: no symlinks here)')
+            return
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            made = t.convert_media(source, 'mp3', 'audio', alias, 'clip', bitrate=32,
+                                   replace_source=False)
+        assert made is None, made
+        assert io.open(source, 'rb').read() == before, 'the source was written over'
+
+
+def test_no_deliverable_or_queued_source_is_written_over():
+    """One place settles every name. Before it, a refinement named onto the
+    transcript queued after it replaced that source before it was read, two
+    streams rounding to one bitrate were downloaded to one file, and the audio
+    written over the merged video when their folders were one through a link."""
+    import OpenAIYouTubeTranscriber as module
+
+    # Refinements over a list: the first's output is the second's source
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        first = os.path.join(t.TRANSCRIPT_DIR, 'talk.txt')
+        second = os.path.join(t.TRANSCRIPT_DIR, 'talk - refinement.txt')
+        io.open(first, 'w', encoding='utf-8').write('first words')
+        io.open(second, 'w', encoding='utf-8').write('an earlier refinement')
+        cfg = module.SessionConfig(
+            used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL,
+            sources=[(None, False, [first, second])],
+            prompts=[('TIDY', 'prompt-refinement.txt')])
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_pipeline(t, cfg)
+        found = _tree(t.TRANSCRIPT_DIR)
+        assert found['Raw/talk - refinement.txt'] == 'an earlier refinement', found
+        assert found['talk - refinement (2).txt'] == 'FIRST WORDS', found
+        assert found['talk - refinement - refinement.txt'] == 'AN EARLIER REFINEMENT', found
+
+    # A video's Whisper transcript, onto the transcript queued after it
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        t.AUDIO_DIR = os.path.join(tmp, 'Audio')
+        queued = os.path.join(t.TRANSCRIPT_DIR, 'clip [Whisper en].txt')
+        io.open(queued, 'w', encoding='utf-8').write('an older transcript')
+        t.fetch_video_info = lambda url: dict(_plain_info(), id='x', title='clip')
+        t.transcribe_audio_file = lambda *a: ('new words', 'en')
+
+        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+            out = os.path.join(t.AUDIO_DIR, t.TEMP_DIR)
+            os.makedirs(out, exist_ok=True)
+            path = os.path.join(out, stem + '.mp3')
+            io.open(path, 'w').write('x')
+            return path, os.path.abspath(path)
+
+        t.download_audio_stream = fake_audio
+        cfg = module.SessionConfig(
+            used_fields={}, sources=[('https://youtu.be/x', False, None),
+                                     (None, False, [queued])],
+            transcribe_audio=True, target_languages=['en'], transcribe_audio_quality='lowest')
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_pipeline(t, cfg)  # ai_mode None: the second pass refines nothing
+        found = _tree(t.TRANSCRIPT_DIR)
+        assert found['clip [Whisper en].txt'] == 'an older transcript', found
+        assert found['clip [Whisper en] (2).txt'] == 'new words', found
+
+    # Two streams whose bitrates round alike: 59.8k and 60.2k are both "60k"
+    formats = [{'format_id': '249', 'vcodec': 'none', 'acodec': 'opus', 'abr': 59.8,
+                'format_note': 'low', 'language_preference': 10},
+               {'format_id': '250', 'vcodec': 'none', 'acodec': 'opus', 'abr': 60.2,
+                'format_note': 'low', 'language_preference': 10}]
+    with tempfile.TemporaryDirectory() as tmp:
+        t = YouTubeTranscriber()
+        t.AUDIO_DIR = os.path.join(tmp, 'Audio')
+
+        def keep_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+            path = os.path.join(keep_in, stem + '.webm')
+            os.makedirs(keep_in, exist_ok=True)
+            io.open(path, 'w').write(format_selector)
+            return path, os.path.abspath(path)
+
+        t.download_audio_stream = keep_audio
+        cfg = module.SessionConfig(
+            url='https://youtu.be/x', info={'webpage_url': 'https://youtu.be/x',
+                                            'formats': formats},
+            video_title='clip', used_fields={}, transcribe_audio=False,
+            download_audio=True, audio_resolution='59,lowest', audio_format='original')
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_pipeline(t, cfg)
+        assert len(os.listdir(t.AUDIO_DIR)) == 2, os.listdir(t.AUDIO_DIR)
+
+    # The merged video and the audio, one folder through a symlink
+    with tempfile.TemporaryDirectory() as tmp:
+        videos = os.path.join(tmp, 'media')
+        os.makedirs(videos)
+        link = os.path.join(tmp, 'music')
+        try:
+            os.symlink(videos, link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return
+        t = YouTubeTranscriber()
+        written = []
+        t.convert_media = lambda source, target, kind, folder, stem, **kw: written.append(
+            os.path.join(folder, f'{stem}.{target}'))
+        t.stream_codec = lambda source, kind: 'h264' if kind == 'video' else 'aac'
+        t.source_height, t.source_bitrate = (lambda source: 720), (lambda source: 128)
+        cfg = module.SessionConfig(
+            url='clip.mp4', is_local_file=True, used_fields={}, download_video=True,
+            video_format='mkv', download_audio=True, audio_format='mkv',
+            video_path=videos, audio_path=link)
+        with redirect_stdout(io.StringIO()):
+            module._local_deliverables(t, cfg, 'clip')
+        assert written == [os.path.join(videos, 'clip.mkv'),
+                           os.path.join(link, 'clip - Audio.mkv')], written
+
+
+def test_a_prompt_that_fails_leaves_no_unrefined_copy_beside_the_rest():
+    """A prompt whose enhancement failed saved the text as it came under the
+    plain name, beside a refinement that worked and with KEEP_TRANSCRIPT=n."""
+    import OpenAIYouTubeTranscriber as module
+
+    prompts = [('TIDY', 'prompt-refinement.txt'), ('BRIEF', 'prompt1-summarizer.txt')]
+    for fails, keep, expected in (
+            ('BRIEF', False, {'clip - refinement.txt': 'THE WORDS'}),
+            ('BRIEF', True, {'clip - refinement.txt': 'THE WORDS', 'Raw/clip.txt': 'the words'}),
+            # Every prompt failing still saves the transcript, once
+            ('', False, {'clip.txt': 'the words'})):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = _refine_setup(tmp)
+            t.enhance_text = lambda text, mode, prompt, fails=fails, **kw: (
+                text if prompt == fails or not fails else text.upper())
+            cfg = module.SessionConfig(used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL,
+                                       prompts=prompts, keep_transcript=keep)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                assert module._enhance_and_save(t, cfg, 'the words', 'clip', open_after=False)
+            assert _tree(t.TRANSCRIPT_DIR) == expected, (fails, keep, _tree(t.TRANSCRIPT_DIR))
+
+
+def test_a_summary_never_replaces_a_source_whose_copy_was_not_kept():
+    """KEEP_TRANSCRIPT=y, a rename back onto the source, and a Raw/ that could
+    not be written: the summary still went over the only full transcript."""
+    import OpenAIYouTubeTranscriber as module
+
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        # A file where the Raw folder should be, so nothing can be saved in it
+        io.open(t.RAW_TRANSCRIPT_DIR, 'w').write('in the way')
+        source = os.path.join(t.TRANSCRIPT_DIR, 'talk - summarizer.txt')
+        io.open(source, 'w', encoding='utf-8').write('the only words')
+        cfg = module.SessionConfig(
+            used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL, refine_sources=[source],
+            prompts=[('BRIEF', 'prompt1-summarizer.txt')], transcript_rename='talk',
+            keep_transcript=True)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._refine_transcripts(t, cfg)
+        assert io.open(source, encoding='utf-8').read() == 'the only words'
+
+    # ...and where the copy did go is where the log says it went
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        source = os.path.join(t.TRANSCRIPT_DIR, 'talk.txt')
+        io.open(source, 'w', encoding='utf-8').write('the words')
+        elsewhere = os.path.join(tmp, 'notes')
+        cfg = module.SessionConfig(
+            used_fields={}, ai_mode=module.AIEnhancementMode.LOCAL, refine_sources=[source],
+            prompts=[('TIDY', 'prompt-refinement.txt')], transcript_path=elsewhere)
+        log = io.StringIO()
+        with redirect_stdout(log), redirect_stderr(io.StringIO()):
+            module._refine_transcripts(t, cfg)
+        assert not os.path.exists(source)
+        assert f"Moved talk.txt to {os.path.join(elsewhere, 'Raw')}" in log.getvalue(), \
+            log.getvalue()
+
+
+def test_ffmpeg_output_is_read_as_utf8_whatever_the_locale():
+    """ffmpeg writes UTF-8 and text=True read it in the locale's encoding -
+    cp1252 on Windows - so a Japanese filename in its log ended the batch.
+    Run here under an ASCII locale, which fails the same way."""
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        io.open(os.path.join(tmp, 'あいう.mp3'), 'w').write('not media')
+        code = ('import os, sys\n'
+                'import OpenAIYouTubeTranscriber as m\n'
+                'folder = sys.argv[1]\n'
+                'path = os.path.join(folder, os.listdir(folder)[0])\n'
+                'print(m.YouTubeTranscriber().get_file_format(path))\n')
+        run = subprocess.run(
+            [sys.executable, '-c', code, tmp], capture_output=True,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            env=dict(os.environ, LC_ALL='C', LANG='C', PYTHONUTF8='0',
+                     PYTHONCOERCECLOCALE='0', PYTHONIOENCODING='utf-8'))
+    assert run.returncode == 0 and b'UnicodeDecodeError' not in run.stderr, run.stderr[-400:]
+    assert run.stdout.strip() == b'None', run.stdout
+
+
+def test_a_superscript_digit_at_a_menu_asks_again():
+    """'²'.isdigit() is True and int('²') raises: typed at a menu, it ended
+    the session with a traceback instead of asking again."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    script = ['²', '1']
+    module.input = lambda prompt='': script.pop(0)
+    try:
+        with redirect_stdout(io.StringIO()):
+            assert module._prompt_resolution_selection(t, _plain_info()) == '720p'
+            script[:] = ['²', '1']
+            assert module._prompt_profile_selection(t, ['profile.txt']) == 'profile.txt'
+    finally:
+        del module.input
+    assert Resolution.normalize('²k') == '²k'
+    assert module._as_height('²') == '²'
+    assert not module._is_number('²') and not module._is_number('٣')
+    assert module._is_number('720')
+    assert t._resolve_prompt_choice('²', ['prompt-refinement.txt']) is None
+
+
+def test_a_video_with_nothing_to_pick_gives_way_to_the_next():
+    """A video with no video streams, met while the settings were still being
+    asked, raised DownloadFailed out of the setup: main() exited, and the
+    videos after it in the list never ran."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    infos = {'https://youtu.be/audioonly': dict(_plain_info(), title='a', formats=[
+        f for f in _plain_info()['formats'] if f['vcodec'] == 'none']),
+        'https://youtu.be/video': dict(_plain_info(), title='v')}
+    t.fetch_video_info = lambda url: infos[url]
+    cfg = module.SessionConfig(used_fields={}, sources=[(url, False, None) for url in infos])
+    module._settle_sources(cfg)
+    module.input = lambda prompt='': '1'
+    try:
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            picked = module._resolve_quality(t, cfg, '', module._prompt_resolution_selection)
+    finally:
+        del module.input
+    assert picked == '720p' and cfg.url == 'https://youtu.be/video', (picked, cfg.url)
+    assert [entry[0] for entry in cfg.sources] == ['https://youtu.be/video']
+
+
+def test_input_running_out_ends_the_run_without_a_traceback():
+    """An unattended run asked something it cannot answer raised EOFError out
+    of main(). A REPEAT=y round asking for its next sources has done its work,
+    and ends as a success; a first round that got nothing done does not."""
+    code = ('import OpenAIYouTubeTranscriber as m\n'
+            'm.YouTubeTranscriber.check_dependencies = lambda self: True\n'
+            'm.main()\n')
+    here = os.path.dirname(os.path.abspath(__file__))
+    for repeat, status in (('', 1), ('1', 0)):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, PYTHONPATH=here, _REPEAT_INVOCATION=repeat)
+            run = subprocess.run([sys.executable, '-c', code], capture_output=True, cwd=tmp,
+                                 stdin=subprocess.DEVNULL, env=env)
+        assert run.returncode == status, (repeat, run.returncode, run.stderr[-300:])
+        assert b'Traceback' not in run.stderr, run.stderr[-300:]
+        assert b'No more input' in run.stdout, run.stdout[-300:]
+
+
+def test_profile_fields_read_as_their_questions_do():
+    """'skip' declines a RENAME or PATH as it does everywhere else, ~ is a home
+    folder in a PATH as it is in a source, LOAD_PROFILE is read as dotenv reads
+    it, and an English-only model is not run on speech declared otherwise."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    for answer in ('s', 'skip', 'SKIP', 'n'):
+        assert module._resolve_rename(t, answer, 'x') == '', answer
+        assert module._resolve_path(t, answer, 'x', 'Video') == '', answer
+    keys = ('HOME', 'USERPROFILE', 'LOAD_PROFILE', '_REPEAT_INVOCATION', 'URL')
+    saved = {key: os.environ.get(key) for key in keys}
+    try:
+        with tempfile.TemporaryDirectory() as home:
+            os.environ.update(HOME=home, USERPROFILE=home)
+            assert module._resolve_path(t, '~/Transcripts', 'x', 'T') == os.path.join(
+                home, 'Transcripts')
+            assert os.path.isdir(os.path.join(home, 'Transcripts'))
+
+            t.PROFILE_DIR = os.path.join(home, 'Profile')
+            os.makedirs(t.PROFILE_DIR)
+            io.open(os.path.join(t.PROFILE_DIR, 'profile0.txt'), 'w').write('URL=zero\n')
+            os.environ.pop('_REPEAT_INVOCATION', None)
+            for line in ("LOAD_PROFILE='profile0.txt'", 'LOAD_PROFILE=profile0.txt  # lecture'):
+                io.open(os.path.join(t.PROFILE_DIR, t.CONFIG_ENV), 'w').write(line + '\n')
+                with redirect_stdout(io.StringIO()):
+                    assert module._select_profile(t) == (True, 'profile0.txt'), line
+    finally:
+        for key, value in saved.items():
+            os.environ.pop(key, None) if value is None else os.environ.update({key: value})
+
+    # USE_EN_MODEL=y with Japanese speech: the English-only model is not used
+    models = []
+    with tempfile.TemporaryDirectory() as tmp:
+        t = _refine_setup(tmp)
+        audio = os.path.join(tmp, 'clip.mp3')
+        io.open(audio, 'w').write('x')
+        t.transcribe_audio_file = lambda path, model, target, source=None: (
+            models.append(model) or ('words', 'ja'))
+        cfg = module.SessionConfig(url=audio, is_local_file=True, used_fields={},
+                                   transcribe_audio=True, target_languages=['auto'],
+                                   source_language='ja', use_en_model=True)
+        t.is_valid_media_file = lambda path: True
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            module._run_one(t, cfg)
+    assert models == ['base'], models
+    cfg = module.SessionConfig(used_fields={}, source_language='ja', target_languages=['auto'])
+    assert not module._offers_en_model(t, cfg, ModelSize.BASE)
+
+
+def test_a_pick_from_the_caption_listing_stands_for_each_video():
+    """Enter at the listing took this video's original, recorded as its key:
+    a Japanese video after an English one was given 'en', the machine
+    translation of itself, and never its original."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    t.startfile = lambda *a: None
+    fetched = []
+    t.fetch_caption_text = lambda info, key: fetched.append(key) or f'the {key} words'
+    japanese = {'language': 'ja', 'automatic_captions': {
+        'ja-orig': [{'url': 'https://x/t?lang=ja', 'name': 'Japanese (Original)'}],
+        'ja': [{'url': 'https://x/t?lang=ja', 'name': 'Japanese'}],
+        'en': [{'url': 'https://x/t?lang=ja&tlang=en', 'name': 'English'}]}}
+    videos = [('https://youtu.be/first', False, None), ('https://youtu.be/second', False, None)]
+    module.input = lambda prompt='': ''
+    try:
+        cfg = module.SessionConfig(url=videos[0][0], info=_caption_info(), used_fields={},
+                                   sources=videos)
+        with redirect_stdout(io.StringIO()):
+            module._settle_yt_transcripts(t, cfg, 'f')
+    finally:
+        del module.input
+    assert cfg.yt_transcript_languages == ['original'], cfg.yt_transcript_languages
+    assert cfg.yt_transcript_raw == 'original'
+    with tempfile.TemporaryDirectory() as tmp:
+        t.TRANSCRIPT_DIR = os.path.join(tmp, 'Transcript')
+        t.RAW_TRANSCRIPT_DIR = os.path.join(t.TRANSCRIPT_DIR, 'Raw')
+        cfg.info = japanese
+        with redirect_stdout(io.StringIO()):
+            module._save_yt_transcripts(t, cfg, 'clip')
+    assert fetched == ['ja'], fetched
+
+    # A regional pick answers from another region of the language, never another script
+    track = module._track_for
+    assert track({'en-GB': 1}, 'en-US') == 'en-GB'
+    assert track({'en': 1}, 'en-US') == 'en'
+    assert track({'zh-Hant': 1}, 'zh-Hans') is None
+    assert track({'zh-Hans': 1, 'zh-Hant': 1}, 'zh-Hant') == 'zh-Hant'
+
+
+def test_audio_is_copied_only_into_a_container_that_plays_it():
+    """A stream copy put YouTube's Opus in an .mp4 and AAC in a .wav: ffmpeg
+    writes both, and most players refuse them."""
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        opus, aac = os.path.join(tmp, 'a.webm'), os.path.join(tmp, 'b.m4a')
+        for path, codec in ((opus, 'libopus'), (aac, 'aac')):
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=0.3', '-c:a', codec, path],
+                           capture_output=True, check=True)
+        for source, target, want in ((opus, 'mp4', 'aac'), (aac, 'wav', 'pcm_s16le'),
+                                     (opus, 'ogg', 'opus'), (aac, 'mkv', 'aac')):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                made = t.convert_media(source, target, 'audio', tmp, f'out-{target}')
+            assert t.stream_codec(made, 'audio') == want, (source, target)
+
+
+def test_whisper_work_is_neither_repeated_nor_reloaded():
+    """TARGET_LANGUAGE=auto,en on English speech ran a second full pass that
+    came back identical, a model that failed to load was tried again for every
+    target and source, and detection decoded the whole file for 30 seconds."""
+    import OpenAIYouTubeTranscriber as module
+
+    loads, passes = [], []
+
+    class Model:
+        def transcribe(self, path, language=None, task='transcribe'):
+            passes.append((language, task))
+            return {'text': 'english words', 'language': language or 'en'}
+
+    def load_model(name):
+        loads.append(name)
+        if name == 'large-v3':
+            raise RuntimeError('out of memory')
+        return Model()
+
+    saved_load = module.whisper.load_model
+    module.whisper.load_model = load_model
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = os.path.join(tmp, 'clip.mp3')
+            io.open(audio, 'wb').close()
+            for targets in (('auto', 'en'), ('en', 'auto')):
+                t = YouTubeTranscriber()
+                t.spoken_language = lambda model, path: 'en'
+                loads.clear()
+                passes.clear()
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    for target in targets:
+                        t.transcribe_audio_file(audio, 'large-v3', target)
+                assert len(passes) == 1, (targets, passes)
+                assert loads == ['large-v3', 'base'], (targets, loads)
+    finally:
+        module.whisper.load_model = saved_load
+
+    if _ffmpeg_available():
+        with tempfile.TemporaryDirectory() as tmp:
+            long_audio = os.path.join(tmp, 'long.wav')
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=45', long_audio], check=True)
+            opening = YouTubeTranscriber.load_opening(long_audio)
+            assert len(opening) == 30 * module.whisper.audio.SAMPLE_RATE, len(opening)
+
+
+def test_the_local_model_is_given_the_dtype_its_transformers_understands():
+    """transformers called it torch_dtype until 4.56; given dtype, an older one
+    passed it on to generate(), which refused it for every chunk."""
+    import sys
+    import types
+
+    t = YouTubeTranscriber()
+
+    class Tokenizer:
+        model_max_length, chat_template = 4096, None
+
+        def encode(self, text, **kwargs):
+            return range(len(text.encode('utf-8')) // 4)
+
+    for name in ('torch_dtype', 'dtype'):
+        seen = {}
+        namespace = {}
+        exec(f'def pipeline(task, model=None, tokenizer=None, {name}=None, device_map=None):\n'
+             f'    seen.update(dtype_given={name!r})\n'
+             f'    return lambda prompt, **o: [{{"generated_text": prompt}}]\n',
+             {'seen': seen}, namespace)
+        transformers = types.SimpleNamespace(
+            AutoTokenizer=types.SimpleNamespace(from_pretrained=lambda _id: Tokenizer()),
+            pipeline=namespace['pipeline'])
+        saved = sys.modules.get('transformers')
+        sys.modules['transformers'] = transformers
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                t.enhance_with_local('A few words to tidy.', 'tidy', 'any/model')
+        finally:
+            sys.modules.pop('transformers', None) if saved is None else sys.modules.update(
+                transformers=saved)
+        assert seen.get('dtype_given') == name, (name, seen)
+
+
+def test_a_download_reuses_the_metadata_already_fetched():
+    """Every download extracted the video again - page, player and API - though
+    the run already had its metadata, and could choose other formats than the
+    ones the file names were made from. Through the real yt-dlp, on a stream
+    served from disk."""
+    if not _ffmpeg_available():
+        print('    (skipped: no ffmpeg)')
+        return
+    import yt_dlp
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = os.path.join(tmp, 'stream.webm')
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                        'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
+                       capture_output=True, check=True)
+        info = {'id': 'abcdefghijk', 'title': 'clip', 'webpage_url': 'https://youtu.be/abcdefghijk',
+                'extractor': 'youtube', 'extractor_key': 'Youtube',
+                'formats': [{'format_id': '251', 'url': 'file://' + stream, 'ext': 'webm',
+                             'vcodec': 'none', 'acodec': 'opus', 'abr': 106.0,
+                             'protocol': 'file'}]}
+        t = YouTubeTranscriber()
+        t.YDL_OPTS = dict(t.YDL_OPTS, enable_file_urls=True)
+        real = yt_dlp.YoutubeDL.extract_info
+        yt_dlp.YoutubeDL.extract_info = lambda ydl, url, download=True, **kw: (
+            info if not download else (_ for _ in ()).throw(AssertionError('extracted again')))
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                assert t.fetch_video_info('https://youtu.be/abcdefghijk') is info
+                path = t.download_format(info['webpage_url'], 'bestaudio/best',
+                                         os.path.join(tmp, 'out'), 'clip')
+        finally:
+            yt_dlp.YoutubeDL.extract_info = real
+        assert os.path.basename(path) == 'clip.webm'
+        assert t.stream_codec(path, 'audio') == 'opus'
+        t.release_caches()
+        assert not t._video_info
 
 
 if __name__ == '__main__':
