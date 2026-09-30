@@ -143,6 +143,26 @@ regression test.
   - "Invalid value" names the profile it came from, not ".env".
   - "Loaded URL: … transcript(s) to refine" appears only when the profile's
     own URL names them, not for transcripts typed at the prompt.
+- **A session's state is no longer kept in the process environment.** What
+  one round hands the next ("Run again?", the profile to reload, an
+  interactive round's answers) was a set of `_REPEAT_*` and `LAST_*`
+  variables, and a loaded profile was copied field by field into the
+  environment. Now it's a `Session` object that `main()` owns: `_Profile`
+  keeps the profile's fields, and `_Remembered` both writes and reads what a
+  round remembers. Only configuration still goes to the environment, where
+  the backends read it: `config.txt`, and a profile's own `AI_PROVIDER`,
+  `MODEL`, `API_KEY` or other non-field lines, which override `config.txt` as
+  before. This fixes three problems, each with a test:
+  - A variable set in the shell answered for a profile. `VIDEO_ONLY=y` in
+    the shell turned on a video-only download for a profile that left the
+    field out, and a shell's `URL` stood in for a profile naming none.
+  - A shell's `LAST_*` variable answered a first interactive round, and a
+    shell's `_REPEAT_INVOCATION` made the first round a repeat, which skipped
+    `config.txt`'s profile.
+  - A repeat whose profile was deleted between rounds fell back to choosing
+    again, then looked for the vanished profile every round after.
+  `REPEAT` is also read like every other field now, so a profile's value is
+  reported when loaded and an invalid one is named before it is asked.
 
 ## [1.2.0] - 2026-09-12
 
