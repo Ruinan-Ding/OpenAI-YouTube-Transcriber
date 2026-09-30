@@ -2898,44 +2898,207 @@ def _clear_session_env():
         os.environ.pop(key, None)
 
 
-def _bool_from_last(env_key, prompt_fn):
-    """Reuse a yes/no answer remembered from the previous repeat run, else prompt."""
-    last = os.environ.get(env_key)
-    if last is not None:
-        print(f"Using previous {env_key[len('LAST_'):]}: {last} (from last session)")
-        return last.lower() in YesNo.YES.value
-    return prompt_fn()
+# A gap the question is asked for, rather than one taken as a stated answer
+ASK = object()
 
 
-def _value_from_last(env_key, prompt_fn):
-    """Reuse a string answer remembered from the previous repeat run, else prompt."""
-    last = os.environ.get(env_key)
-    if last is not None:
-        print(f"Using previous {env_key[len('LAST_'):]}: {last} (from last session)")
-        return last
-    return prompt_fn()
+@dataclass(frozen=True)
+class Setting:
+    """One profile field, and what a profile that leaves it out or blank means.
 
-
-def _bool_from_profile_env(transcriber, var_name, profile_name, prompt_text,
-                           default='n', prompt_if_missing=True):
-    """Read a yes/no profile field, falling back to an interactive prompt.
-
-    Invalid values always fall back to the prompt; a missing value falls back to
-    the prompt only when prompt_if_missing is True, and otherwise means no.
+    A profile and a repeated interactive round are read through the same table
+    and settled by the same code in _configure, so a field cannot come to mean
+    one thing typed and another written down. Where the answers are kept is
+    all that differs between them: see _Answers.
     """
-    value = os.getenv(var_name)
-    if not value:
-        if prompt_if_missing:
-            return transcriber.get_yes_no_input(prompt_text, default=default)
-        return False
-    if value.lower() in YesNo.YES.value:
-        print(f"Loaded {var_name}: {value} (from {profile_name})")
-        return True
-    if value.lower() in YesNo.NO.value:
-        print(f"Loaded {var_name}: {value} (from {profile_name})")
-        return False
-    print(f"Invalid value for {var_name} in .env: {value}")
-    return transcriber.get_yes_no_input(prompt_text, default=default)
+    field: str
+    # What a profile without the field at all means: ASK, or the answer it is
+    # taken as. One written before the field existed does not carry it, and a
+    # field that turns something on is off there, as it was then.
+    absent: object = ASK
+    # What the field left blank means, the same way
+    blank: object = ASK
+    # The field's pre-1.2 name, read when this one is not set
+    legacy: str = None
+    # Whether a value names one video's own file, which the next video of a
+    # repeat would be written over
+    one_video: bool = False
+
+
+SETTINGS = {setting.field: setting for setting in (
+    Setting("DOWNLOAD_VIDEO"),
+    Setting("VIDEO_ONLY", absent="n", blank="n"),
+    # The pre-1.2 VIDEO_ONLY, which replaced the merged video rather than
+    # adding to it: see _configure
+    Setting("NO_AUDIO_IN_VIDEO", absent="n", blank="n"),
+    Setting("DOWNLOAD_AUDIO", absent="n", blank="n"),
+    # A blank quality is the list of what the video offers, where the typed
+    # question's own Enter leads: a profile asks for the list without it
+    Setting("VIDEO_RESOLUTION", absent="", blank="", legacy="RESOLUTION"),
+    Setting("VIDEO_AUDIO_RESOLUTION", absent="", blank=""),
+    Setting("VIDEO_ONLY_RESOLUTION", absent="", blank=""),
+    Setting("AUDIO_RESOLUTION", absent="", blank=""),
+    Setting("TRANSCRIBE_AUDIO_QUALITY", absent="", blank=""),
+    Setting("VIDEO_FORMAT"),
+    Setting("VIDEO_ONLY_FORMAT"),
+    Setting("AUDIO_FORMAT"),
+    Setting("DOWNLOAD_YT_TRANSCRIPT", absent="n"),
+    Setting("TRANSCRIBE_AUDIO"),
+    Setting("MODEL_CHOICE"),
+    # Whisper detects it, as it did before there was a field to say
+    Setting("SOURCE_LANGUAGE", absent=YouTubeTranscriber.AUTO_LANGUAGE),
+    Setting("TARGET_LANGUAGE"),
+    Setting("USE_EN_MODEL", absent="n", blank="n"),
+    Setting("AI_REFINEMENT", legacy="AI_ENHANCEMENT"),
+    Setting("PROMPT"),
+    Setting("KEEP_TRANSCRIPT"),
+    # Not a profile field: a profile carries the placement answers themselves,
+    # and this is the one question a session asks in their place
+    Setting("PLACEMENT"),
+) + tuple(
+    # A placement left out keeps the default and one left blank asks, as 'y'
+    # does, for the name or the folder itself
+    Setting(f"{prefix}_{suffix}", absent="n", blank="", one_video=suffix == "RENAME")
+    for _stem, prefix, _label, _dir in _PLACEMENTS for suffix in ("RENAME", "PATH"))}
+
+
+class _Answers:
+    """Where a session's answers are kept: a profile, or the last round's.
+
+    What each setting means is decided once, by SETTINGS and _configure; this
+    only reads them. `verb` and `origin` word the line reporting one.
+    """
+    verb = origin = None
+
+    def lookup(self, setting):
+        """(name, value) of the stored answer, the value None if there is none."""
+        raise NotImplementedError
+
+    def absent(self, setting):
+        """What no stored answer at all means: ASK, or the answer it stands for."""
+        return ASK
+
+    def sources(self, transcriber):
+        """The session's videos, files and transcripts."""
+        return transcriber.prompt_for_sources()
+
+    def report(self, name, shown):
+        print(f"{self.verb} {name}: {shown} (from {self.origin})")
+
+    def invalid(self, name, value):
+        print(f"Invalid value for {name}: {value} (from {self.origin})")
+
+    def ignored(self, field, why):
+        """Say that a stored answer has no part in this run, and why."""
+        _name, value = self.lookup(SETTINGS[field])
+        value = (value or "").strip()
+        # A no turns nothing on, so there is nothing for it to be ignored for
+        if value and value.lower() not in YesNo.all_no_and_skip():
+            print(f"Ignoring {field}={value} (from {self.origin}): {why}")
+
+
+class _Profile(_Answers):
+    """A profile's fields, which _load_profile put in the environment."""
+    verb = "Loaded"
+
+    def __init__(self, name):
+        self.origin = name
+        self.repeat = os.environ.get("_REPEAT_INVOCATION", "") == "1"
+
+    def lookup(self, setting):
+        name, value = setting.field, os.getenv(setting.field)
+        if not value and setting.legacy and os.getenv(setting.legacy):
+            # Read under its own name rather than copied into the new one,
+            # which would leak into the next profile of a repeat
+            name, value = setting.legacy, os.getenv(setting.legacy)
+        stated = (value or "").strip().lower()
+        if (setting.one_video and self.repeat and stated
+                and stated not in YesNo.all_no_and_skip()):
+            # A repeat takes a new URL and keeps the rest, but a name was for
+            # the last round's video, and on this one it overwrote that file.
+            # An interactive repeat drops it the same way: as if not there.
+            print(f"Ignoring {name}={value} on a repeat: it named the last round's file.")
+            return name, None
+        return name, value
+
+    def absent(self, setting):
+        return setting.absent
+
+    def sources(self, transcriber):
+        # A repeat is the same settings over a new job, so the profile's own
+        # URL is not reused. Either way the answer is settled here rather than
+        # part way through the run: this is the only prompt that takes a list,
+        # or 's' to refine a transcript instead of fetching anything.
+        named = "" if self.repeat else (os.getenv("URL") or "")
+        entries = []
+        if named and named != transcriber.URL_PLACEHOLDER:
+            # Whether a video exists is settled by the metadata fetch in
+            # _create_youtube_with_recovery, which can re-prompt
+            entries = transcriber.source_entries(named, self.origin)
+            if entries and all(entry[2] for entry in entries):
+                self.report("URL", f"{sum(len(entry[2]) for entry in entries)} "
+                                   "transcript(s) to refine")
+        return entries or super().sources(transcriber)
+
+
+class _Remembered(_Answers):
+    """What the round a "Run again?" repeats was told, kept as LAST_* variables.
+
+    Only the questions that round was asked are there, so a gap is asked.
+    """
+    verb, origin = "Using previous", "last session"
+
+    def lookup(self, setting):
+        # Only what a round remembers: a LAST_ name of anyone else's in the
+        # environment answers nothing here
+        key = f"LAST_{setting.field}"
+        return setting.field, os.environ.get(key) if key in _SESSION_ENV_KEYS else None
+
+    def ignored(self, field, why):
+        # The last round's own answer, not a field anyone wrote: a local file
+        # after a YouTube video has no stream to pick, and no need to say so
+        pass
+
+
+def _answer(answers, field, ask, valid=None, shown=None):
+    """The raw answer to one setting: the stored one, or what a gap in it means.
+
+    A stored answer `valid` refuses is called invalid and asked for again,
+    rather than taken for a no. One it accepts is reported, as `shown` words
+    it, so a run says what it was told.
+    """
+    setting = SETTINGS[field]
+    name, raw = answers.lookup(setting)
+    if raw is None:
+        gap = answers.absent(setting)
+    elif not raw.strip():
+        gap = setting.blank
+    elif valid is None or valid(raw.strip()):
+        raw = raw.strip()
+        answers.report(name, shown(raw) if shown else raw)
+        return raw
+    else:
+        answers.invalid(name, raw)
+        gap = ASK
+    return ask() if gap is ASK else gap
+
+
+def _yn(flag):
+    """A yes/no as a profile writes it."""
+    return "y" if flag else "n"
+
+
+def _is_yes_no(answer):
+    """Whether an answer is a yes or a no. 'skip' declines, as it does elsewhere."""
+    return answer.lower() in YesNo.YES.value + YesNo.all_no_and_skip()
+
+
+def _yes_no(transcriber, answers, field, question, default='n'):
+    """Settle a yes/no setting, asking `question` if it has no answer."""
+    answer = _answer(answers, field,
+                     lambda: _yn(transcriber.get_yes_no_input(question, default=default)),
+                     valid=_is_yes_no)
+    return answer.lower() in YesNo.YES.value
 
 
 def _ai_backend(transcriber, named=None):
@@ -2996,51 +3159,6 @@ def _load_prompts(transcriber, raw):
         if text:
             loaded.append((text, label))
     return loaded
-
-
-def _ask_enhancement(transcriber, cfg, used_fields, assumed=False):
-    """Settle enhancement: whether, which backend, which prompts, keep the raw.
-
-    `assumed` is a refine-only run, where naming transcripts already answered
-    the question this would otherwise ask.
-    """
-    if assumed or _bool_from_last("LAST_AI_REFINEMENT",
-                                  lambda: transcriber.get_yes_no_input(
-                                      "Refine the transcript with AI? (y/N): ",
-                                      default='n')):
-        cfg.ai_mode, cfg.provider, cfg.local_model = _ai_backend(transcriber)
-
-    if cfg.ai_mode is not None:
-        cfg.prompts = _select_prompts_interactively(transcriber)
-        if not cfg.prompts:
-            cfg.ai_mode = None
-        else:
-            used_fields["PROMPT"] = ",".join(label for _text, label in cfg.prompts)
-
-    if cfg.ai_mode == AIEnhancementMode.API:
-        cfg.api_key = _resolve_api_key(cfg.provider)
-        if cfg.api_key is None:
-            cfg.ai_mode = None
-
-    # Where the finished transcript lands, asked after the prompt that makes it
-    # and before the question about the copy left behind
-    _settle_placement(transcriber, cfg, "transcript", from_profile=False)
-
-    if cfg.ai_mode is not None:
-        cfg.keep_transcript = _bool_from_last(
-            "LAST_KEEP_TRANSCRIPT",
-            lambda: transcriber.get_yes_no_input(
-                "Keep the unrefined transcript in Transcript/Raw/? "
-                "n keeps only the refined one (Y/n): ", default='y'))
-        used_fields["KEEP_TRANSCRIPT"] = "y" if cfg.keep_transcript else "n"
-        # Which backend, not just that there was one: AI_REFINEMENT carries a
-        # bare y, so without this a profile made from a local session replays
-        # against whatever API key happens to be on file, and bills for it
-        used_fields["AI_PROVIDER"] = cfg.provider.key if cfg.provider else "local"
-        if cfg.local_model:
-            used_fields["MODEL"] = cfg.local_model
-
-    used_fields["AI_REFINEMENT"] = "y" if cfg.ai_mode is not None else "n"
 
 
 def _resolve_api_key(provider):
@@ -3473,11 +3591,6 @@ def _resolve_format(transcriber, raw, label, default, kind):
     return _prompt_format(transcriber, label, default, kind)
 
 
-def _format_from_profile(transcriber, var_name, label, default, kind):
-    """Settle one format field from the profile, asking when it is blank."""
-    return _resolve_format(transcriber, os.getenv(var_name), label, default, kind)
-
-
 def _writable_dir(transcriber, path):
     """True if `path` is a directory this run can write into, saying so if not."""
     if not transcriber.ensure_directory_exists(path):
@@ -3498,13 +3611,11 @@ def _resolve_rename(transcriber, raw, label):
     """The stem to write a deliverable under, or "" for the source's own title.
 
     A name in the field is used as it stands, so a profile carrying one still
-    runs unattended; `y` asks for a name; `n` and a field that is not there
-    leave the title alone, and a blank one asks, where Enter also leaves it.
-    The quality and format tags are still appended, so the several files one
-    answer can produce stay distinct.
+    runs unattended; `y` and a blank answer ask for a name; `n` leaves the
+    title alone, as Enter at that question does. SETTINGS says what a field
+    that is not there means. The quality and format tags are still appended,
+    so the several files one answer can produce stay distinct.
     """
-    if raw is None:
-        return ""
     answer = raw.strip()
     # 's' and 'skip' decline as 'n' does, as they do everywhere else; taken as
     # a name, TRANSCRIPT_RENAME=skip called every transcript "skip"
@@ -3535,13 +3646,11 @@ def _resolve_path(transcriber, raw, label, default_dir):
     """The directory to write a deliverable into, or "" for the project's own.
 
     A path in the field is used as it stands, so a profile carrying one still
-    runs unattended; `y` asks for one; `n` and a missing field keep the default
-    folder, and a blank one asks. Absolute is os.path.isabs, so a drive letter
-    counts as readily as a leading slash. A path that cannot be written is
-    refused here rather than after the download that would have filled it.
+    runs unattended; `y` and a blank answer ask for one; `n` keeps the default
+    folder. Absolute is os.path.isabs, so a drive letter counts as readily as a
+    leading slash. A path that cannot be written is refused here rather than
+    after the download that would have filled it.
     """
-    if raw is None:
-        return ""
     answer = raw.strip().strip('"')
     if answer.lower() in YesNo.all_no_and_skip():
         return ""
@@ -3555,19 +3664,19 @@ def _resolve_path(transcriber, raw, label, default_dir):
     return _prompt_path(transcriber, label, default_dir)
 
 
-def _placement_gate(transcriber, cfg):
+def _placement_gate(transcriber, cfg, answers):
     """Whether this session wants to name or rehouse anything, asked once.
 
     Two questions for each of four deliverables is eight an ordinary run does
-    not want. One says no to all of them, and the answers are remembered across
-    a repeat like every other one.
+    not want. One says no to all of them, and the answer is remembered across
+    a repeat like every other one. A profile never asks it: it carries the
+    placement answers themselves, and a gap in them is not a question.
     """
     if cfg.ask_placement is None:
-        cfg.ask_placement = _bool_from_last(
-            "LAST_PLACEMENT",
-            lambda: transcriber.get_yes_no_input(
-                "Rename any of this run's files, or send them somewhere other "
-                "than the project folder? (y/N): ", default='n'))
+        cfg.ask_placement = _yes_no(
+            transcriber, answers, "PLACEMENT",
+            "Rename any of this run's files, or send them somewhere other "
+            "than the project folder? (y/N): ")
     return cfg.ask_placement
 
 
@@ -3596,41 +3705,20 @@ def _dir_for(cfg, which, default):
     return getattr(cfg, f"{which}_path", "") or default
 
 
-def _placement_answer(transcriber, cfg, prefix, suffix, from_profile, profile_name):
-    """The raw answer for one placement field: profile, repeat, or a question.
-
-    None means leave the default alone without asking - a field the profile
-    does not carry at all, and a session that declined the question above.
-    """
-    if from_profile:
-        raw = os.getenv(f"{prefix}_{suffix}")
-        if (suffix == "RENAME" and raw and raw.lower() not in YesNo.all_no_and_skip()
-                and os.environ.get("_REPEAT_INVOCATION", "") == "1"):
-            # A repeat takes a new URL and keeps the rest, but a name was for
-            # the last round's video, and on this one it overwrote that file.
-            # An interactive repeat drops it the same way.
-            print(f"Ignoring {prefix}_RENAME={raw} on a repeat: it named the last round's file.")
-            return "n"
-        if raw and profile_name:
-            print(f"Loaded {prefix}_{suffix}: {raw} (from {profile_name})")
-        return raw
-    remembered = os.environ.get(f"LAST_{prefix}_{suffix}")
-    if remembered is not None:
-        print(f"Using previous {prefix}_{suffix}: {remembered} (from last session)")
-        return remembered
-    return "" if _placement_gate(transcriber, cfg) else "n"
-
-
-def _settle_placement(transcriber, cfg, stem, from_profile, profile_name=None):
+def _settle_placement(transcriber, cfg, stem, answers):
     """Settle what one deliverable is called and where it is written."""
     _stem, prefix, label, dir_attr = next(p for p in _PLACEMENTS if p[0] == stem)
     default_dir = getattr(transcriber, dir_attr)
 
-    name = _resolve_rename(transcriber, _placement_answer(
-        transcriber, cfg, prefix, "RENAME", from_profile, profile_name), label)
-    where = _resolve_path(transcriber, _placement_answer(
-        transcriber, cfg, prefix, "PATH", from_profile, profile_name),
-        label, default_dir)
+    def ask():
+        # A blank answer asks for the name or folder itself, and a session
+        # that declined the one question for all of them keeps the defaults
+        return "" if _placement_gate(transcriber, cfg, answers) else "n"
+
+    name = _resolve_rename(
+        transcriber, _answer(answers, f"{prefix}_RENAME", ask), label)
+    where = _resolve_path(
+        transcriber, _answer(answers, f"{prefix}_PATH", ask), label, default_dir)
     setattr(cfg, f"{stem}_rename", name)
     setattr(cfg, f"{stem}_path", where)
     # "n" rather than blank: a profile written from this session must replay
@@ -3920,369 +4008,192 @@ def _settle_sources(cfg):
             ",".join(entry[2]) if entry[2] else entry[0] for entry in cfg.sources)
 
 
-def _configure_interactive(transcriber):
-    """Gather all session settings by prompting the user.
+def _settle_quality(transcriber, cfg, answers, field, label, picker,
+                    default=Resolution.HIGHEST.value):
+    """Settle one quality field: stated, typed, or picked from the video's list."""
+    video = picker is _prompt_resolution_selection
+    typed = _prompt_resolution_input if video else _prompt_audio_resolution_input
+    normalize = _as_height if video else None
 
-    Answers remembered from a previous "Run again?" repeat (LAST_* environment
-    variables) are reused instead of re-prompting.
+    def shown(raw):
+        value = Resolution.normalize(raw)
+        return normalize(value) if normalize else value
+
+    raw = _answer(answers, field, lambda: typed(transcriber, label), shown=shown)
+    value = _resolve_quality(transcriber, cfg, raw, picker, default, normalize)
+    cfg.used_fields[field] = value
+    return value
+
+
+def _settle_format(transcriber, cfg, answers, field, label, default, kind):
+    """Settle one format field, asking from ffmpeg's own list if it has none."""
+    raw = _answer(answers, field, lambda: _prompt_format(transcriber, label, default, kind))
+    value = _resolve_format(transcriber, raw, label, default, kind)
+    cfg.used_fields[field] = value
+    return value
+
+
+def _configure(transcriber, answers):
+    """Gather the session's settings, from `answers` where it has them.
+
+    Every setting is settled here, once, however the session was set up: a
+    profile and a repeated interactive round differ only in where they keep
+    their answers and in what a gap in them means, which SETTINGS says.
     """
     cfg = SessionConfig(used_fields=transcriber.DEFAULT_FIELDS.copy())
     used_fields = cfg.used_fields
 
-    cfg.sources = transcriber.prompt_for_sources()
+    cfg.sources = answers.sources(transcriber)
     _settle_sources(cfg)
     refining = any(entry[2] for entry in cfg.sources)
-    asks = _deliverable_asks(cfg.is_local_file)
     if not cfg.url:
         # Every entry is a refinement, so there is no media to ask about
         cfg.transcribe_audio = False
         used_fields["TRANSCRIBE_AUDIO"] = "n"
-        _ask_enhancement(transcriber, cfg, used_fields, assumed=True)
-        return cfg
+        return _settle_refinement(transcriber, cfg, answers, assumed=True)
 
-    cfg.download_video = _bool_from_last(
-        "LAST_DOWNLOAD_VIDEO",
-        lambda: transcriber.get_yes_no_input(asks[0], default='n'))
-    used_fields["DOWNLOAD_VIDEO"] = "y" if cfg.download_video else "n"
-
-    cfg.video_only = _bool_from_last(
-        "LAST_VIDEO_ONLY",
-        lambda: transcriber.get_yes_no_input(asks[1], "n"))
-    used_fields["VIDEO_ONLY"] = "y" if cfg.video_only else "n"
+    asks = _deliverable_asks(cfg.is_local_file)
+    cfg.download_video = _yes_no(transcriber, answers, "DOWNLOAD_VIDEO", asks[0])
+    if (answers.lookup(SETTINGS["NO_AUDIO_IN_VIDEO"])[1]
+            and not answers.lookup(SETTINGS["VIDEO_ONLY"])[1]):
+        # The pre-1.2 field replaced the merged download rather than adding
+        # to it, so honour that meaning instead of producing both files
+        cfg.video_only = _yes_no(transcriber, answers, "NO_AUDIO_IN_VIDEO", asks[1])
+        cfg.download_video = cfg.download_video and not cfg.video_only
+    else:
+        cfg.video_only = _yes_no(transcriber, answers, "VIDEO_ONLY", asks[1])
+    used_fields["DOWNLOAD_VIDEO"] = _yn(cfg.download_video)
+    used_fields["VIDEO_ONLY"] = _yn(cfg.video_only)
 
     if cfg.download_video:
-        cfg.video_resolution = _resolve_quality(
-            transcriber, cfg,
-            _value_from_last("LAST_VIDEO_RESOLUTION",
-                             lambda: _prompt_resolution_input(transcriber, "video resolution")),
+        cfg.video_resolution = _settle_quality(
+            transcriber, cfg, answers, "VIDEO_RESOLUTION", "video resolution",
             _prompt_resolution_selection)
-        used_fields["VIDEO_RESOLUTION"] = cfg.video_resolution
-
-        cfg.video_audio_resolution = _resolve_quality(
-            transcriber, cfg,
-            _value_from_last("LAST_VIDEO_AUDIO_RESOLUTION",
-                             lambda: _prompt_audio_resolution_input(
-                                 transcriber, "audio resolution for the video")),
-            _prompt_audio_selection)
-        used_fields["VIDEO_AUDIO_RESOLUTION"] = cfg.video_audio_resolution
-
-        cfg.video_format = _resolve_format(
-            transcriber,
-            _value_from_last("LAST_VIDEO_FORMAT", lambda: ""),
-            "video container", transcriber.DEFAULT_VIDEO_FORMAT, "container")
-        used_fields["VIDEO_FORMAT"] = cfg.video_format
-        _settle_placement(transcriber, cfg, "video", from_profile=False)
+        cfg.video_audio_resolution = _settle_quality(
+            transcriber, cfg, answers, "VIDEO_AUDIO_RESOLUTION",
+            "audio resolution for the video", _prompt_audio_selection)
+        cfg.video_format = _settle_format(
+            transcriber, cfg, answers, "VIDEO_FORMAT", "video container",
+            transcriber.DEFAULT_VIDEO_FORMAT, "container")
+        _settle_placement(transcriber, cfg, "video", answers)
 
     if cfg.video_only:
-        cfg.video_only_resolution = _resolve_quality(
-            transcriber, cfg,
-            _value_from_last("LAST_VIDEO_ONLY_RESOLUTION",
-                             lambda: _prompt_resolution_input(
-                                 transcriber, "video-only resolution")),
+        cfg.video_only_resolution = _settle_quality(
+            transcriber, cfg, answers, "VIDEO_ONLY_RESOLUTION", "video-only resolution",
             _prompt_resolution_selection)
-        used_fields["VIDEO_ONLY_RESOLUTION"] = cfg.video_only_resolution
+        cfg.video_only_format = _settle_format(
+            transcriber, cfg, answers, "VIDEO_ONLY_FORMAT", "video-only codec",
+            transcriber.DEFAULT_VIDEO_ONLY_CODEC, "video")
+        _settle_placement(transcriber, cfg, "video_only", answers)
 
-        cfg.video_only_format = _resolve_format(
-            transcriber,
-            _value_from_last("LAST_VIDEO_ONLY_FORMAT", lambda: ""),
-            "video-only codec", transcriber.DEFAULT_VIDEO_ONLY_CODEC, "video")
-        used_fields["VIDEO_ONLY_FORMAT"] = cfg.video_only_format
-        _settle_placement(transcriber, cfg, "video_only", from_profile=False)
-
-    cfg.download_audio = _bool_from_last(
-        "LAST_DOWNLOAD_AUDIO",
-        lambda: transcriber.get_yes_no_input(asks[2], default='n'))
-    used_fields["DOWNLOAD_AUDIO"] = "y" if cfg.download_audio else "n"
+    cfg.download_audio = _yes_no(transcriber, answers, "DOWNLOAD_AUDIO", asks[2])
+    used_fields["DOWNLOAD_AUDIO"] = _yn(cfg.download_audio)
 
     if cfg.download_audio:
-        cfg.audio_resolution = _resolve_quality(
-            transcriber, cfg,
-            _value_from_last("LAST_AUDIO_RESOLUTION",
-                             lambda: _prompt_audio_resolution_input(
-                                 transcriber, "audio resolution")),
+        cfg.audio_resolution = _settle_quality(
+            transcriber, cfg, answers, "AUDIO_RESOLUTION", "audio resolution",
             _prompt_audio_selection)
-        used_fields["AUDIO_RESOLUTION"] = cfg.audio_resolution
-
-        cfg.audio_format = _resolve_format(
-            transcriber,
-            _value_from_last("LAST_AUDIO_FORMAT", lambda: ""),
-            "audio", transcriber.DEFAULT_AUDIO_FORMAT, "container")
-        used_fields["AUDIO_FORMAT"] = cfg.audio_format
-        _settle_placement(transcriber, cfg, "audio", from_profile=False)
+        cfg.audio_format = _settle_format(
+            transcriber, cfg, answers, "AUDIO_FORMAT", "audio",
+            transcriber.DEFAULT_AUDIO_FORMAT, "container")
+        _settle_placement(transcriber, cfg, "audio", answers)
 
     if not cfg.is_local_file:
-        _settle_yt_transcripts(transcriber, cfg, _value_from_last(
-            "LAST_DOWNLOAD_YT_TRANSCRIPT", _yt_transcript_prompt))
+        _settle_yt_transcripts(transcriber, cfg, _answer(
+            answers, "DOWNLOAD_YT_TRANSCRIPT", _yt_transcript_prompt))
         used_fields["DOWNLOAD_YT_TRANSCRIPT"] = cfg.yt_transcript_raw
 
-    cfg.transcribe_audio = _bool_from_last(
-        "LAST_TRANSCRIBE_AUDIO",
-        lambda: transcriber.get_yes_no_input("Transcribe the audio? (Y/n): "))
-    used_fields["TRANSCRIBE_AUDIO"] = "y" if cfg.transcribe_audio else "n"
-
+    cfg.transcribe_audio = _yes_no(transcriber, answers, "TRANSCRIBE_AUDIO",
+                                   "Transcribe the audio? (Y/n): ", default='y')
+    used_fields["TRANSCRIBE_AUDIO"] = _yn(cfg.transcribe_audio)
     if not cfg.transcribe_audio:
         # Downloaded transcripts are enhanced whether or not anything is
         # being transcribed here
-        if cfg.yt_transcript_languages or refining:
-            _ask_enhancement(transcriber, cfg, used_fields, assumed=refining)
-        return cfg
+        return _settle_refinement(transcriber, cfg, answers, assumed=refining)
 
-    if not cfg.is_local_file and not (cfg.download_audio or cfg.download_video):
+    # The quality is only settled when nothing else will already have put
+    # audio on disk, which transcription reuses rather than fetching twice
+    if cfg.download_audio or cfg.download_video:
+        moot = ("the audio already being downloaded is transcribed, rather "
+                "than fetching a second copy of it.")
+    elif cfg.is_local_file:
+        # Which the profile alone cannot explain, the reason being the URL
+        # rather than a neighbouring field turned off
+        moot = "a local file is read as it is, there being no stream to pick."
+    else:
+        moot = None
+    if moot:
+        # Never asked here, but a hand-written field would otherwise be
+        # dropped without a word
+        answers.ignored("TRANSCRIBE_AUDIO_QUALITY", moot)
+    else:
         # Speech recognition, not listening: the cheapest stream reads the same
-        cfg.transcribe_audio_quality = _resolve_quality(
-            transcriber, cfg,
-            _value_from_last("LAST_TRANSCRIBE_AUDIO_QUALITY",
-                             lambda: _prompt_audio_resolution_input(
-                                 transcriber, "audio quality for transcription")),
-            _prompt_audio_selection, default=Resolution.LOWEST.value)
-        used_fields["TRANSCRIBE_AUDIO_QUALITY"] = cfg.transcribe_audio_quality
+        cfg.transcribe_audio_quality = _settle_quality(
+            transcriber, cfg, answers, "TRANSCRIBE_AUDIO_QUALITY",
+            "audio quality for transcription", _prompt_audio_selection,
+            default=Resolution.LOWEST.value)
 
-    cfg.model_choice = _value_from_last("LAST_MODEL_CHOICE", transcriber.get_model_choice_input)
+    cfg.model_choice = _answer(answers, "MODEL_CHOICE", transcriber.get_model_choice_input,
+                               valid=lambda raw: raw.lower() in ModelSize.valid_choices())
     model_enum = ModelSize.from_choice(cfg.model_choice)
     cfg.model_name = model_enum.value
     used_fields["MODEL_CHOICE"] = cfg.model_name
 
-    _settle_source_language(transcriber, cfg, _value_from_last(
-        "LAST_SOURCE_LANGUAGE", transcriber.get_source_language_input))
-    _settle_target_languages(transcriber, cfg, _value_from_last(
-        "LAST_TARGET_LANGUAGE", transcriber.get_target_language_input))
+    _settle_source_language(transcriber, cfg, _answer(
+        answers, "SOURCE_LANGUAGE", transcriber.get_source_language_input))
+    _settle_target_languages(transcriber, cfg, _answer(
+        answers, "TARGET_LANGUAGE", transcriber.get_target_language_input))
     used_fields["TARGET_LANGUAGE"] = ",".join(cfg.target_languages)
 
     if _offers_en_model(transcriber, cfg, model_enum):
-        cfg.use_en_model = _bool_from_last(
-            "LAST_USE_EN_MODEL",
-            lambda: transcriber.get_yes_no_input(
-                "Use English-specific model? "
-                "(Recommended only if the video is originally in English) (y/N): ",
-                default='n'))
-        used_fields["USE_EN_MODEL"] = "y" if cfg.use_en_model else "n"
+        cfg.use_en_model = _yes_no(
+            transcriber, answers, "USE_EN_MODEL",
+            "Use English-specific model? "
+            "(Recommended only if the video is originally in English) (y/N): ")
+        used_fields["USE_EN_MODEL"] = _yn(cfg.use_en_model)
+    else:
+        # An English-only model hears English and nothing else: run on speech
+        # the profile says is Japanese, it wrote English-ish nonsense and saved
+        # it as the Japanese transcript
+        answers.ignored("USE_EN_MODEL", "the English-only model does not serve this "
+                                        "model size, SOURCE_LANGUAGE or TARGET_LANGUAGE.")
 
-    _ask_enhancement(transcriber, cfg, used_fields, assumed=refining)
-
-    return cfg
+    return _settle_refinement(transcriber, cfg, answers, assumed=refining)
 
 
-def _quality_from_profile(transcriber, cfg, profile_name, var_name, picker,
-                          default=Resolution.HIGHEST.value, legacy=None):
-    """Settle one quality field from the profile, asking when it is blank."""
-    raw = os.getenv(var_name) or (os.getenv(legacy) if legacy else None)
-    normalize = _as_height if picker is _prompt_resolution_selection else None
-    if raw:
-        value = Resolution.normalize(raw)
-        print(f"Loaded {var_name}: {normalize(value) if normalize else value} "
-              f"(from {profile_name})")
-    return _resolve_quality(transcriber, cfg, raw, picker, default, normalize)
+def _configure_interactive(transcriber):
+    """Gather the session's settings by asking, reusing what a repeat's last
+    round was told."""
+    return _configure(transcriber, _Remembered())
 
 
 def _configure_from_profile(transcriber, profile_name):
-    """Gather all session settings from the loaded profile's environment variables.
-
-    Missing or invalid values fall back to interactive prompts.
-    """
-    cfg = SessionConfig(used_fields=transcriber.DEFAULT_FIELDS.copy())
-
-    # A repeat is the same settings over a new job, so the profile's own URL
-    # is not reused. Either way the answer is settled here rather than part
-    # way through the run: this is the only prompt that takes a list, or 's'
-    # to refine a transcript instead of fetching anything.
-    named = ("" if os.environ.get("_REPEAT_INVOCATION", "") == "1"
-             else os.getenv("URL") or "")
-    if named and named != transcriber.URL_PLACEHOLDER:
-        # Whether a video exists is settled by the metadata fetch in
-        # _create_youtube_with_recovery, which can re-prompt
-        cfg.sources = transcriber.source_entries(named, profile_name)
-    if not cfg.sources:
-        cfg.sources = transcriber.prompt_for_sources()
-    _settle_sources(cfg)
-    if not cfg.url:
-        cfg.transcribe_audio = False
-        cfg.used_fields["TRANSCRIBE_AUDIO"] = "n"
-        if named:
-            print(f"Loaded URL: {sum(len(e[2]) for e in cfg.sources)} transcript(s) "
-                  f"to refine (from {profile_name})")
-        return _settle_refinement(transcriber, cfg, profile_name, assumed=True)
-
-    asks = _deliverable_asks(cfg.is_local_file)
-
-    cfg.download_video = _bool_from_profile_env(
-        transcriber, "DOWNLOAD_VIDEO", profile_name, asks[0], default='n')
-
-    legacy_video_only = os.getenv("NO_AUDIO_IN_VIDEO")
-    if legacy_video_only and not os.getenv("VIDEO_ONLY"):
-        # The pre-1.2 field replaced the merged download rather than adding
-        # to it, so honour that meaning instead of producing both files.
-        # Setting it in the environment would leak into the next profile of
-        # a repeat, which nothing clears.
-        cfg.video_only = legacy_video_only.lower() in YesNo.YES.value
-        if cfg.video_only:
-            cfg.download_video = False
-        print(f"Loaded NO_AUDIO_IN_VIDEO as VIDEO_ONLY: {legacy_video_only} "
-              f"(from {profile_name})")
-    else:
-        cfg.video_only = _bool_from_profile_env(
-            transcriber, "VIDEO_ONLY", profile_name, asks[1],
-            default='n', prompt_if_missing=False)
-
-    if cfg.download_video:
-        # RESOLUTION is the pre-1.2 name; profiles written then still work
-        cfg.video_resolution = _quality_from_profile(
-            transcriber, cfg, profile_name, "VIDEO_RESOLUTION",
-            _prompt_resolution_selection, legacy="RESOLUTION")
-        cfg.video_audio_resolution = _quality_from_profile(
-            transcriber, cfg, profile_name, "VIDEO_AUDIO_RESOLUTION",
-            _prompt_audio_selection)
-        cfg.video_format = _format_from_profile(
-            transcriber, "VIDEO_FORMAT", "video container",
-            transcriber.DEFAULT_VIDEO_FORMAT, "container")
-        _settle_placement(transcriber, cfg, "video", True, profile_name)
-
-    if cfg.video_only:
-        cfg.video_only_resolution = _quality_from_profile(
-            transcriber, cfg, profile_name, "VIDEO_ONLY_RESOLUTION",
-            _prompt_resolution_selection)
-        cfg.video_only_format = _format_from_profile(
-            transcriber, "VIDEO_ONLY_FORMAT", "video-only codec",
-            transcriber.DEFAULT_VIDEO_ONLY_CODEC, "video")
-        _settle_placement(transcriber, cfg, "video_only", True, profile_name)
-
-    cfg.download_audio = _bool_from_profile_env(
-        transcriber, "DOWNLOAD_AUDIO", profile_name, asks[2],
-        default='n', prompt_if_missing=False)
-
-    if cfg.download_audio:
-        cfg.audio_resolution = _quality_from_profile(
-            transcriber, cfg, profile_name, "AUDIO_RESOLUTION",
-            _prompt_audio_selection)
-        cfg.audio_format = _format_from_profile(
-            transcriber, "AUDIO_FORMAT", "audio",
-            transcriber.DEFAULT_AUDIO_FORMAT, "container")
-        _settle_placement(transcriber, cfg, "audio", True, profile_name)
-
-    if not cfg.is_local_file:
-        named = os.getenv("DOWNLOAD_YT_TRANSCRIPT")
-        raw = (named or "").strip()
-        if raw:
-            print(f"Loaded DOWNLOAD_YT_TRANSCRIPT: {raw} (from {profile_name})")
-        if named is None:
-            # A profile written before this field existed does not carry it, and
-            # a field that is not there means no - as it does for DOWNLOAD_AUDIO
-            # and VIDEO_ONLY. Only a blank one is a question.
-            _settle_yt_transcripts(transcriber, cfg, "n")
-        else:
-            _settle_yt_transcripts(transcriber, cfg, raw or _yt_transcript_prompt())
-
-    cfg.transcribe_audio = _bool_from_profile_env(
-        transcriber, "TRANSCRIBE_AUDIO", profile_name,
-        "Transcribe the audio? (Y/n): ", default='y')
-
-    if cfg.transcribe_audio:
-        # The quality is only settled when nothing else will already have put
-        # audio on disk, which transcription reuses rather than fetching twice
-        if cfg.download_audio or cfg.download_video:
-            moot = ("the audio already being downloaded is transcribed, rather "
-                    "than fetching a second copy of it.")
-        elif cfg.is_local_file:
-            # Which the profile alone cannot explain, the reason being the URL
-            # rather than a neighbouring field turned off
-            moot = "a local file is read as it is, there being no stream to pick."
-        else:
-            moot = None
-        if moot:
-            # Never asked here, but a hand-written field would otherwise be
-            # dropped without a word
-            requested = os.getenv("TRANSCRIBE_AUDIO_QUALITY")
-            if requested:
-                print(f"Ignoring TRANSCRIBE_AUDIO_QUALITY={requested} "
-                      f"(from {profile_name}): {moot}")
-        else:
-            # Speech recognition, not listening: the cheapest stream reads the same
-            cfg.transcribe_audio_quality = _quality_from_profile(
-                transcriber, cfg, profile_name, "TRANSCRIBE_AUDIO_QUALITY",
-                _prompt_audio_selection, default=Resolution.LOWEST.value)
-
-    model_choice = os.getenv("MODEL_CHOICE")
-    if model_choice and cfg.transcribe_audio:
-        if model_choice.lower() not in ModelSize.valid_choices():
-            print(f"Invalid value for MODEL_CHOICE in .env: {model_choice}")
-            model_choice = transcriber.get_model_choice_input()
-        else:
-            print(f"Loaded MODEL_CHOICE: {model_choice} (from {profile_name})")
-    elif cfg.transcribe_audio:
-        model_choice = transcriber.get_model_choice_input()
-    cfg.model_choice = model_choice or ""
-
-    if cfg.transcribe_audio:
-        model_enum = ModelSize.from_choice(cfg.model_choice)
-        cfg.model_name = model_enum.value
-
-        source_language = os.getenv("SOURCE_LANGUAGE")
-        if source_language is None:
-            # A profile written before the field existed has Whisper detect the
-            # language, as a missing field means the default elsewhere
-            _settle_source_language(transcriber, cfg, transcriber.AUTO_LANGUAGE)
-        else:
-            if source_language.strip():
-                print(f"Loaded SOURCE_LANGUAGE: {source_language} (from {profile_name})")
-            _settle_source_language(transcriber, cfg, source_language)
-
-        target_language = os.getenv("TARGET_LANGUAGE")
-        if target_language:
-            _settle_target_languages(transcriber, cfg, target_language)
-            print(f"Loaded TARGET_LANGUAGE: {','.join(cfg.target_languages)} "
-                  f"(from {profile_name})")
-        else:
-            _settle_target_languages(
-                transcriber, cfg, transcriber.get_target_language_input())
-
-        use_en_model_str = os.getenv("USE_EN_MODEL")
-        if use_en_model_str:
-            if use_en_model_str.lower() in YesNo.YES.value:
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
-                # An English-only model hears English and nothing else: run on
-                # speech the profile says is Japanese, it wrote English-ish
-                # nonsense and saved it as the Japanese transcript
-                cfg.use_en_model = _offers_en_model(transcriber, cfg, model_enum)
-                if not cfg.use_en_model:
-                    print("Ignoring USE_EN_MODEL=y: the English-only model does not "
-                          "serve this model size, SOURCE_LANGUAGE or TARGET_LANGUAGE.")
-            elif use_en_model_str.lower() in YesNo.NO.value:
-                cfg.use_en_model = False
-                print(f"Loaded USE_EN_MODEL: {use_en_model_str} (from {profile_name})")
-            else:
-                print(f"Invalid value for USE_EN_MODEL in .env: {use_en_model_str}")
-                if _offers_en_model(transcriber, cfg, model_enum):
-                    cfg.use_en_model = transcriber.get_yes_no_input(
-                        "Use English-specific model? "
-                        "(Recommended only if the video is originally in English) (y/N): ",
-                        default='n')
-
-    return _settle_refinement(transcriber, cfg, profile_name,
-                              assumed=any(e[2] for e in cfg.sources or []))
+    """Gather the session's settings from the loaded profile, asking for what
+    it leaves open and what it gets wrong."""
+    return _configure(transcriber, _Profile(profile_name))
 
 
-def _settle_refinement(transcriber, cfg, profile_name, assumed=False):
-    """Settle the backend, prompts and Raw copy from the profile.
+def _settle_refinement(transcriber, cfg, answers, assumed=False):
+    """Settle enhancement: whether, which backend, which prompts, keep the raw.
 
     `assumed` is a refine-only run, where naming transcripts already answered
-    the question AI_REFINEMENT asks.
+    the question AI_REFINEMENT asks. Returns cfg.
     """
-    wants_refinement = assumed or cfg.transcribe_audio or bool(cfg.yt_transcript_languages)
-    # AI_ENHANCEMENT is the pre-1.2 name for the same field. Read under its own
-    # name rather than copied into AI_REFINEMENT, which would leak into the next
-    # profile of a repeat, as NO_AUDIO_IN_VIDEO does.
-    field = "AI_REFINEMENT" if os.getenv("AI_REFINEMENT") else "AI_ENHANCEMENT"
-    # That field also named the backend before 1.2 - a provider key, 'local',
+    if not (assumed or cfg.transcribe_audio or cfg.yt_transcript_languages):
+        # Nothing is transcribed or downloaded for it to refine
+        return cfg
+    used_fields = cfg.used_fields
+
+    # AI_REFINEMENT also named the backend before 1.2 - a provider key, 'local',
     # or a model name - so anything that is not yes or no is both the yes and
     # the answer to which, rather than an "invalid value" that stops the run
-    legacy = (os.getenv(field) or "").strip()
-    backend = (legacy if legacy.lower() not in
-               YesNo.YES.value + YesNo.all_no_and_skip() + ('',) else None)
-    skipped = legacy.lower() in YesNo.SKIP.value
-    if wants_refinement and (assumed or backend or (not skipped and _bool_from_profile_env(
-            transcriber, field, profile_name,
-            "Refine the transcript with AI? (y/N): ", default='n'))):
-        if backend:
-            print(f"Loaded {field}: {legacy} (from {profile_name})")
+    name, stated = answers.lookup(SETTINGS["AI_REFINEMENT"])
+    stated = (stated or "").strip()
+    backend = stated if stated and not _is_yes_no(stated) else None
+    if backend:
+        answers.report(name, backend)
+    if assumed or backend or _yes_no(transcriber, answers, "AI_REFINEMENT",
+                                     "Refine the transcript with AI? (y/N): "):
         if backend and backend.lower() != "local" and Provider.from_string(backend) is None:
             # Neither 'local' nor a provider was a local model's name or id,
             # and not an AI_PROVIDER typo to fall back from onto the key's vendor
@@ -4293,30 +4204,39 @@ def _settle_refinement(transcriber, cfg, profile_name, assumed=False):
             cfg.ai_mode, cfg.provider, cfg.local_model = _ai_backend(transcriber, backend)
 
     if cfg.ai_mode is not None:
-        prompt_env = (os.getenv("PROMPT") or "").strip()
-        if prompt_env:
-            print(f"Loaded PROMPT: {prompt_env} (from {profile_name})")
-            cfg.prompts = _load_prompts(transcriber, prompt_env)
+        named = _answer(answers, "PROMPT", lambda: "")
+        cfg.prompts = _load_prompts(transcriber, named) if named else []
         if not cfg.prompts:
             cfg.prompts = _select_prompts_interactively(transcriber)
         if not cfg.prompts:
             cfg.ai_mode = None
+        else:
+            used_fields["PROMPT"] = ",".join(label for _text, label in cfg.prompts)
 
     if cfg.ai_mode == AIEnhancementMode.API:
         cfg.api_key = _resolve_api_key(cfg.provider)
         if cfg.api_key is None:
             cfg.ai_mode = None
 
-    if wants_refinement:
-        _settle_placement(transcriber, cfg, "transcript", True, profile_name)
+    # Where the finished transcript lands, asked after the prompt that makes it
+    # and before the question about the copy left behind
+    _settle_placement(transcriber, cfg, "transcript", answers)
 
     # Nothing to keep when enhancement is not running, so the field is ignored
     if cfg.ai_mode is not None:
-        cfg.keep_transcript = _bool_from_profile_env(
-            transcriber, "KEEP_TRANSCRIPT", profile_name,
+        cfg.keep_transcript = _yes_no(
+            transcriber, answers, "KEEP_TRANSCRIPT",
             "Keep the unrefined transcript in Transcript/Raw/? "
             "n keeps only the refined one (Y/n): ", default='y')
+        used_fields["KEEP_TRANSCRIPT"] = _yn(cfg.keep_transcript)
+        # Which backend, not just that there was one: AI_REFINEMENT carries a
+        # bare y, so without this a profile made from a local session replays
+        # against whatever API key happens to be on file, and bills for it
+        used_fields["AI_PROVIDER"] = cfg.provider.key if cfg.provider else "local"
+        if cfg.local_model:
+            used_fields["MODEL"] = cfg.local_model
 
+    used_fields["AI_REFINEMENT"] = _yn(cfg.ai_mode is not None)
     return cfg
 
 

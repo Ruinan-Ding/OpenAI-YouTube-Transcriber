@@ -126,6 +126,23 @@ regression test.
   was archived) and pre-commit-hooks v6.0.0. `make lint` runs isort as well
   as flake8, as CI does. Ten files gained the final newline the repository's
   own end-of-file hook asks for.
+- **Each setting is described once.** A profile and an interactive session
+  (with the answers a "Run again?" round remembers) used to be settled by two
+  functions of about 150 lines each, which had drifted apart: a field could
+  mean one thing typed and another in a profile. `_configure` now settles
+  every setting for both. A `SETTINGS` table says what a profile that leaves a
+  field out, or blank, means, and two small sources (`_Profile`, `_Remembered`)
+  say where the answers are kept. A test holds the two to the same result for
+  the same answers. What a user sees changes only at the edges:
+  - `s` and `skip` decline a stored yes/no, as they already did for
+    `AI_REFINEMENT` and the placement fields. `DOWNLOAD_VIDEO=skip` was called
+    invalid and asked.
+  - A pre-1.2 `NO_AUDIO_IN_VIDEO` that is neither yes nor no is asked about,
+    as any yes/no field is, instead of being taken as no.
+  - A profile's format fields are reported when loaded, like its other fields.
+  - "Invalid value" names the profile it came from, not ".env".
+  - "Loaded URL: … transcript(s) to refine" appears only when the profile's
+    own URL names them, not for transcripts typed at the prompt.
 
 ## [1.2.0] - 2026-09-12
 

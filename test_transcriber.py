@@ -2087,7 +2087,7 @@ def test_a_profile_records_which_backend_the_session_used():
 
     t = YouTubeTranscriber()
     t.get_prompt_input = lambda: (['prompt0-translator.txt'], None)
-    cfg = module.SessionConfig(used_fields=t.DEFAULT_FIELDS.copy())
+    cfg = module.SessionConfig(used_fields=t.DEFAULT_FIELDS.copy(), transcribe_audio=True)
     env = {'LAST_AI_REFINEMENT': 'y', 'LAST_KEEP_TRANSCRIPT': 'y',
            'LAST_PLACEMENT': 'n',
            'AI_PROVIDER': 'local', 'MODEL': 'microsoft/phi-2'}
@@ -2095,7 +2095,7 @@ def test_a_profile_records_which_backend_the_session_used():
     os.environ.update(env)
     try:
         with redirect_stdout(io.StringIO()):
-            module._ask_enhancement(t, cfg, cfg.used_fields)
+            module._settle_refinement(t, cfg, module._Remembered())
     finally:
         for key, value in saved.items():
             os.environ.pop(key, None) if value is None else os.environ.update({key: value})
@@ -2916,18 +2916,23 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         repeat = module.SessionConfig(used_fields={})
         env = {'VIDEO_RENAME': 'lecture', 'VIDEO_PATH': elsewhere}
         os.environ.update(env)
+        log = io.StringIO()
         try:
             with redirect_stdout(io.StringIO()):
-                module._settle_placement(t, cfg, 'video', True, 'p.txt')
-                # REPEAT=y takes a new video, and the name overwrote the last one's
-                os.environ['_REPEAT_INVOCATION'] = '1'
-                module._settle_placement(t, repeat, 'video', True, 'p.txt')
+                module._settle_placement(t, cfg, 'video', module._Profile('p.txt'))
+            # REPEAT=y takes a new video, and the name overwrote the last one's
+            os.environ['_REPEAT_INVOCATION'] = '1'
+            with redirect_stdout(log):
+                module._settle_placement(t, repeat, 'video', module._Profile('p.txt'))
         finally:
             for key in list(env) + ['_REPEAT_INVOCATION']:
                 os.environ.pop(key, None)
         assert cfg.video_rename == 'lecture'
         assert cfg.video_path == elsewhere
         assert (repeat.video_rename, repeat.video_path) == ('', elsewhere)
+        # Said once, as dropped, and not then reported as loaded
+        assert 'Ignoring VIDEO_RENAME=lecture' in log.getvalue()
+        assert 'Loaded VIDEO_RENAME' not in log.getvalue(), log.getvalue()
         assert os.path.isdir(elsewhere), 'the path is made when it is settled'
         # A profile written from this session replays it, rather than asking
         assert cfg.used_fields['VIDEO_RENAME'] == 'lecture'
@@ -2937,7 +2942,7 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         # and asks nothing, so an older profile still runs
         cfg = module.SessionConfig(used_fields={})
         with redirect_stdout(io.StringIO()):
-            module._settle_placement(t, cfg, 'audio', True, 'p.txt')
+            module._settle_placement(t, cfg, 'audio', module._Profile('p.txt'))
         assert (cfg.audio_rename, cfg.audio_path) == ('', '')
         assert cfg.used_fields['AUDIO_RENAME'] == 'n'
 
@@ -2946,7 +2951,7 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         os.environ.update({'AUDIO_RENAME': 'n', 'AUDIO_PATH': 'n'})
         try:
             with redirect_stdout(io.StringIO()):
-                module._settle_placement(t, cfg, 'audio', True, 'p.txt')
+                module._settle_placement(t, cfg, 'audio', module._Profile('p.txt'))
         finally:
             for key in ('AUDIO_RENAME', 'AUDIO_PATH'):
                 os.environ.pop(key, None)
@@ -2961,7 +2966,7 @@ def test_a_deliverable_can_be_renamed_and_sent_somewhere_else():
         log = io.StringIO()
         try:
             with redirect_stdout(log), redirect_stderr(log):
-                module._settle_placement(t, cfg, 'audio', True, 'p.txt')
+                module._settle_placement(t, cfg, 'audio', module._Profile('p.txt'))
         finally:
             os.environ.pop('AUDIO_PATH', None)
             del module.input
@@ -2990,13 +2995,107 @@ def test_one_question_gates_the_eight_placement_ones():
     try:
         with redirect_stdout(io.StringIO()):
             for stem, _prefix, _label, _dir in module._PLACEMENTS:
-                module._settle_placement(t, cfg, stem, from_profile=False)
+                module._settle_placement(t, cfg, stem, module._Remembered())
     finally:
         module._clear_session_env()
     assert len(asked) == 1, asked
     assert 'Rename' in asked[0]
     assert cfg.used_fields['TRANSCRIPT_RENAME'] == 'n'
     assert cfg.used_fields['VIDEO_PATH'] == 'n'
+
+
+def test_a_profile_and_a_repeat_settle_alike():
+    """Both ways of setting a session up read one table through one function,
+    so the same answers - written in a profile, or remembered from the round a
+    repeat follows - settle the same session, and neither asks anything."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    url = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
+    t.prompt_for_sources = lambda prompt_text=None: [(url, False, None)]
+    t.get_yes_no_input = lambda *a, **k: (_ for _ in ()).throw(AssertionError('asked'))
+    with tempfile.TemporaryDirectory() as tmp:
+        answers = {
+            'DOWNLOAD_VIDEO': 'y', 'VIDEO_RESOLUTION': '720p',
+            'VIDEO_AUDIO_RESOLUTION': 'highest', 'VIDEO_FORMAT': 'original',
+            'VIDEO_RENAME': 'n', 'VIDEO_PATH': tmp, 'VIDEO_ONLY': 'n',
+            'DOWNLOAD_AUDIO': 'y', 'AUDIO_RESOLUTION': 'medium', 'AUDIO_FORMAT': 'original',
+            'AUDIO_RENAME': 'n', 'AUDIO_PATH': 'n', 'DOWNLOAD_YT_TRANSCRIPT': 'n',
+            'TRANSCRIBE_AUDIO': 'y', 'MODEL_CHOICE': 'tiny', 'SOURCE_LANGUAGE': 'en',
+            'TARGET_LANGUAGE': 'en', 'USE_EN_MODEL': 'y', 'AI_REFINEMENT': 'n',
+            'TRANSCRIPT_RENAME': 'n', 'TRANSCRIPT_PATH': tmp}
+        remembered = {f'LAST_{key}': value for key, value in answers.items()}
+        keys = list(answers) + list(remembered) + ['URL', '_REPEAT_INVOCATION']
+        saved = {key: os.environ.get(key) for key in keys}
+        module.input = lambda prompt='': (_ for _ in ()).throw(AssertionError(prompt))
+        try:
+            for key in keys:
+                os.environ.pop(key, None)
+            os.environ.update(answers, URL=url)
+            with redirect_stdout(io.StringIO()):
+                from_profile = module._configure_from_profile(t, 'p.txt')
+            for key in list(answers) + ['URL']:
+                os.environ.pop(key)
+            os.environ.update(remembered)
+            with redirect_stdout(io.StringIO()):
+                from_last_round = module._configure_interactive(t)
+        finally:
+            del module.input
+            for key, value in saved.items():
+                os.environ.pop(key, None)
+                if value is not None:
+                    os.environ[key] = value
+    assert vars(from_profile) == vars(from_last_round)
+    assert (from_profile.video_resolution, from_profile.audio_resolution) == ('720p', 'medium')
+    assert (from_profile.video_path, from_profile.transcript_path) == (tmp, tmp)
+    assert from_profile.use_en_model and from_profile.model_name == 'tiny'
+    assert from_profile.ai_mode is None
+
+
+def test_the_settings_table_covers_every_field():
+    """A field the table leaves out has no meaning for a gap in it, and a
+    remembered answer it leaves out is never read back."""
+    import OpenAIYouTubeTranscriber as module
+
+    # URL is settled as the list of sources, REPEAT after the run, and
+    # AI_PROVIDER and MODEL are config.txt's, read when the backend is chosen
+    fields = set(YouTubeTranscriber.DEFAULT_FIELDS) - {'URL', 'REPEAT', 'AI_PROVIDER', 'MODEL'}
+    remembered = {key[len('LAST_'):] for key in module._SESSION_ENV_KEYS
+                  if key.startswith('LAST_')}
+    table = set(module.SETTINGS)
+    assert fields <= table, fields - table
+    assert remembered <= table, remembered - table
+    # And nothing neither a profile nor a round can hold, but the pre-1.2 name
+    # with a meaning of its own
+    assert table <= fields | remembered | {'NO_AUDIO_IN_VIDEO'}, table - fields - remembered
+
+
+def test_a_stored_yes_or_no_reads_the_same_from_either_source():
+    """'skip' declines as 'n' does wherever a yes or no is stored, and a value
+    that is neither is asked about rather than taken for a no."""
+    import OpenAIYouTubeTranscriber as module
+
+    t = YouTubeTranscriber()
+    asked = []
+    t.get_yes_no_input = lambda question, default='y': asked.append(question) or True
+    saved = {key: os.environ.get(key) for key in ('DOWNLOAD_AUDIO', 'LAST_DOWNLOAD_AUDIO')}
+    try:
+        for source, key in ((module._Profile('p.txt'), 'DOWNLOAD_AUDIO'),
+                            (module._Remembered(), 'LAST_DOWNLOAD_AUDIO')):
+            for value, settled, asks in (('skip', False, 0), ('S', False, 0),
+                                         ('n', False, 0), ('yes', True, 0),
+                                         ('maybe', True, 1)):
+                os.environ[key] = value
+                asked.clear()
+                with redirect_stdout(io.StringIO()):
+                    got = module._yes_no(t, source, 'DOWNLOAD_AUDIO', 'Download audio? ')
+                assert (got, len(asked)) == (settled, asks), (key, value)
+            os.environ.pop(key)
+    finally:
+        for key, value in saved.items():
+            os.environ.pop(key, None)
+            if value is not None:
+                os.environ[key] = value
 
 
 def test_one_name_cannot_name_several_sources():
@@ -3159,7 +3258,7 @@ def test_a_pre_1_2_profile_still_names_its_own_backend():
             os.environ['AI_ENHANCEMENT'] = value
             cfg = module.SessionConfig(used_fields={}, transcribe_audio=True)
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                module._settle_refinement(t, cfg, 'p.txt')
+                module._settle_refinement(t, cfg, module._Profile('p.txt'))
             assert (cfg.ai_mode.name if cfg.ai_mode else None) == mode, value
             assert (cfg.provider.key if cfg.provider else None) == backend, value
             assert cfg.local_model == local, (value, cfg.local_model)
