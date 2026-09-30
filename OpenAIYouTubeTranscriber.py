@@ -4900,47 +4900,77 @@ def _clear_video_scratch(transcriber, cfg):
         pass
 
 
-def _run_one(transcriber, cfg):
-    """Execute one pass: download streams, transcribe, enhance, and save."""
-    if cfg.refine_sources:
-        _refine_transcripts(transcriber, cfg)
-        return
+class _Pass:
+    """One source's pass: the deliverables it asks for, what it has fetched
+    towards them, and the steps that turn the one into the other.
 
-    if not cfg.is_local_file and cfg.info is None:
-        _create_youtube_with_recovery(transcriber, cfg)
+    Every stream is fetched once however many deliverables want it, and kept
+    as downloaded until the last of them has been written, so the steps share
+    what they fetch: that is what this holds between them.
+    """
 
-    if cfg.is_local_file:
-        cfg.video_title = os.path.splitext(os.path.basename(cfg.url))[0]
+    def __init__(self, transcriber, cfg):
+        """Identify the source, claim its name, and settle its qualities."""
+        self.transcriber, self.cfg = transcriber, cfg
+        if not cfg.is_local_file and cfg.info is None:
+            _create_youtube_with_recovery(transcriber, cfg)
 
-    cfg.identity = _source_identity(cfg)
-    filename_base = _claim_name(cfg, transcriber.sanitize_filename(cfg.video_title),
-                                cfg.identity,
-                                None if cfg.is_local_file else (cfg.info or {}).get('id'))
-    display_source = os.path.abspath(cfg.url) if cfg.is_local_file else cfg.url
-    print(f"\nProcessing: {display_source}...")
-    stem_for = functools.partial(_stem_for, cfg, filename_base)
-    dir_for = functools.partial(_dir_for, cfg)
+        if cfg.is_local_file:
+            cfg.video_title = os.path.splitext(os.path.basename(cfg.url))[0]
 
-    audio_path = None
-    # Audio fetched only to merge or to transcribe, rather than to keep
-    temp_audio_paths = []
-    transcription_failed = False
+        cfg.identity = _source_identity(cfg)
+        self.filename_base = _claim_name(
+            cfg, transcriber.sanitize_filename(cfg.video_title), cfg.identity,
+            None if cfg.is_local_file else (cfg.info or {}).get('id'))
+        display_source = os.path.abspath(cfg.url) if cfg.is_local_file else cfg.url
+        print(f"\nProcessing: {display_source}...")
+        self.stem_for = functools.partial(_stem_for, cfg, self.filename_base)
+        self.dir_for = functools.partial(_dir_for, cfg)
 
-    # Three independent downloads, each with its own quality: the merged file,
-    # a muxer-free copy of the raw video stream, and a standalone audio file
-    remote = not cfg.is_local_file
+        # Audio fetched only to merge or to transcribe, rather than to keep
+        self.temp_audio_paths = []
+        self.transcription_failed = False
+        # One download per distinct stream, shared by every deliverable that
+        # wants it, and kept as downloaded until the last of them has been written
+        self.video_only_files = {}
+        self.video_files = {}
+        self.audio_files = {}
+        self.merge_files = {}
+        self.saved_audio_files = []
+        self.audio_path = None
+        self.speech_file = None
 
-    def settle_video(quality):
+        # Three independent downloads, each with its own quality: the merged file,
+        # a muxer-free copy of the raw video stream, and a standalone audio file
+        remote = not cfg.is_local_file
+        self.video_res = (self.qualities(cfg.video_resolution, self.settle_video)
+                          if cfg.download_video and remote else [])
+        self.only_res = (self.qualities(cfg.video_only_resolution, self.settle_video)
+                         if cfg.video_only and remote else [])
+        self.merge_audio = (self.qualities(cfg.video_audio_resolution, self.settle_audio)
+                            if cfg.download_video and remote else [])
+        self.saved_audio = (self.qualities(cfg.audio_resolution, self.settle_audio)
+                            if cfg.download_audio and remote else [])
+        # One copy of the audio is transcribed however many deliverables there are,
+        # so a list in this field names that copy rather than several of them
+        speech_raw = (transcriber.split_entries(cfg.transcribe_audio_quality or "")
+                      or [cfg.transcribe_audio_quality])[0]
+        self.speech_audio = (self.qualities(
+            speech_raw, lambda q: self.settle_audio(q, Resolution.LOWEST.value))[0]
+            if cfg.transcribe_audio and remote else None)
+
+    def settle_video(self, quality):
         """Check a resolution against this video, and resolve "lowest"."""
-        available = transcriber.available_resolutions(cfg.info)
+        transcriber, info = self.transcriber, self.cfg.info
+        available = transcriber.available_resolutions(info)
         if not available:
             # Nothing to pick from, and the keywords would sail past the check
             # below into a selector that cannot match. The picker says so.
-            return _prompt_resolution_selection(transcriber, cfg.info)
+            return _prompt_resolution_selection(transcriber, info)
         if quality not in (Resolution.HIGHEST.value, Resolution.LOWEST.value) \
                 and quality not in available:
             print("Requested resolution not found, left null, or invalid.")
-            quality = _prompt_resolution_selection(transcriber, cfg.info)
+            quality = _prompt_resolution_selection(transcriber, info)
         # Name the file after what is downloaded, not the word asked for, which
         # also puts "lowest" on the same footing as the bottom of the menu
         if quality == Resolution.LOWEST.value and available:
@@ -4951,7 +4981,7 @@ def _run_one(transcriber, cfg):
             quality = Resolution.HIGHEST.value
         return quality
 
-    def settle_audio(quality, default=Resolution.HIGHEST.value):
+    def settle_audio(self, quality, default=Resolution.HIGHEST.value):
         """Check an audio quality against this video.
 
         bestaudio[abr<=N] degrades silently rather than failing, so this is the
@@ -4959,210 +4989,195 @@ def _run_one(transcriber, cfg):
         is the field's own, so a re-prompt for transcription still offers the
         cheapest stream rather than the largest.
         """
+        transcriber, info = self.transcriber, self.cfg.info
         if (quality and quality not in (Resolution.HIGHEST.value, Resolution.LOWEST.value)
                 and not _is_number(str(quality))
-                and quality not in transcriber.available_audio_qualities(cfg.info)):
+                and quality not in transcriber.available_audio_qualities(info)):
             print("Requested audio resolution not found, left null, or invalid.")
-            quality = _prompt_audio_selection(transcriber, cfg.info, default)
+            quality = _prompt_audio_selection(transcriber, info, default)
         return quality
 
-    def audio_label_for(quality):
-        # selected_bitrate caches per video, so the repeated lookups behind a
-        # label cost a dict read
-        return transcriber.audio_bitrate_label(quality, cfg.info)
-
-    def audio_marks(quality):
-        """What an audio stream's name says of it: its bitrate, and its format
-        id too where another stream this pass fetches rounds to that bitrate.
-        Named by the bitrate alone, the second download landed on the first
-        and both deliverables were then made from one of them.
-        """
-        label, stream = audio_label_for(quality), audio_stream_for(quality)
-        shared = any(audio_label_for(other) == label and audio_stream_for(other) != stream
-                     for other in saved_audio + merge_audio + [speech_audio] if other)
-        return (label, stream) if shared else (label,)
-
-    def audio_stem_for(quality):
-        return stem_for("audio") + transcriber.quality_tag(*audio_marks(quality))
-
-    def audio_stream_for(quality):
-        """Which stream a request lands on, so that two wordings for one stream
-        are fetched once. "medium" and "highest" name the same audio on a video
-        whose best tier is medium, and their selectors do not look alike.
-        Falls back to the selector if yt-dlp's resolver cannot be run.
-        """
-        selector = transcriber.audio_format(quality, cfg.info)
-        chosen = transcriber.selected_format(selector, cfg.info) or {}
-        return chosen.get('format_id') or selector
-
-    def qualities(raw, settle):
+    def qualities(self, raw, settle):
         """The resolved, deduplicated qualities a field asks for.
 
         Several, separated by commas or spaces, are several deliverables. Two
         wordings can still land on one quality - "medium" and "highest" on a
         video whose best tier is medium - and that is one of them, not two.
         """
+        split = self.transcriber.split_entries
         seen = []
-        for piece in transcriber.split_entries(raw or "") or [raw]:
+        for piece in split(raw or "") or [raw]:
             value = settle(piece)
             # A re-prompt can be answered with a list of its own, which is as
             # many deliverables as if the field had named them. Each is settled
             # in its own right, so the top tier still goes untagged either way.
-            parts = transcriber.split_entries(value or "")
+            parts = split(value or "")
             for one in (map(settle, parts) if len(parts) > 1 else [value]):
                 if one not in seen:
                     seen.append(one)
         return seen
 
-    def formats(raw, default):
+    def formats(self, raw, default):
         """The formats a field asks for; the deliverable is written in each."""
-        return list(dict.fromkeys(transcriber.split_entries(raw or "") or [raw or default]))
+        return list(dict.fromkeys(self.transcriber.split_entries(raw or "")
+                                  or [raw or default]))
 
-    video_res = (qualities(cfg.video_resolution, settle_video)
-                 if cfg.download_video and remote else [])
-    only_res = (qualities(cfg.video_only_resolution, settle_video)
-                if cfg.video_only and remote else [])
-    merge_audio = (qualities(cfg.video_audio_resolution, settle_audio)
-                   if cfg.download_video and remote else [])
-    saved_audio = (qualities(cfg.audio_resolution, settle_audio)
-                   if cfg.download_audio and remote else [])
-    # One copy of the audio is transcribed however many deliverables there are,
-    # so a list in this field names that copy rather than several of them
-    speech_raw = (transcriber.split_entries(cfg.transcribe_audio_quality or "")
-                  or [cfg.transcribe_audio_quality])[0]
-    speech_audio = (qualities(speech_raw,
-                              lambda q: settle_audio(q, Resolution.LOWEST.value))[0]
-                    if cfg.transcribe_audio and remote else None)
+    def audio_label_for(self, quality):
+        # selected_bitrate caches per video, so the repeated lookups behind a
+        # label cost a dict read
+        return self.transcriber.audio_bitrate_label(quality, self.cfg.info)
 
-    if cfg.is_local_file:
-        _local_deliverables(transcriber, cfg, filename_base)
+    def audio_stream_for(self, quality):
+        """Which stream a request lands on, so that two wordings for one stream
+        are fetched once. "medium" and "highest" name the same audio on a video
+        whose best tier is medium, and their selectors do not look alike.
+        Falls back to the selector if yt-dlp's resolver cannot be run.
+        """
+        selector = self.transcriber.audio_format(quality, self.cfg.info)
+        chosen = self.transcriber.selected_format(selector, self.cfg.info) or {}
+        return chosen.get('format_id') or selector
 
-    # One download per distinct stream, shared by every deliverable that wants
-    # it, and kept as downloaded until the last of them has been written
-    video_only_files = {}
-    video_files = {}
-    audio_files = {}
-    merge_files = {}
-    saved_audio_files = []
+    def audio_marks(self, quality):
+        """What an audio stream's name says of it: its bitrate, and its format
+        id too where another stream this pass fetches rounds to that bitrate.
+        Named by the bitrate alone, the second download landed on the first
+        and both deliverables were then made from one of them.
+        """
+        label, stream = self.audio_label_for(quality), self.audio_stream_for(quality)
+        others = self.saved_audio + self.merge_audio + [self.speech_audio]
+        shared = any(self.audio_label_for(other) == label
+                     and self.audio_stream_for(other) != stream
+                     for other in others if other)
+        return (label, stream) if shared else (label,)
 
-    for res in only_res:
-        print(f"Downloading video stream ({res} without audio)...")
-        downloaded = transcriber.download_format(
-            cfg.url, transcriber.video_format(res),
-            dir_for("video_only", transcriber.VIDEO_WITHOUT_AUDIO_DIR),
-            stem_for("video_only") + transcriber.quality_tag(res) + " - Video Only")
-        video_only_files[res] = transcriber.strip_audio(downloaded)
-        print(f"Video downloaded to {os.path.abspath(video_only_files[res])}")
+    def audio_stem_for(self, quality):
+        return self.stem_for("audio") + self.transcriber.quality_tag(*self.audio_marks(quality))
 
-    for res in video_res:
-        if res in video_only_files:
-            # The merge wants the very stream just saved, so use that copy
-            # rather than fetching it a second time
-            video_files[res] = video_only_files[res]
-            continue
-        if cfg.video_scratch is None:
-            # A folder of this pass's own inside Video/Temp, so that clearing
-            # it afterwards touches nothing this pass did not put there
-            scratch_root = os.path.join(transcriber.VIDEO_DIR, transcriber.TEMP_DIR)
-            os.makedirs(scratch_root, exist_ok=True)
-            cfg.video_scratch = tempfile.mkdtemp(prefix="merge-", dir=scratch_root)
-        video_files[res] = transcriber.download_format(
-            cfg.url, transcriber.video_format(res), cfg.video_scratch,
-            stem_for("video") + transcriber.quality_tag(res))
-        print(f"Video downloaded to {video_files[res]}")
-    if not cfg.download_video and not cfg.video_only:
-        print("Skipping video download...")
+    def fetch_video(self):
+        """Download the video-only streams, then those the merge needs."""
+        transcriber, cfg = self.transcriber, self.cfg
+        for res in self.only_res:
+            print(f"Downloading video stream ({res} without audio)...")
+            downloaded = transcriber.download_format(
+                cfg.url, transcriber.video_format(res),
+                self.dir_for("video_only", transcriber.VIDEO_WITHOUT_AUDIO_DIR),
+                self.stem_for("video_only") + transcriber.quality_tag(res) + " - Video Only")
+            self.video_only_files[res] = transcriber.strip_audio(downloaded)
+            print(f"Video downloaded to {os.path.abspath(self.video_only_files[res])}")
 
-    # Compare the streams, not the words: "low", "lowest" and "60" are one
-    # request when they land on one stream, and so are "medium" and "highest"
-    # on a video whose best tier is medium
-    for tier in saved_audio:
-        stream = audio_stream_for(tier)
-        if stream in audio_files:
-            continue
-        audio_files[stream], _ = transcriber.download_audio_stream(
-            cfg.info, audio_stem_for(tier), is_temp=False,
-            format_selector=transcriber.audio_format(tier, cfg.info),
-            keep_in=dir_for("audio", transcriber.AUDIO_DIR))
-        saved_audio_files.append((tier, audio_files[stream]))
+        for res in self.video_res:
+            if res in self.video_only_files:
+                # The merge wants the very stream just saved, so use that copy
+                # rather than fetching it a second time
+                self.video_files[res] = self.video_only_files[res]
+                continue
+            if cfg.video_scratch is None:
+                # A folder of this pass's own inside Video/Temp, so that clearing
+                # it afterwards touches nothing this pass did not put there
+                scratch_root = os.path.join(transcriber.VIDEO_DIR, transcriber.TEMP_DIR)
+                os.makedirs(scratch_root, exist_ok=True)
+                cfg.video_scratch = tempfile.mkdtemp(prefix="merge-", dir=scratch_root)
+            self.video_files[res] = transcriber.download_format(
+                cfg.url, transcriber.video_format(res), cfg.video_scratch,
+                self.stem_for("video") + transcriber.quality_tag(res))
+            print(f"Video downloaded to {self.video_files[res]}")
+        if not cfg.download_video and not cfg.video_only:
+            print("Skipping video download...")
 
-    for tier in merge_audio:
-        stream = audio_stream_for(tier)
-        if stream not in audio_files:
-            audio_files[stream], _ = transcriber.download_audio_stream(
-                cfg.info, audio_stem_for(tier), is_temp=True,
-                format_selector=transcriber.audio_format(tier, cfg.info))
-            temp_audio_paths.append(audio_files[stream])
-        merge_files[tier] = audio_files[stream]
+    def fetch_audio(self):
+        """Download the audio to keep, then the audio the merge needs."""
+        transcriber, cfg = self.transcriber, self.cfg
+        # Compare the streams, not the words: "low", "lowest" and "60" are one
+        # request when they land on one stream, and so are "medium" and "highest"
+        # on a video whose best tier is medium
+        for tier in self.saved_audio:
+            stream = self.audio_stream_for(tier)
+            if stream in self.audio_files:
+                continue
+            self.audio_files[stream], _ = transcriber.download_audio_stream(
+                cfg.info, self.audio_stem_for(tier), is_temp=False,
+                format_selector=transcriber.audio_format(tier, cfg.info),
+                keep_in=self.dir_for("audio", transcriber.AUDIO_DIR))
+            self.saved_audio_files.append((tier, self.audio_files[stream]))
 
-    audio_path = next(iter(audio_files.values()), None)
+        for tier in self.merge_audio:
+            stream = self.audio_stream_for(tier)
+            if stream not in self.audio_files:
+                self.audio_files[stream], _ = transcriber.download_audio_stream(
+                    cfg.info, self.audio_stem_for(tier), is_temp=True,
+                    format_selector=transcriber.audio_format(tier, cfg.info))
+                self.temp_audio_paths.append(self.audio_files[stream])
+            self.merge_files[tier] = self.audio_files[stream]
 
-    # Two containers that write one extension would write one filename, so the
-    # format joins the name - the same rule convert_all applies to the others
-    merge_formats = formats(cfg.video_format, transcriber.DEFAULT_VIDEO_FORMAT)
-    merge_shares = _shared_container(transcriber, merge_formats, "container")
-    for res in video_res:
-        for tier in merge_audio:
-            for chosen in merge_formats:
-                container = (os.path.splitext(video_files[res])[1].lstrip('.')
-                             if chosen == transcriber.FORMAT_ORIGINAL
-                             else transcriber.format_extension(chosen) or chosen)
-                for fmt in (chosen if merge_shares else None, chosen):
-                    output = os.path.join(dir_for("video", transcriber.VIDEO_DIR),
-                                          stem_for("video") + transcriber.quality_tag(
-                                              res, *audio_marks(tier), fmt)
-                                          + f".{container}")
-                    # The audio saved to the same folder in the same container
-                    # can have this very name: ffmpeg refused to write over its
-                    # own input, and the failed merge's cleanup deleted that
-                    # input. The format tag tells the merge apart.
-                    if not (os.path.exists(output) and any(
-                            os.path.samefile(output, audio) for audio in audio_files.values()
-                            if os.path.exists(audio))):
-                        break
-                # Taken before the audio converted after it can take it
-                output = _take_path(cfg, output, ("merge", res, tier, chosen))
-                # Every merge reads the streams as downloaded, so the scratch
-                # copies are cleared once below rather than by the first of them
-                if transcriber.combine_audio_video(video_files[res], merge_files[tier],
-                                                   output) is None:
-                    error(f"Error: the merged video was not created at {output}")
+        self.audio_path = next(iter(self.audio_files.values()), None)
 
-    _clear_video_scratch(transcriber, cfg)
+    def merge(self):
+        """Mux every video stream with every audio tier, in every container."""
+        transcriber, cfg = self.transcriber, self.cfg
+        # Two containers that write one extension would write one filename, so the
+        # format joins the name - the same rule _convert_all applies to the others
+        merge_formats = self.formats(cfg.video_format, transcriber.DEFAULT_VIDEO_FORMAT)
+        merge_shares = _shared_container(transcriber, merge_formats, "container")
+        for res in self.video_res:
+            for tier in self.merge_audio:
+                for chosen in merge_formats:
+                    container = (os.path.splitext(self.video_files[res])[1].lstrip('.')
+                                 if chosen == transcriber.FORMAT_ORIGINAL
+                                 else transcriber.format_extension(chosen) or chosen)
+                    for fmt in (chosen if merge_shares else None, chosen):
+                        output = os.path.join(
+                            self.dir_for("video", transcriber.VIDEO_DIR),
+                            self.stem_for("video") + transcriber.quality_tag(
+                                res, *self.audio_marks(tier), fmt) + f".{container}")
+                        # The audio saved to the same folder in the same container
+                        # can have this very name: ffmpeg refused to write over its
+                        # own input, and the failed merge's cleanup deleted that
+                        # input. The format tag tells the merge apart.
+                        if not (os.path.exists(output) and any(
+                                os.path.samefile(output, audio)
+                                for audio in self.audio_files.values()
+                                if os.path.exists(audio))):
+                            break
+                    # Taken before the audio converted after it can take it
+                    output = _take_path(cfg, output, ("merge", res, tier, chosen))
+                    # Every merge reads the streams as downloaded, so the scratch
+                    # copies are cleared once afterwards rather than by the first
+                    if transcriber.combine_audio_video(self.video_files[res],
+                                                       self.merge_files[tier],
+                                                       output) is None:
+                        error(f"Error: the merged video was not created at {output}")
 
-    # A list can mix a video with a local file, and DOWNLOAD_YT_TRANSCRIPT was
-    # answered for the video: this pass has no metadata to read captions out of
-    if cfg.yt_transcript_languages and not cfg.is_local_file:
-        _save_yt_transcripts(transcriber, cfg, stem_for("transcript"))
+    def speech_audio_file(self):
+        """The audio to recognise, fetched once however many languages want it."""
+        transcriber, cfg = self.transcriber, self.cfg
+        if self.speech_file is not None:
+            return self.speech_file
+        if not cfg.is_local_file:
+            if self.audio_path is None:
+                # Any audio already on disk is reused: fetching a second copy
+                # to save bandwidth would defeat the point
+                self.audio_path, _ = transcriber.download_audio_stream(
+                    cfg.info, self.audio_stem_for(self.speech_audio), is_temp=True,
+                    format_selector=transcriber.audio_format(self.speech_audio, cfg.info))
+                self.temp_audio_paths.append(self.audio_path)
+            self.speech_file = self.audio_path
+        elif transcriber.is_valid_media_file(cfg.url):
+            # Whisper reads a video container as readily as an audio one,
+            # both being an ffmpeg call to it
+            self.speech_file = cfg.url
+        else:
+            # is_local_file is only ever set after this same check passed,
+            # so getting here means the file went away mid-run
+            error(f"Error: {cfg.url} is no longer a readable media file.")
+            raise DownloadFailed(f"{cfg.url} is no longer readable")
+        return self.speech_file
 
-    if cfg.transcribe_audio:
-        speech_file = None
-
-        def speech_audio_file():
-            """The audio to recognise, fetched once however many languages want it."""
-            nonlocal speech_file, audio_path
-            if speech_file is not None:
-                return speech_file
-            if not cfg.is_local_file:
-                if audio_path is None:
-                    # Any audio already on disk is reused: fetching a second copy
-                    # to save bandwidth would defeat the point
-                    audio_path, _ = transcriber.download_audio_stream(
-                        cfg.info, audio_stem_for(speech_audio), is_temp=True,
-                        format_selector=transcriber.audio_format(speech_audio, cfg.info))
-                    temp_audio_paths.append(audio_path)
-                speech_file = audio_path
-            elif transcriber.is_valid_media_file(cfg.url):
-                # Whisper reads a video container as readily as an audio one,
-                # both being an ffmpeg call to it
-                speech_file = cfg.url
-            else:
-                # is_local_file is only ever set after this same check passed,
-                # so getting here means the file went away mid-run
-                error(f"Error: {cfg.url} is no longer a readable media file.")
-                raise DownloadFailed(f"{cfg.url} is no longer readable")
-            return speech_file
-
+    def transcribe(self):
+        """Transcribe into each language asked for, and refine and save each."""
+        transcriber, cfg = self.transcriber, self.cfg
+        if not cfg.transcribe_audio:
+            print("Skipping transcription.")
+            return
         wanted = cfg.target_languages or [cfg.target_language]
         written = set()
         for target in wanted:
@@ -5177,12 +5192,12 @@ def _run_one(transcriber, cfg):
                 model_name += ".en"
 
             transcribed_text, language = transcriber.transcribe_audio_file(
-                speech_audio_file(), model_name, target, cfg.source_language
+                self.speech_audio_file(), model_name, target, cfg.source_language
             )
 
             if not transcribed_text:
                 # Don't pay to "enhance" a failure, and don't save one as a transcript
-                transcription_failed = True
+                self.transcription_failed = True
                 print(f"No {target} transcript produced; nothing saved.")
                 continue
             # Named for the language the text is in, not the one asked for: a
@@ -5196,23 +5211,34 @@ def _run_one(transcriber, cfg):
             # Both kinds of transcript share the folder now, so Whisper's
             # reading is named for what it is even in the default language
             if not _enhance_and_save(transcriber, cfg, transcribed_text,
-                                     f"{stem_for('transcript')} [Whisper {language}]"):
+                                     f"{self.stem_for('transcript')} [Whisper {language}]"):
                 # Nothing was saved, so the audio is still needed for a retry
-                transcription_failed = True
-    else:
-        print("Skipping transcription.")
+                self.transcription_failed = True
 
-    # Re-encode the standalone files last, so the merge and the transcription
-    # both worked from the stream as downloaded rather than a second-generation
-    # copy of it
-    def convert_all(made, raw, default, kind, folder, stem_for):
+    def convert(self):
+        """Write the video-only and audio files in every format asked for."""
+        transcriber, cfg = self.transcriber, self.cfg
+        self._convert_all(
+            list(self.video_only_files.items()), cfg.video_only_format,
+            transcriber.DEFAULT_VIDEO_ONLY_CODEC, "video",
+            self.dir_for("video_only", transcriber.VIDEO_WITHOUT_AUDIO_DIR),
+            lambda res, fmt: (self.stem_for("video_only")
+                              + transcriber.quality_tag(res, fmt) + " - Video Only"))
+        self._convert_all(
+            self.saved_audio_files, cfg.audio_format, transcriber.DEFAULT_AUDIO_FORMAT,
+            "audio", self.dir_for("audio", transcriber.AUDIO_DIR),
+            lambda tier, fmt: self.stem_for("audio") + transcriber.quality_tag(
+                *self.audio_marks(tier), fmt))
+
+    def _convert_all(self, made, raw, default, kind, folder, name_for):
         """Write every deliverable in every format asked for.
 
         The download is kept until the last format has been written, and the
         format joins the filename only where it must - two codecs can share one
         container, and would otherwise share one name.
         """
-        chosen = formats(raw, default) if made else []
+        transcriber, cfg = self.transcriber, self.cfg
+        chosen = self.formats(raw, default) if made else []
         share = _shared_container(transcriber, chosen, kind)
         for quality, source in made:
             written = []
@@ -5220,7 +5246,7 @@ def _run_one(transcriber, cfg):
                 if fmt == transcriber.FORMAT_ORIGINAL:
                     written.append(source)
                     continue
-                stem = stem_for(quality, fmt if share else None)
+                stem = name_for(quality, fmt if share else None)
                 extension = _container_of(transcriber, fmt, kind)
                 # AUDIO_PATH and VIDEO_PATH one folder, one container for both:
                 # the audio was written over the merged video
@@ -5241,42 +5267,61 @@ def _run_one(transcriber, cfg):
                 except OSError as e:
                     print(f"Note: could not remove the pre-conversion file: {str(e)}")
 
-    convert_all(list(video_only_files.items()), cfg.video_only_format,
-                transcriber.DEFAULT_VIDEO_ONLY_CODEC, "video",
-                dir_for("video_only", transcriber.VIDEO_WITHOUT_AUDIO_DIR),
-                lambda res, fmt: (stem_for("video_only")
-                                  + transcriber.quality_tag(res, fmt)
-                                  + " - Video Only"))
-    convert_all(saved_audio_files, cfg.audio_format, transcriber.DEFAULT_AUDIO_FORMAT,
-                "audio", dir_for("audio", transcriber.AUDIO_DIR),
-                lambda tier, fmt: stem_for("audio") + transcriber.quality_tag(
-                    *audio_marks(tier), fmt))
+    def clear_temp_audio(self):
+        """Delete the audio fetched only to merge or to transcribe.
 
-    # The audio fetched only to merge or to transcribe, kept when transcription
-    # failed so that the retryable step does not cost a second download
-    for path in dict.fromkeys(temp_audio_paths):
-        if not os.path.exists(path):
-            continue
-        if transcription_failed:
-            print(f"Keeping downloaded audio for retry: {os.path.abspath(path)}")
-            continue
+        Kept when transcription failed, so that the retryable step does not
+        cost a second download.
+        """
+        for path in dict.fromkeys(self.temp_audio_paths):
+            if not os.path.exists(path):
+                continue
+            if self.transcription_failed:
+                print(f"Keeping downloaded audio for retry: {os.path.abspath(path)}")
+                continue
+            try:
+                os.remove(path)
+            except OSError as e:
+                # Windows can still hold the file open just after transcription
+                print(f"Note: could not delete the temp audio: {str(e)}")
+            else:
+                print(f"Deleted audio residual in {path}")
+
+        temp_audio_path = os.path.join(self.transcriber.AUDIO_DIR, self.transcriber.TEMP_DIR)
         try:
-            os.remove(path)
-        except OSError as e:
-            # Windows can still hold the file open just after transcription
-            print(f"Note: could not delete the temp audio: {str(e)}")
-        else:
-            print(f"Deleted audio residual in {path}")
+            if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
+                os.rmdir(temp_audio_path)
+        except OSError:
+            # The directory is recreated on demand, so leaving the empty one behind
+            # is not worth reporting
+            pass
 
-    temp_audio_path = os.path.join(transcriber.AUDIO_DIR, transcriber.TEMP_DIR)
-    try:
-        if os.path.exists(temp_audio_path) and not os.listdir(temp_audio_path):
-            os.rmdir(temp_audio_path)
-    except OSError:
-        # The directory is recreated on demand, so leaving the empty one behind
-        # is not worth reporting
-        pass
 
+def _run_one(transcriber, cfg):
+    """Execute one pass: download streams, transcribe, enhance, and save."""
+    if cfg.refine_sources:
+        _refine_transcripts(transcriber, cfg)
+        return
+
+    run = _Pass(transcriber, cfg)
+    if cfg.is_local_file:
+        _local_deliverables(transcriber, cfg, run.filename_base)
+    run.fetch_video()
+    run.fetch_audio()
+    run.merge()
+    _clear_video_scratch(transcriber, cfg)
+
+    # A list can mix a video with a local file, and DOWNLOAD_YT_TRANSCRIPT was
+    # answered for the video: this pass has no metadata to read captions out of
+    if cfg.yt_transcript_languages and not cfg.is_local_file:
+        _save_yt_transcripts(transcriber, cfg, run.stem_for("transcript"))
+
+    run.transcribe()
+    # Re-encode the standalone files last, so the merge and the transcription
+    # both worked from the stream as downloaded rather than a second-generation
+    # copy of it
+    run.convert()
+    run.clear_temp_audio()
     print("Tasks complete.")
 
 
