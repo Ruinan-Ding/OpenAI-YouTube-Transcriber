@@ -1,28 +1,32 @@
 """What a YouTube video offers, and fetching it: streams and captions."""
 
+from __future__ import annotations
+
 import html
 import json
 import os
 import re
 import tempfile
+from typing import Any
 
 import yt_dlp
 
-from .common import DownloadFailed, Resolution, _is_number, error
+from .base import TranscriberBase
+from .common import DownloadFailed, Info, Resolution, _is_number, error
 
 
-class YouTubeMixin:
+class YouTubeMixin(TranscriberBase):
     """What a YouTube video offers, and fetching it."""
 
     # quiet only silences progress, not errors; warnings are kept because a
     # broken extractor announces itself there and nowhere else
-    YDL_OPTS = {'quiet': True, 'noplaylist': True}
+    YDL_OPTS: dict[str, Any] = {'quiet': True, 'noplaylist': True}
 
     # yt-dlp's format selector, which does not change while the process runs.
     # Shared by every session: it holds sockets, and release_caches closes it.
-    _selector_engine = None
+    _selector_engine: Any = None
 
-    def fetch_video_info(self, url):
+    def fetch_video_info(self, url: str) -> Info:
         """Fetch video metadata with yt-dlp.
 
         yt-dlp does its own extractor and network retries, so a failure that
@@ -39,7 +43,7 @@ class YouTubeMixin:
         return info
 
     @staticmethod
-    def caption_language(info, language):
+    def caption_language(info: Info, language: str | None) -> str | None:
         """The caption track that really is `language`, or None.
 
         The author's own captions come first. YouTube also machine-translates
@@ -61,13 +65,13 @@ class YouTubeMixin:
         return loose
 
     @staticmethod
-    def caption_tracks(info):
+    def caption_tracks(info: Info) -> dict[str, str]:
         """Every caption track on offer, key -> the name YouTube gives it.
 
         The uploader's own tracks win a key from the machine ones, being the
         better text where both exist.
         """
-        tracks = {}
+        tracks: dict[str, str] = {}
         for source in ('subtitles', 'automatic_captions'):
             for key, entries in (info.get(source) or {}).items():
                 if key not in tracks and entries:
@@ -75,7 +79,7 @@ class YouTubeMixin:
         return tracks
 
     @classmethod
-    def original_caption(cls, info):
+    def original_caption(cls, info: Info) -> str | None:
         """The track in the language the video was actually spoken in, or None.
 
         YouTube marks that one `<lang>-orig` and names it "(Original)"; the
@@ -95,7 +99,7 @@ class YouTubeMixin:
             (key for key, tracks in (info.get('automatic_captions') or {}).items()
              if tracks and 'tlang=' not in (tracks[0].get('url') or '')), None)
 
-    def fetch_caption_text(self, info, key):
+    def fetch_caption_text(self, info: Info, key: str) -> str | None:
         """One named caption track as plain text, or None if it cannot be had.
 
         yt-dlp does the fetching: a track arrives as a plain file or as an HLS
@@ -131,7 +135,7 @@ class YouTubeMixin:
         return text or None
 
     @classmethod
-    def captions_to_text(cls, payload, ext):
+    def captions_to_text(cls, payload: str, ext: str) -> str:
         """A caption file's text, as prose.
 
         YouTube's rolling captions restate the line before them so a viewer can
@@ -142,7 +146,7 @@ class YouTubeMixin:
                     for event in json.loads(payload).get('events') or []]
         else:
             cues = cls.vtt_cue_lines(payload)
-        lines = []
+        lines: list[str] = []
         for cue in cues:
             cue = ' '.join(cue.split())
             if cue and (not lines or cue != lines[-1]):
@@ -150,7 +154,7 @@ class YouTubeMixin:
         return ' '.join(lines)
 
     @staticmethod
-    def vtt_cue_lines(payload):
+    def vtt_cue_lines(payload: str) -> list[str]:
         """The spoken lines of a WebVTT file, block by block.
 
         A WebVTT file is blocks between blank lines, and only a cue's payload -
@@ -159,7 +163,7 @@ class YouTubeMixin:
         speech, and '&amp;' stayed encoded. A header, NOTE, STYLE or REGION
         block has no timing line and so contributes nothing.
         """
-        lines = []
+        lines: list[str] = []
         for block in re.split(r'\n[ \t]*\n', payload.replace('\r\n', '\n').replace('\r', '\n')):
             rows = block.strip('\n').split('\n')
             timing = next((i for i, row in enumerate(rows) if '-->' in row), None)
@@ -173,14 +177,14 @@ class YouTubeMixin:
         return lines
 
     @staticmethod
-    def available_resolutions(info):
+    def available_resolutions(info: Info) -> list[str]:
         """Unique '1080p'-style resolutions offered for a video, highest first."""
         heights = {stream.get('height') for stream in info.get('formats', [])
                    if stream.get('vcodec') not in (None, 'none') and stream.get('height')}
         return [f"{height}p" for height in sorted(heights, reverse=True)]
 
     @staticmethod
-    def video_format(resolution):
+    def video_format(resolution: str) -> str:
         """Build the yt-dlp format selector for a resolution keyword or '720p'.
 
         Every branch keeps a muxed fallback, as audio_format does: a video that
@@ -201,7 +205,7 @@ class YouTubeMixin:
     AUDIO_TIERS = ('ultralow', 'low', 'medium', 'high')
 
     @staticmethod
-    def _audio_streams(info):
+    def _audio_streams(info: Info) -> list[dict[str, Any]]:
         """A video's usable audio streams: original language, no DRC.
 
         A dubbed video publishes a full set per language, so without the
@@ -223,14 +227,14 @@ class YouTubeMixin:
                                  for part in (f.get('format_note') or '').split(',')]]
 
     @classmethod
-    def _audio_tiers(cls, info):
+    def _audio_tiers(cls, info: Info) -> dict[str, float]:
         """Map each audio quality tier a video offers to its best bitrate.
 
         The tier word is matched by name, not position: format_note reads
         "medium, DRC" on a plain video but "English (US) original (default),
         medium" on a dubbed one, where a dub's note is its language.
         """
-        tiers = {}
+        tiers: dict[str, float] = {}
         for stream in cls._audio_streams(info):
             parts = [p.strip().lower()
                      for p in (stream.get('format_note') or '').split(',')]
@@ -240,13 +244,13 @@ class YouTubeMixin:
         return tiers
 
     @classmethod
-    def available_audio_qualities(cls, info):
+    def available_audio_qualities(cls, info: Info) -> list[str]:
         """Distinct audio tiers offered for a video, best first."""
         tiers = cls._audio_tiers(info)
-        return sorted(tiers, key=tiers.get, reverse=True)
+        return sorted(tiers, key=lambda tier: tiers[tier], reverse=True)
 
     @classmethod
-    def resolved_bitrate(cls, quality, info):
+    def resolved_bitrate(cls, quality: str | None, info: Info) -> float | None:
         """The bitrate of the stream a quality request actually selects.
 
         None means "no constraint" - the request was for the best available,
@@ -274,7 +278,7 @@ class YouTubeMixin:
         return tiers.get(quality)
 
     @classmethod
-    def selected_format(cls, selector, info):
+    def selected_format(cls, selector: str, info: Info) -> dict[str, Any] | None:
         """The format yt-dlp's own selector picks, without downloading it.
 
         A tier's headline bitrate is not what arrives: YouTube's medium tier
@@ -298,7 +302,7 @@ class YouTubeMixin:
             return None
 
     @classmethod
-    def selected_bitrate(cls, quality, info):
+    def selected_bitrate(cls, quality: str | None, info: Info) -> int | None:
         """The rounded bitrate a quality request actually downloads, or None.
 
         Cached on the info dict, which is one video's metadata and lives no
@@ -314,7 +318,7 @@ class YouTubeMixin:
         return cache[quality]
 
     @classmethod
-    def audio_bitrate_label(cls, quality, info):
+    def audio_bitrate_label(cls, quality: str | None, info: Info) -> str:
         """Filename label for the audio a request selects, e.g. "60k".
 
         Names the file after what is downloaded rather than what was typed, so
@@ -328,7 +332,7 @@ class YouTubeMixin:
         return f"{bitrate}k"
 
     @classmethod
-    def audio_format(cls, quality, info):
+    def audio_format(cls, quality: str | None, info: Info) -> str:
         """Build the yt-dlp audio selector for a tier name, bitrate, or keyword.
 
         Every branch keeps a bare "bestaudio" fallback: a filter that matches
@@ -340,7 +344,8 @@ class YouTubeMixin:
             return 'bestaudio/best'
         return f'bestaudio[abr<={ceiling}]/bestaudio'
 
-    def download_format(self, url, format_selector, output_dir, filename_stem, reuse=False):
+    def download_format(self, url: str, format_selector: str, output_dir: str,
+                        filename_stem: str, reuse: bool = False) -> str:
         """Download one yt-dlp format into output_dir, named after filename_stem.
 
         The extension is whatever the chosen stream actually is, not one we
@@ -384,8 +389,9 @@ class YouTubeMixin:
             raise DownloadFailed(f"no file produced in {output_dir}")
         return path
 
-    def download_audio_stream(self, info, filename_stem, is_temp=False,
-                              format_selector='bestaudio/best', keep_in=None):
+    def download_audio_stream(self, info: Info, filename_stem: str, is_temp: bool = False,
+                              format_selector: str = 'bestaudio/best',
+                              keep_in: str | None = None) -> tuple[str, str]:
         """Download an audio stream (optionally to the temp directory).
 
         The default 'bestaudio' keeps yt-dlp's preference for the

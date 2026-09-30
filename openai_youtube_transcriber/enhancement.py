@@ -1,15 +1,19 @@
 """Refining a transcript with a cloud or a local model, a chunk at a time."""
 
+from __future__ import annotations
+
 import difflib
 import importlib.util
 import inspect
 import re
 import unicodedata
+from collections.abc import Callable
 
+from .base import TranscriberBase
 from .common import AIEnhancementMode, LocalModel, Provider, error
 
 
-class EnhancementMixin:
+class EnhancementMixin(TranscriberBase):
     """Refining a transcript with a model, a chunk at a time."""
 
     # Appended to the enhancement prompt so chat models don't add "Sure! Here's..." preambles.
@@ -23,7 +27,7 @@ class EnhancementMixin:
     ANTHROPIC_MAX_OUTPUT_TOKENS = 8192
 
     @staticmethod
-    def estimate_tokens(text):
+    def estimate_tokens(text: str) -> int:
         """A token count without a tokenizer: the text's UTF-8 bytes over four.
 
         Characters over four held for English, at 4.4 a token with Qwen's
@@ -34,7 +38,7 @@ class EnhancementMixin:
         return len(text.encode('utf-8')) // 4
 
     @staticmethod
-    def rejoin(left):
+    def rejoin(left: str) -> str:
         """What goes back where text was cut after `left`: a space, or nothing
         after Chinese or Japanese, which are written without spaces between words.
 
@@ -49,13 +53,13 @@ class EnhancementMixin:
         return "" if wide and not unicodedata.name(last, "").startswith("HANGUL") else " "
 
     @staticmethod
-    def longest_missing_run(source, reply):
+    def longest_missing_run(source: str, reply: str) -> int:
         """The most words of source in a row that reply leaves out.
 
         Compared without case, accents or apostrophes, which a refinement fixes;
         a Chinese or Japanese character counts as a word.
         """
-        def words(text):
+        def words(text: str) -> list[str]:
             text = unicodedata.normalize("NFKD", text.lower().replace("'", "").replace("’", ""))
             text = "".join(c for c in text if not unicodedata.combining(c))
             return re.findall(r"[\u3040-\u30ff\u3400-\u9fff]|[^\W_]+", text)
@@ -67,7 +71,7 @@ class EnhancementMixin:
         return longest
 
     @classmethod
-    def chunk_text(cls, text, max_tokens=800):
+    def chunk_text(cls, text: str, max_tokens: int = 800) -> list[str]:
         """Split text into chunks at sentence boundaries, under max_tokens each.
 
         Chunks do not overlap. An overlap gives the model context across the
@@ -79,7 +83,8 @@ class EnhancementMixin:
         return cls.chunk_spans(text, max_tokens)[0]
 
     @classmethod
-    def chunk_spans(cls, text, max_tokens=800, count=None):
+    def chunk_spans(cls, text: str, max_tokens: int = 800,
+                    count: Callable[[str], int] | None = None) -> tuple[list[str], list[str]]:
         """(chunks, seams): chunk_text's chunks, and the exact text between each
         chunk and the next - whitespace, or nothing where a cut had to fall
         inside a word.
@@ -95,7 +100,7 @@ class EnhancementMixin:
         """
         count = count or cls.estimate_tokens
 
-        def fits(span):
+        def fits(span: str) -> bool:
             return count(span) <= max_tokens
 
         # Hindi ends a sentence with a danda and Arabic a question with its own
@@ -108,7 +113,7 @@ class EnhancementMixin:
         parts = re.split(r'((?<=[.!?।؟])(?<!^\d\.)(?<!^\d\d\.)\s+|(?<=[。！？])\s*)',
                          text, flags=re.MULTILINE)
         # (span, the whitespace after it); joined, they are the text itself
-        pieces = []
+        pieces: list[tuple[str, str]] = []
         for sentence, space in zip(parts[::2], parts[1::2] + [""]):
             if fits(sentence):
                 pieces.append((sentence, space))
@@ -119,7 +124,9 @@ class EnhancementMixin:
             for word, gap in zip(words[::2], words[1::2] + [space]):
                 pieces += cls._split_word(word, fits) + [("", gap)]
 
-        chunks, seams, current, pending = [], [], "", ""
+        chunks: list[str] = []
+        seams: list[str] = []
+        current, pending = "", ""
         for span, space in pieces:
             if not span.strip():
                 # Whitespace only: it belongs to the seam, whichever side it is
@@ -139,14 +146,14 @@ class EnhancementMixin:
         return (chunks, seams) if chunks else ([text], [])
 
     @staticmethod
-    def _split_word(word, fits):
+    def _split_word(word: str, fits: Callable[[str], bool]) -> list[tuple[str, str]]:
         """A run of text with no whitespace in it, as spans that each fit.
 
         Cut where the budget runs out, but never between a letter and the mark
         that goes with it - a Thai vowel sign, an accent - which would open the
         next chunk on a mark with nothing to sit on.
         """
-        spans = []
+        spans: list[tuple[str, str]] = []
         while word and not fits(word):
             low, high = 1, len(word)
             while low < high:
@@ -159,14 +166,16 @@ class EnhancementMixin:
             word = word[cut:]
         return spans + [(word, "")]
 
-    def _build_chat_messages(self, prompt_text, chunk):
+    def _build_chat_messages(self, prompt_text: str, chunk: str) -> list[dict[str, str]]:
         """Build the system/user message pair shared by all chat-style backends."""
         return [
             {"role": "system", "content": f"{prompt_text}\n\n{self.ENHANCEMENT_OUTPUT_DIRECTIVE}"},
             {"role": "user", "content": chunk}
         ]
 
-    def _run_chunked_enhancement(self, chunks, backend_label, call_chunk, seams=None):
+    def _run_chunked_enhancement(self, chunks: list[str], backend_label: str,
+                                 call_chunk: Callable[[str], str],
+                                 seams: list[str] | None = None) -> str:
         """Shared chunk-loop for the enhancement backends.
 
         call_chunk(chunk) returns enhanced text; a falsy return or a raised
@@ -174,9 +183,10 @@ class EnhancementMixin:
         between the chunks, which two chunks kept as they were are joined by,
         so a backend that fails throughout hands back the text it was given.
         """
-        enhanced_chunks = []
-        unchanged = []
+        enhanced_chunks: list[str] = []
+        unchanged: list[str] = []
         for i, chunk in enumerate(chunks):
+            enhanced: str | None
             try:
                 print(f"  Processing chunk {i+1}/{len(chunks)}...")
                 enhanced = call_chunk(chunk)
@@ -220,7 +230,8 @@ class EnhancementMixin:
                 merged += (self.rejoin(merged) if seam is None else seam) + reply
         return merged.strip()
 
-    def enhance_with_openai_compatible(self, text, prompt_text, api_key, provider):
+    def enhance_with_openai_compatible(self, text: str, prompt_text: str, api_key: str,
+                                       provider: Provider) -> str:
         """Enhance transcript text via an OpenAI-compatible endpoint.
 
         Covers OPENAI and OPENROUTER, plus anything else reachable by overriding the
@@ -243,7 +254,7 @@ class EnhancementMixin:
 
         print(f"Enhancing transcript with {provider.key} ({model}, {len(chunks)} chunk(s))...")
 
-        def call_chunk(chunk):
+        def call_chunk(chunk: str) -> str:
             response = client.chat.completions.create(
                 model=model,
                 messages=self._build_chat_messages(prompt_text, chunk),
@@ -263,7 +274,8 @@ class EnhancementMixin:
         print(f"{provider.key} enhancement complete.")
         return result
 
-    def enhance_with_anthropic(self, text, prompt_text, api_key, provider):
+    def enhance_with_anthropic(self, text: str, prompt_text: str, api_key: str,
+                               provider: Provider) -> str:
         """Enhance transcript text via Anthropic's Messages API. Returns `text` on failure."""
         try:
             import anthropic
@@ -282,7 +294,7 @@ class EnhancementMixin:
 
         print(f"Enhancing transcript with anthropic ({model}, {len(chunks)} chunk(s))...")
 
-        def call_chunk(chunk):
+        def call_chunk(chunk: str) -> str:
             # Size the output budget off the chunk itself, twice the estimate chunk_text
             # sized it by, so expansion-style prompts still have headroom. Characters
             # over three left a Chinese reply less room than the chunk it answers.
@@ -308,7 +320,8 @@ class EnhancementMixin:
         print("anthropic enhancement complete.")
         return result
 
-    def enhance_with_local(self, text, prompt_text, local_model, keeps="all"):
+    def enhance_with_local(self, text: str, prompt_text: str, local_model: str | LocalModel,
+                           keeps: str = "all") -> str:
         """Enhance transcript text with a local HuggingFace model. Returns `text` on failure.
 
         keeps is what a reply holds of its chunk, and so how it is checked:
@@ -401,7 +414,7 @@ class EnhancementMixin:
 
         print(f"Enhancing transcript with local model ({len(chunks)} chunk(s))...")
 
-        def call_chunk(chunk):
+        def call_chunk(chunk: str) -> str:
             # Not words: Chinese has no spaces to count them by, and a whole chunk
             # counted as one word, capping the reply at a third of the chunk
             max_new_tokens = max(self.estimate_tokens(chunk) * 2, 256)
@@ -474,8 +487,9 @@ class EnhancementMixin:
         print("Local model enhancement complete.")
         return result
 
-    def enhance_text(self, text, mode, prompt_text, api_key=None, provider=None, local_model=None,
-                     keeps="all"):
+    def enhance_text(self, text: str, mode: AIEnhancementMode | None, prompt_text: str | None,
+                     api_key: str | None = None, provider: Provider | None = None,
+                     local_model: str | LocalModel | None = None, keeps: str = "all") -> str:
         """Dispatch enhancement to the cloud or local backend.
 
         api_key/provider apply to API mode, local_model and keeps to LOCAL mode.

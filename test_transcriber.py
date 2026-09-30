@@ -3097,6 +3097,26 @@ def test_a_repeat_that_lost_its_profile_repeats_what_it_fell_back_to():
     assert session.repeat and session.profile is None
 
 
+def test_a_listed_profile_that_is_not_a_file_falls_back_to_asking():
+    """The list is every name in Profile/ that looks like a profile, and a
+    folder can. Picked, or deleted while the list was on screen, it was loaded
+    from a path that was not there, and the session ended in a TypeError."""
+
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        t.PROFILE_DIR = tmp
+        os.mkdir(os.path.join(tmp, 'profile-folder.txt'))
+        builtins.input = lambda prompt='': '1'
+        log = io.StringIO()
+        try:
+            with redirect_stdout(log):
+                chosen = profiles._select_profile(t, config.Session())
+        finally:
+            builtins.input = REAL_INPUT
+    assert isinstance(chosen, answers._Remembered), chosen
+    assert 'Profile not found: profile-folder.txt' in log.getvalue(), log.getvalue()
+
+
 def test_one_name_cannot_name_several_sources():
     """A rename is one name and a URL list is several videos.
 

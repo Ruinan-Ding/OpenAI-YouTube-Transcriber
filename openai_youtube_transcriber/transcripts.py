@@ -1,14 +1,22 @@
 """Refining and saving transcripts, and replacing a refined source."""
 
+from __future__ import annotations
+
 import os
+from typing import TYPE_CHECKING
 
 from .common import YesNo, _same_file
+from .config import SessionConfig
 from .naming import _claim_name, _path_identity, _take_path
 from .settings import _resolve_track, _several, _stem_for
 
+if TYPE_CHECKING:
+    from .transcriber import YouTubeTranscriber
 
-def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=True,
-                      source=None):
+
+def _enhance_and_save(transcriber: YouTubeTranscriber, cfg: SessionConfig, text: str, stem: str,
+                      enhance: bool = True, open_after: bool = True,
+                      source: str | None = None) -> bool:
     """Save one transcript to Transcript/, once per prompt. True if anything saved.
 
     Every prompt runs over every transcript, so two prompts on three
@@ -43,7 +51,8 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
     saved = kept = False
     # What this text was saved as, and which of those is a whole refinement -
     # the one output that says everything the source said
-    outputs, replaced_by = [], None
+    outputs: list[str] = []
+    replaced_by: str | None = None
     for prompt_text, label, tag in transcriber.tagged_prompts(cfg.prompts):
         print(f"\nEnhancing {stem} with {label} ({cfg.ai_mode.name.lower()})...")
         # ponytail: known by its filename, so a summary prompt named otherwise is
@@ -69,7 +78,7 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
         path = _take_path(cfg, os.path.join(final_dir, f"{stem}{tag}{transcriber.TXT_EXT}"),
                           ("transcript", stem, tag))
         name = os.path.basename(path)
-        in_place = bool(source) and _same_file(path, source)
+        in_place = bool(source and _same_file(path, source))
         if in_place and keeps != "words" and not cfg.keep_transcript:
             # A rename can bring an output back to the source's own name. A
             # refinement may take its place; a summary or translation written
@@ -114,7 +123,7 @@ def _enhance_and_save(transcriber, cfg, text, stem, enhance=True, open_after=Tru
     return saved
 
 
-def _holds_words(transcriber, path, text):
+def _holds_words(transcriber: YouTubeTranscriber, path: str, text: str) -> bool:
     """Whether the file at `path` says what `text` says, word for word."""
     try:
         with open(path, 'rb') as handle:
@@ -123,7 +132,8 @@ def _holds_words(transcriber, path, text):
         return False
 
 
-def _settle_source(transcriber, cfg, source, raw_path, outputs, replaced_by):
+def _settle_source(transcriber: YouTubeTranscriber, cfg: SessionConfig, source: str, raw_path: str,
+                   outputs: list[str], replaced_by: str | None) -> None:
     """Decide what becomes of a refined transcript's source, once its outputs landed.
 
     Kept nowhere else, the source goes only for a refinement, which says what
@@ -139,7 +149,8 @@ def _settle_source(transcriber, cfg, source, raw_path, outputs, replaced_by):
         print(f"Kept {os.path.basename(source)}: a summary or translation does not replace it.")
 
 
-def _retire_source(transcriber, cfg, source, raw):
+def _retire_source(transcriber: YouTubeTranscriber, cfg: SessionConfig, source: str,
+                   raw: str) -> None:
     """Drop a refined transcript from Transcript/, its text now in `raw`.
 
     Only files sitting directly in Transcript/, which is where the refinement
@@ -173,7 +184,7 @@ def _retire_source(transcriber, cfg, source, raw):
           if cfg.keep_transcript else f"Removed the unrefined {os.path.basename(source)}")
 
 
-def _refine_transcripts(transcriber, cfg):
+def _refine_transcripts(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
     """Refine transcripts already on disk. Nothing is downloaded or transcribed.
 
     _enhance_and_save already writes the untouched text to Transcript/Raw/ when
@@ -183,7 +194,7 @@ def _refine_transcripts(transcriber, cfg):
     if cfg.ai_mode is None or not cfg.prompts:
         print("No refinement backend or prompt, so there is nothing to refine.")
         return
-    for source in cfg.refine_sources:
+    for source in cfg.refine_sources or []:
         text = transcriber.read_transcript(source)
         if not text:
             continue
@@ -196,19 +207,23 @@ def _refine_transcripts(transcriber, cfg):
         _enhance_and_save(transcriber, cfg, text, stem, source=source)
 
 
-def _save_yt_transcripts(transcriber, cfg, filename_base):
+def _save_yt_transcripts(transcriber: YouTubeTranscriber, cfg: SessionConfig,
+                         filename_base: str) -> None:
     """Save YouTube's own transcripts to Transcript/.
 
     Enhancement is charged per transcript, so asking for every language YouTube
     knows enhances only the one the video was spoken in; a list the user wrote
     out is enhanced in full, because they named each one.
     """
-    original = transcriber.original_caption(cfg.info)
+    info = cfg.info
+    # A video's pass, which has its metadata from the start
+    assert info is not None
+    original = transcriber.original_caption(info)
     # The answer was settled on the first video of a list, and each video after
     # it has tracks of its own: 'all' is this one's, 'y' this one's original,
     # and a named track the same name here. Settled once, a Japanese video
     # after an English one got the English translation and never its original.
-    tracks = transcriber.caption_tracks(cfg.info)
+    tracks = transcriber.caption_tracks(info)
     if cfg.yt_transcript_all:
         keys = list(tracks)
     elif cfg.yt_transcript_raw.strip().lower() in YesNo.YES.value:
@@ -218,14 +233,14 @@ def _save_yt_transcripts(transcriber, cfg, filename_base):
                   "transcript is skipped.")
     else:
         keys = []
-        for want in cfg.yt_transcript_languages:
-            key = _resolve_track(transcriber, cfg.info, tracks, want)
+        for want in cfg.yt_transcript_languages or []:
+            key = _resolve_track(transcriber, info, tracks, want)
             if not key:
                 print(f"This video has no transcript in: {want}")
             elif key not in keys:
                 # 'en' and 'en-US' can name one track, fetched and billed once
                 keys.append(key)
-    enhancing = []
+    enhancing: list[str] = []
     if cfg.ai_mode is not None and keys:
         if not cfg.yt_transcript_all:
             enhancing = keys
@@ -239,7 +254,7 @@ def _save_yt_transcripts(transcriber, cfg, filename_base):
             print("Cannot tell which language this video was spoken in, so no "
                   "transcript is enhanced. Name a language to enhance one.")
     for key in keys:
-        text = transcriber.fetch_caption_text(cfg.info, key)
+        text = transcriber.fetch_caption_text(info, key)
         if not text:
             print(f"Nothing came back for the {key} transcript.")
             continue

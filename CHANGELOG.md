@@ -190,6 +190,16 @@ regression test.
     module that calls it, and answer the console through `builtins.input`.
     `conftest.py` restores every module in the package, and
     `YouTubeTranscriber` and its mixins.
+- **The package is type-checked.** Every function says what it takes and
+  returns, and `mypy` runs in CI and in `make lint`: strict, except for
+  values handed on from yt-dlp and Whisper, which publish no types (see
+  DEV.md's "Type Checking"). What the mixins share, and what one calls on
+  another, is declared on a `TranscriberBase` they all derive from. Nothing
+  a user sees changes, except for the one bug the checker found:
+  - Picking a listed profile that is not a file (a folder named like one,
+    or a profile deleted while the list was on screen) ended the session
+    with a `TypeError`. It is now reported as not found, and the round
+    goes on interactively.
 
 ## [1.2.0] - 2026-09-12
 

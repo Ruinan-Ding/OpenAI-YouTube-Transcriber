@@ -1,11 +1,18 @@
 """The menus and typed answers a session's settings are asked with."""
 
+from __future__ import annotations
+
 import os
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from .common import DownloadFailed, Resolution, YesNo, _is_number, error
+from .common import DownloadFailed, Info, Resolution, YesNo, _is_number, error
+
+if TYPE_CHECKING:
+    from .transcriber import YouTubeTranscriber
 
 
-def _menu_default(options, default):
+def _menu_default(options: list[str], default: str) -> str:
     """Which listed option Enter lands on, for the prompt to name: the best
     available, or the cheapest where the field asks for it. Shared, so the two
     menus cannot drift apart.
@@ -13,7 +20,8 @@ def _menu_default(options, default):
     return options[-1 if default == Resolution.LOWEST.value else 0]
 
 
-def _valid_entries(transcriber, text, resolve_one):
+def _valid_entries(transcriber: YouTubeTranscriber, text: str,
+                   resolve_one: Callable[[str], str | None]) -> list[str]:
     """Walk a list answer entry by entry, keeping what resolves.
 
     A prompt takes the same comma- or space-separated lists the matching
@@ -22,7 +30,7 @@ def _valid_entries(transcriber, text, resolve_one):
     reason and is dropped, so only an answer with nothing usable left in it
     asks again.
     """
-    values = []
+    values: list[str] = []
     for piece in transcriber.split_entries(text):
         value = resolve_one(piece)
         if value and value not in values:
@@ -30,7 +38,8 @@ def _valid_entries(transcriber, text, resolve_one):
     return values
 
 
-def _prompt_resolution_selection(transcriber, info, default=Resolution.HIGHEST.value):
+def _prompt_resolution_selection(transcriber: YouTubeTranscriber, info: Info,
+                                 default: str = Resolution.HIGHEST.value) -> str:
     """List a video's available resolutions and let the user pick one.
 
     Ends the pass if the video has no video streams; the rest of a batch of
@@ -47,7 +56,7 @@ def _prompt_resolution_selection(transcriber, info, default=Resolution.HIGHEST.v
     for i, res in enumerate(available_resolutions):
         print(f"{i+1}. {res}")
 
-    def pick(entry):
+    def pick(entry: str) -> str | None:
         """One listed resolution, by number or by name."""
         if _is_number(entry) and 1 <= int(entry) <= len(available_resolutions):
             return available_resolutions[int(entry) - 1]
@@ -71,7 +80,8 @@ def _prompt_resolution_selection(transcriber, info, default=Resolution.HIGHEST.v
             return ",".join(chosen)
 
 
-def _prompt_audio_selection(transcriber, info, default=Resolution.HIGHEST.value):
+def _prompt_audio_selection(transcriber: YouTubeTranscriber, info: Info,
+                            default: str = Resolution.HIGHEST.value) -> str:
     """List a video's available audio tiers and let the user pick one.
 
     `default` is what Enter takes: transcription wants the cheapest stream,
@@ -90,7 +100,7 @@ def _prompt_audio_selection(transcriber, info, default=Resolution.HIGHEST.value)
         bitrate = transcriber.selected_bitrate(tier, info)
         print(f"{i+1}. {tier}" + (f" ({bitrate}k)" if bitrate else ""))
 
-    def pick(entry):
+    def pick(entry: str) -> str | None:
         """One listed tier, by number or name, or a bitrate in kbps."""
         if _is_number(entry) and 1 <= int(entry) <= len(available):
             return available[int(entry) - 1]
@@ -117,13 +127,13 @@ def _prompt_audio_selection(transcriber, info, default=Resolution.HIGHEST.value)
             return ",".join(chosen)
 
 
-def _prompt_audio_resolution_input(transcriber, label):
+def _prompt_audio_resolution_input(transcriber: YouTubeTranscriber, label: str) -> str:
     """Prompt for a desired audio resolution (tier name, kbps, or fetch keyword).
 
     An empty answer returns "", which the caller resolves by showing the list
     of what the video actually offers.
     """
-    def one(entry):
+    def one(entry: str) -> str | None:
         quality = Resolution.normalize(entry)
         # A tier name is checked against the video's own list later, which
         # re-prompts if the video does not offer it
@@ -145,13 +155,13 @@ def _prompt_audio_resolution_input(transcriber, label):
             return ",".join(chosen)
 
 
-def _prompt_resolution_input(transcriber, label):
+def _prompt_resolution_input(transcriber: YouTubeTranscriber, label: str) -> str:
     """Prompt for a desired resolution (name, number, or fetch keyword).
 
     An empty answer returns "", which the caller resolves by showing the list
     of what the video actually offers.
     """
-    def one(entry):
+    def one(entry: str) -> str | None:
         resolution = Resolution.normalize(entry)
         if resolution in Resolution.values():
             return resolution
@@ -179,7 +189,8 @@ def _prompt_resolution_input(transcriber, label):
             return ",".join(chosen)
 
 
-def _prompt_format(transcriber, label, default, kind):
+def _prompt_format(transcriber: YouTubeTranscriber, label: str, default: str,
+                   kind: str) -> str:
     """Ask for an output format, listing everything this ffmpeg can write."""
     choices = transcriber.ffmpeg_formats(kind)
     print(f"\nAvailable {label} formats ({len(choices)} from ffmpeg):")
@@ -206,7 +217,7 @@ def _prompt_format(transcriber, label, default, kind):
         print("Pick a name from the list above.")
 
 
-def _writes_a_file(transcriber, name, kind):
+def _writes_a_file(transcriber: YouTubeTranscriber, name: str, kind: str) -> bool:
     """Whether a container name names something with a file extension.
 
     ffmpeg's muxer list includes sinks like "null" that write no file, and the
@@ -215,14 +226,15 @@ def _writes_a_file(transcriber, name, kind):
     return kind != 'container' or transcriber.format_extension(name) is not None
 
 
-def _format_entries(transcriber, raw, default, kind):
+def _format_entries(transcriber: YouTubeTranscriber, raw: str | None, default: str,
+                    kind: str) -> list[str]:
     """The formats a list answer asks for that this ffmpeg can actually write.
 
     Several formats, separated by commas or spaces, are several files: the
     deliverable is written in each of them. One this ffmpeg cannot write is
     named and dropped; the caller decides what an empty result means.
     """
-    def one(piece):
+    def one(piece: str) -> str | None:
         # ".mp3" is how a person writes a format, and no name ffmpeg reports
         # starts with a dot, so there is nothing for this to shadow
         piece = piece.lstrip(".")
@@ -241,7 +253,8 @@ def _format_entries(transcriber, raw, default, kind):
     return _valid_entries(transcriber, (raw or "").lower(), one)
 
 
-def _resolve_format(transcriber, raw, label, default, kind):
+def _resolve_format(transcriber: YouTubeTranscriber, raw: str, label: str, default: str,
+                    kind: str) -> str:
     """Settle one format field. Blank asks; DEFAULT and Enter mean `default`.
 
     Only an answer with nothing usable left in it asks again.
@@ -252,7 +265,7 @@ def _resolve_format(transcriber, raw, label, default, kind):
     return _prompt_format(transcriber, label, default, kind)
 
 
-def _writable_dir(transcriber, path):
+def _writable_dir(transcriber: YouTubeTranscriber, path: str) -> bool:
     """True if `path` is a directory this run can write into, saying so if not."""
     if not transcriber.ensure_directory_exists(path):
         return False
@@ -262,13 +275,13 @@ def _writable_dir(transcriber, path):
     return True
 
 
-def _prompt_rename(label):
+def _prompt_rename(label: str) -> str:
     """Ask what to call a deliverable. Enter keeps the source's own title."""
     return input(f"Rename {label}? Enter a name, or press Enter to keep the "
                  f"title: ").strip()
 
 
-def _resolve_rename(transcriber, raw, label):
+def _resolve_rename(transcriber: YouTubeTranscriber, raw: str, label: str) -> str:
     """The stem to write a deliverable under, or "" for the source's own title.
 
     A name in the field is used as it stands, so a profile carrying one still
@@ -288,7 +301,7 @@ def _resolve_rename(transcriber, raw, label):
     return transcriber.sanitize_filename(typed) if typed else ""
 
 
-def _prompt_path(transcriber, label, default_dir):
+def _prompt_path(transcriber: YouTubeTranscriber, label: str, default_dir: str) -> str:
     """Ask where to write a deliverable. Enter keeps the project's own folder."""
     while True:
         answer = os.path.expanduser(
@@ -303,7 +316,8 @@ def _prompt_path(transcriber, label, default_dir):
             return answer
 
 
-def _resolve_path(transcriber, raw, label, default_dir):
+def _resolve_path(transcriber: YouTubeTranscriber, raw: str, label: str,
+                  default_dir: str) -> str:
     """The directory to write a deliverable into, or "" for the project's own.
 
     A path in the field is used as it stands, so a profile carrying one still

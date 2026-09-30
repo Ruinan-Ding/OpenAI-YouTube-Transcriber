@@ -1,23 +1,33 @@
 """Whisper: what is said in a recording, and in which language."""
 
+from __future__ import annotations
+
 import os
 import subprocess
+from typing import TYPE_CHECKING, Any
 
 import whisper
 from langdetect import DetectorFactory, LangDetectException, detect
 
+from .base import TranscriberBase
 from .common import error
+
+if TYPE_CHECKING:
+    import numpy
+    import numpy.typing
 
 # langdetect samples at random, so a short or mixed transcript was tagged fr on
 # one run and en the next, and named differently each time
 DetectorFactory.seed = 0
 
 
-class TranscriptionMixin:
+class TranscriptionMixin(TranscriberBase):
     """Transcribing with Whisper."""
 
-    def transcribe_audio_file(self, file_path, model_name, target_language,
-                              source_language=None):
+    def transcribe_audio_file(self, file_path: str, model_name: str,
+                              target_language: str | None,
+                              source_language: str | None = None
+                              ) -> tuple[str | None, str | None]:
         """Transcribe with Whisper into target_language, the language to write.
 
         Whisper's own `language` is the language spoken, not the one to write:
@@ -83,7 +93,7 @@ class TranscriptionMixin:
             # anything else, so this is the one target that needs to know first
             spoken = cache[heard_key] = self.spoken_language(model, file_path)
 
-        def run(language, translate=False):
+        def run(language: str | None, translate: bool = False) -> dict[str, Any]:
             """One Whisper pass, once per audio however many targets want it."""
             key = (model_name, language, translate)
             if key not in cache:
@@ -153,11 +163,11 @@ class TranscriptionMixin:
         return transcribed_text, language
 
     @staticmethod
-    def language_name(code):
+    def language_name(code: str | None) -> str:
         """'fr' as 'French', for a message."""
         return whisper.tokenizer.LANGUAGES.get(code, code or "an unknown language").capitalize()
 
-    def spoken_language(self, model, file_path):
+    def spoken_language(self, model: Any, file_path: str) -> str | None:
         """The language spoken in the audio, by Whisper's own detection, or None.
 
         One 30-second window, as transcribe() itself decides by, rather than a
@@ -179,7 +189,8 @@ class TranscriptionMixin:
             return None
 
     @staticmethod
-    def load_opening(file_path, seconds=30):
+    def load_opening(file_path: str,
+                     seconds: int = 30) -> numpy.typing.NDArray[numpy.floating[Any]]:
         """The first `seconds` of a file's audio, as whisper.load_audio returns
         all of it: mono float32 at Whisper's sample rate.
 

@@ -1,10 +1,15 @@
 """What each file of a batch is called, so that no two land on one name."""
 
+from __future__ import annotations
+
 import itertools
 import os
 
+from .config import SessionConfig
 
-def _claim_name(cfg, base, identity, video_id=None):
+
+def _claim_name(cfg: SessionConfig, base: str, identity: str | None,
+                video_id: str | None = None) -> str:
     """The name one source's files are written under, its own across the batch.
 
     Two videos can share a title, two titles can clean to one name, and two
@@ -23,20 +28,20 @@ def _claim_name(cfg, base, identity, video_id=None):
     return base  # unreachable: the numbered names never run out
 
 
-def _source_identity(cfg):
+def _source_identity(cfg: SessionConfig) -> str | None:
     """What one source is, however it was written: a video by its ID, a file by
     where it really is."""
-    if cfg.is_local_file:
+    if cfg.is_local_file and cfg.url:
         return _path_identity(cfg.url)
     return (cfg.info or {}).get('id') or cfg.url
 
 
-def _path_identity(path):
+def _path_identity(path: str) -> str:
     """A file source's identity: where it really is, as the file system compares."""
     return os.path.normcase(os.path.realpath(os.path.expanduser(path)))
 
 
-def _file_key(path):
+def _file_key(path: str) -> tuple[str, str]:
     """Where a path puts its file, to tell two paths to one file apart.
 
     The folder is resolved through symlinks, and the name compared without
@@ -51,7 +56,7 @@ def _file_key(path):
 _SOURCE = "source"
 
 
-def _reserve_sources(cfg):
+def _reserve_sources(cfg: SessionConfig) -> None:
     """Hold every file source of the batch, so no pass writes over one still to come.
 
     A refinement named onto the next queued transcript, or a Whisper transcript
@@ -59,11 +64,12 @@ def _reserve_sources(cfg):
     """
     cfg.taken = {}
     for url, is_local, refine in cfg.sources or []:
-        for path in refine or ([url] if is_local else []):
+        for path in refine or ([url] if is_local and url else []):
             cfg.taken[_file_key(path)] = (_path_identity(path), _SOURCE)
 
 
-def _take_path(cfg, path, what, discriminator=None):
+def _take_path(cfg: SessionConfig, path: str, what: object,
+               discriminator: str | None = None) -> str:
     """The path one deliverable is written to: `path`, unless the batch has
     given it to another.
 
