@@ -2204,7 +2204,7 @@ def test_a_local_media_file_goes_straight_to_whisper():
     audio has to be extracted first."""
     import OpenAIYouTubeTranscriber as module
 
-    source = inspect.getsource(module._run_one)
+    source = inspect.getsource(module._run_one) + inspect.getsource(module._Pass)
     assert 'VideoFileClip' not in source, "the unreachable extraction branch is back"
     assert not hasattr(module, 'VideoFileClip'), "moviepy is imported but unused"
     # One place turns a path into a local source, and it checks it first

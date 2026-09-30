@@ -163,6 +163,14 @@ regression test.
     again, then looked for the vanished profile every round after.
   `REPEAT` is also read like every other field now, so a profile's value is
   reported when loaded and an invalid one is named before it is asked.
+- **One source's pass is a list of named steps.** `_run_one` was 380 lines of
+  nested closures sharing a dozen locals. It is now a `_Pass`, which settles
+  the source's qualities and keeps what the steps share, and `_run_one` calls
+  its steps in order: fetch the video, fetch the audio, merge, save YouTube's
+  transcripts, transcribe, convert, clear the temporary audio. Nothing a user
+  sees changes: over four YouTube passes and a local one, the old and new
+  code make the same downloads, merges, conversions and transcriptions,
+  print the same lines and write the same files.
 
 ## [1.2.0] - 2026-09-12
 
