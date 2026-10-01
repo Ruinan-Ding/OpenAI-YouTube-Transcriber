@@ -13,6 +13,7 @@ import getpass
 import html
 import importlib.util
 import inspect
+import io
 import itertools
 import json
 import os
@@ -62,6 +63,17 @@ def _is_number(text: str) -> bool:
     the number goes into yt-dlp selectors and filenames as it was typed.
     """
     return text.isascii() and text.isdigit()
+
+
+def _expand_home(path: str) -> str:
+    """`path` with a leading ~ made the home folder, in this system's separators.
+
+    expanduser keeps the '/' typed after the ~, so on Windows ~/clip.mp3 became
+    C:\\Users\\me/clip.mp3: it opened, but every message and output name built
+    from it named the file in two styles at once.
+    """
+    expanded = os.path.expanduser(path)
+    return os.path.normpath(expanded) if expanded != path else path
 
 
 # yt-dlp's description of one video, as extract_info returns it
@@ -572,7 +584,7 @@ MODEL=
         # expanded, where it was expanded to be recognised as a path and then
         # checked unexpanded. No URL or video ID begins with a tilde.
         if text.startswith('~'):
-            text = os.path.expanduser(text)
+            text = _expand_home(text)
         url = self.add_scheme_if_missing(text)
         # An existing local file wins over an ID-lookalike filename
         if self.is_youtube_video_id(url) and not os.path.exists(url):
@@ -1036,7 +1048,7 @@ MODEL=
         """
         parts = self.split_entries(text, self.is_transcript_file)
         if parts and all(self.is_transcript_file(part) for part in parts):
-            return [os.path.expanduser(part) for part in parts]
+            return [_expand_home(part) for part in parts]
         return None
 
     def named_transcripts(self, text: str | None) -> list[str] | None:
@@ -1100,7 +1112,7 @@ MODEL=
                           user_input,
                           lambda piece: self._resolve_transcript_choice(piece, found))]
             if chosen and None not in chosen:
-                return [os.path.expanduser(path) for path in cast('list[str]', chosen)]
+                return [_expand_home(path) for path in cast('list[str]', chosen)]
             print("Invalid selection. Please try again.")
 
     def read_transcript(self, path: str) -> str:
@@ -1912,7 +1924,9 @@ MODEL=
         """A caption file's text, as prose.
 
         YouTube's rolling captions restate the end of the previous cue so a
-        viewer can finish reading it; that shared text belongs only once.
+        viewer can finish reading it; that shared text belongs only once. A
+        single shared word is a restatement only when it was the whole cue
+        before: "He had" then "had enough" is speech, said twice.
         """
         if ext == '.json3':
             cues = [''.join(seg.get('utf8', '') for seg in (event.get('segs') or []))
@@ -1929,7 +1943,8 @@ MODEL=
             # 'some,' restated as 'some' is still the same text
             keys = [re.sub(r'^\W+|\W+$', '', word).casefold() for word in words]
             overlap = next((n for n in range(min(len(previous), len(keys)), 0, -1)
-                            if previous[-n:] == keys[:n]), 0)
+                            if previous[-n:] == keys[:n] and (n > 1 or len(previous) == 1)),
+                           0)
             if overlap < len(words):
                 lines.append(' '.join(words[overlap:]))
             previous = keys
@@ -3579,7 +3594,7 @@ def _profile_file(transcriber: YouTubeTranscriber, answer: str) -> tuple[str, st
     send it to Profile/. Anything else is a file in Profile/. Either may leave
     off the .txt, and the quotes a copied Windows path arrives in are dropped.
     """
-    given = os.path.expanduser(answer.strip().strip('"'))
+    given = _expand_home(answer.strip().strip('"'))
     outside = os.path.isabs(given)
     base = given if outside else os.path.join(transcriber.PROFILE_DIR, given)
     for path in (base, base + transcriber.ENV_EXT):
@@ -3647,13 +3662,14 @@ def _select_profile(transcriber: YouTubeTranscriber, session: Session) -> _Answe
         return chosen(profile_name)
 
     print(f"config.txt detected in the {transcriber.PROFILE_DIR} directory.")
-    load_dotenv(dotenv_path=config_env_path, override=True)
+    config_text = _env_text(config_env_path)
+    load_dotenv(stream=io.StringIO(config_text), override=True)
     # LOAD_PROFILE as config.txt itself says it, not as a shell or an earlier
     # profile left it in the environment - and read by dotenv, as the rest of
     # the file is (a BOM included). Split on '=' by hand, the quotes of
     # LOAD_PROFILE='profile0.txt' and the comment of "profile0.txt  # lecture"
     # became part of the name, and no profile was found.
-    load_profile_str = dotenv_values(config_env_path).get("LOAD_PROFILE")
+    load_profile_str = dotenv_values(stream=io.StringIO(config_text)).get("LOAD_PROFILE")
     if load_profile_str is not None:
         load_profile_str = load_profile_str.strip()
         os.environ["LOAD_PROFILE"] = load_profile_str
@@ -3691,6 +3707,31 @@ def _select_profile(transcriber: YouTubeTranscriber, session: Session) -> _Answe
     return chosen(profile_name)
 
 
+# KEY="value" on one line, the value holding no quote of its own: the opening,
+# the value, and the closing quote with any comment after it
+_DOUBLE_QUOTED = re.compile(
+    r'^([ \t]*(?:export[ \t]+)?[^=#\s]+[ \t]*=[ \t]*")([^"\r\n]*)("[ \t]*(?:#[^\r\n]*)?)$',
+    re.MULTILINE)
+
+
+def _env_text(path: str) -> str:
+    """A KEY=value file's text, for dotenv to read with every backslash kept.
+
+    dotenv reads \\t, \\n and the rest as escapes inside double quotes, so a
+    path pasted as Explorer's "Copy as path" gives it - "C:\\Temp\\new" - came
+    back holding a tab and a newline, "\\\\server\\share" lost a backslash, and
+    "D:\\" did not parse at all. Double quotes are how a Windows path is
+    copied, and nothing these files hold wants a control character, so each
+    backslash in a one-line double-quoted value is doubled for dotenv to read
+    back as one. The app writes no double quotes; its own single-quoted values
+    are left as they are.
+    """
+    with open(path, encoding='utf-8') as handle:
+        text = handle.read()
+    return _DOUBLE_QUOTED.sub(
+        lambda match: match[1] + match[2].replace('\\', '\\\\') + match[3], text)
+
+
 def _single_quoted(line: str) -> bool:
     """Whether one KEY=value line of a profile gives its value in single quotes."""
     text = re.sub(r'^export\s+', '', line.lstrip())
@@ -3706,13 +3747,14 @@ def _read_profile(path: str) -> dict[str, str]:
     came back naming another file. A value the app writes is single-quoted
     wherever dotenv would otherwise change it, and in single quotes it now
     means what it says, as in a shell; unquoted, ${HOME} still expands.
+    A double-quoted value keeps its backslashes (see _env_text).
     """
-    with open(path, encoding='utf-8') as handle:
-        literal = {binding.key: _single_quoted(binding.original.string)
-                   for binding in parse_stream(handle) if binding.key}
-    raw = dotenv_values(path, interpolate=False)
+    text = _env_text(path)
+    literal = {binding.key: _single_quoted(binding.original.string)
+               for binding in parse_stream(io.StringIO(text)) if binding.key}
+    raw = dotenv_values(stream=io.StringIO(text), interpolate=False)
     values = {key: raw[key] if literal.get(key) else value
-              for key, value in dotenv_values(path).items()}
+              for key, value in dotenv_values(stream=io.StringIO(text)).items()}
     return {key: value for key, value in values.items() if value is not None}
 
 
@@ -3831,7 +3873,7 @@ def _resolve_rename(transcriber: YouTubeTranscriber, raw: str, label: str) -> st
 def _prompt_path(transcriber: YouTubeTranscriber, label: str, default_dir: str) -> str:
     """Ask where to write a deliverable. Enter keeps the project's own folder."""
     while True:
-        answer = os.path.expanduser(
+        answer = _expand_home(
             input(f"Where should {label} be written? Enter an absolute path, "
                   f"or press Enter for {default_dir}: ").strip().strip('"'))
         if not answer:
@@ -3858,7 +3900,7 @@ def _resolve_path(transcriber: YouTubeTranscriber, raw: str, label: str,
         return ""
     if answer and answer.lower() not in YesNo.YES.value:
         # ~/Transcripts is absolute once expanded, as a source path already is
-        answer = os.path.expanduser(answer)
+        answer = _expand_home(answer)
         if os.path.isabs(answer) and _writable_dir(transcriber, answer):
             return answer
         error(f"Error: '{answer}' is not an absolute path this run can write to.")
