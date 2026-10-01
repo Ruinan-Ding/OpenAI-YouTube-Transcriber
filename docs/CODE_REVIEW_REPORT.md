@@ -1,5 +1,9 @@
 # Code correctness review
 
+> **Status, 1 Oct 2026: all sixteen findings are fixed**, each with a regression test, in
+> `2d92aef` (see `CHANGELOG.md`, F01-F16). The report below is unchanged, and its line numbers
+> refer to the reviewed commit, not to the code as it is now.
+
 Reviewed September 26–27, 2026, against commit `99271f5c60acaafa6af02bae8d9a439e63e1b74d`.
 
 This review found **16 correctness issues: 4 high, 11 medium, and 1 low priority**. The highest priorities involve deleting transcripts or overwriting requested outputs. Application code was not changed.
