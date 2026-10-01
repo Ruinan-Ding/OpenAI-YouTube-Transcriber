@@ -11,9 +11,7 @@ The tests still run without pytest: `python test_transcriber.py`.
 
 import builtins
 import getpass
-import importlib
 import os
-import pkgutil
 import subprocess
 import sys
 import types
@@ -23,17 +21,11 @@ import setuptools
 import whisper
 import yt_dlp
 
-import openai_youtube_transcriber
-from openai_youtube_transcriber.transcriber import YouTubeTranscriber
+import OpenAIYouTubeTranscriber
 
-# Every module of the package, each patched in its own right: a test swaps a
-# function in the module that calls it
-MODULES = tuple(importlib.import_module(f'{openai_youtube_transcriber.__name__}.{found.name}')
-                for found in pkgutil.iter_modules(openai_youtube_transcriber.__path__))
-# What the tests patch: the package's modules, YouTubeTranscriber and the
-# mixins it is made of, and the modules they stand in for
-PATCHED = (MODULES + YouTubeTranscriber.__mro__[:-1]
-           + (whisper, yt_dlp, yt_dlp.YoutubeDL, subprocess, getpass, setuptools))
+# What the tests patch: whole modules, and the classes whose methods they swap
+PATCHED = (OpenAIYouTubeTranscriber, OpenAIYouTubeTranscriber.YouTubeTranscriber,
+           whisper, yt_dlp, yt_dlp.YoutubeDL, subprocess, getpass, setuptools)
 # Modules the tests replace in sys.modules with stand-ins for the AI backends
 STAND_INS = ('openai', 'anthropic', 'transformers')
 
@@ -54,7 +46,7 @@ def _restore(owner, before):
 def restore_global_state():
     """Snapshot what the tests patch, and put it all back afterwards."""
     attributes = [(owner, dict(vars(owner))) for owner in PATCHED]
-    # The console: every module reads the builtin, so that is what is answered
+    # The console: the script reads the builtin, so that is what is answered
     real_input = builtins.input
     environment = dict(os.environ)
     modules = {name: sys.modules.get(name) for name in STAND_INS}

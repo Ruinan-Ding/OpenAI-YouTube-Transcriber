@@ -171,31 +171,11 @@ regression test.
   sees changes: over four YouTube passes and a local one, the old and new
   code make the same downloads, merges, conversions and transcriptions,
   print the same lines and write the same files.
-- **The app is a package.** The 5,400-line `OpenAIYouTubeTranscriber.py` is
-  now `openai_youtube_transcriber/`, eighteen modules of up to about 700 lines
-  each, whose imports run one way (see DEV.md's "Code Layout"). The
-  2,500-line `YouTubeTranscriber` class is composed of six mixins, one per
-  concern: inputs, files, YouTube, media, transcription and enhancement.
-  - Every definition moved unchanged. Checked by comparing each one's syntax
-    tree, all 102 top-level definitions and 148 class members, against the
-    original. The one exception is `captions_to_text`, now a classmethod, as
-    a mixin can't name the class it ends up in.
-  - `OpenAIYouTubeTranscriber.py` stays as the script that runs the app, so
-    `python OpenAIYouTubeTranscriber.py`, `python .` and
-    `import OpenAIYouTubeTranscriber` work as before. The installed
-    `openai-youtube-transcriber` command now runs
-    `openai_youtube_transcriber.cli:main`, whose name can't be mistaken for
-    the `OpenAIYouTubeTranscriber/` data folder in the working directory.
-  - The tests now import the modules they test, patch a function in the
-    module that calls it, and answer the console through `builtins.input`.
-    `conftest.py` restores every module in the package, and
-    `YouTubeTranscriber` and its mixins.
-- **The package is type-checked.** Every function says what it takes and
+- **The script is type-checked.** Every function says what it takes and
   returns, and `mypy` runs in CI and in `make lint`: strict, except for
   values handed on from yt-dlp and Whisper, which publish no types (see
-  DEV.md's "Type Checking"). What the mixins share, and what one calls on
-  another, is declared on a `TranscriberBase` they all derive from. Nothing
-  a user sees changes, except for the one bug the checker found:
+  DEV.md's "Type Checking"). Nothing a user sees changes, except for the
+  one bug the checker found:
   - Picking a listed profile that is not a file (a folder named like one,
     or a profile deleted while the list was on screen) ended the session
     with a `TypeError`. It is now reported as not found, and the round

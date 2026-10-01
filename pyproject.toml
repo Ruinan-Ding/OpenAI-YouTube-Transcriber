@@ -24,7 +24,7 @@ classifiers = [
     "Environment :: Console",
     "Topic :: Multimedia :: Video :: Conversion",
 ]
-# 3.10+ is required by the match/case in YouTubeMixin.video_format
+# 3.10+ is required by the match/case in _run_pipeline
 requires-python = ">=3.10"
 # Kept in step with OpenAIYouTubeTranscriber/requirements.txt
 dependencies = [
@@ -47,21 +47,18 @@ Changelog = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/blob/main
 Issues = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues"
 
 [project.scripts]
-openai-youtube-transcriber = "openai_youtube_transcriber.cli:main"
+openai-youtube-transcriber = "OpenAIYouTubeTranscriber:main"
 
 [tool.setuptools]
-# Named rather than discovered: OpenAIYouTubeTranscriber/ beside them is the
-# data directory, not a package. The app is openai_youtube_transcriber; the
-# script of the old name stays, for `python OpenAIYouTubeTranscriber.py` and
-# code that imports it.
+# One top-level module: OpenAIYouTubeTranscriber/ beside it is the data
+# directory, not a package, so package discovery would find nothing to install
 py-modules = ["OpenAIYouTubeTranscriber"]
-# The prompts and sample profiles it ships have to travel with it: a wheel
-# held the module alone, and an installed copy offered no prompt at all. Each
-# goes in as a package of data, which the app finds through the import
+# ...but the prompts and sample profiles it ships have to travel with it: a
+# wheel held the module alone, and an installed copy offered no prompt at all.
+# Each goes in as a package of data, which the module finds through the import
 # system; the samples are copied into the working directory's Profile/ on
 # first run, where the user's own profiles live.
-packages = ["openai_youtube_transcriber", "openai_youtube_transcriber_prompts",
-            "openai_youtube_transcriber_profiles"]
+packages = ["openai_youtube_transcriber_prompts", "openai_youtube_transcriber_profiles"]
 # Only the files named below, never whatever else a checkout holds
 include-package-data = false
 
@@ -74,8 +71,6 @@ openai_youtube_transcriber_profiles = "OpenAIYouTubeTranscriber/Profile"
 # profiles, and a wheel built there must carry none of them. config.txt, which
 # can hold an API key, is never among them.
 [tool.setuptools.package-data]
-# PEP 561: the annotations are the package's types, for code that imports it
-openai_youtube_transcriber = ["py.typed"]
 openai_youtube_transcriber_prompts = [
     "prompt-refinement.txt", "prompt0-translator.txt",
     "prompt1-summarizer.txt", "prompt2-explainer.txt",
@@ -88,7 +83,7 @@ openai_youtube_transcriber_profiles = [
 [tool.mypy]
 # The oldest Python the package runs on, so that a later one's feature fails here
 python_version = "3.10"
-files = ["openai_youtube_transcriber", "OpenAIYouTubeTranscriber.py"]
+files = ["OpenAIYouTubeTranscriber.py"]
 strict = true
 # yt-dlp and Whisper publish no types, so everything they return is Any. A
 # function handing it on says what it is, and that is taken as it stands
