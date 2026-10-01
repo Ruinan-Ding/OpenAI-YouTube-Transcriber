@@ -1925,22 +1925,14 @@ MODEL=
             words = cue.split()
             if not words:
                 continue
-            if previous:
-                for overlap in range(min(len(previous), len(words)), 0, -1):
-                    previous_end = [
-                        re.sub(r'^\W+|\W+$', '', word).casefold()
-                        for word in previous[-overlap:]
-                    ]
-                    current_start = [
-                        re.sub(r'^\W+|\W+$', '', word).casefold()
-                        for word in words[:overlap]
-                    ]
-                    if previous_end == current_start:
-                        words = words[overlap:]
-                        break
-            previous = cue.split()
-            if words:
-                lines.append(' '.join(words))
+            # Compared without case or the punctuation at either end, so that
+            # 'some,' restated as 'some' is still the same text
+            keys = [re.sub(r'^\W+|\W+$', '', word).casefold() for word in words]
+            overlap = next((n for n in range(min(len(previous), len(keys)), 0, -1)
+                            if previous[-n:] == keys[:n]), 0)
+            if overlap < len(words):
+                lines.append(' '.join(words[overlap:]))
+            previous = keys
         return ' '.join(lines)
 
     @staticmethod
@@ -2361,6 +2353,10 @@ MODEL=
         audio arrives with it. "Video Only" has to mean that however the stream
         was served, and a copy keeps FORMAT_ORIGINAL's promise of no second
         generation.
+
+        Returns the path, or None when the audio could not be looked at or
+        removed. The download is deleted then: kept, it would be a file with
+        audio published under a name that says it has none.
         """
         try:
             audio_codec = self.stream_codec(path, 'audio', strict=True)

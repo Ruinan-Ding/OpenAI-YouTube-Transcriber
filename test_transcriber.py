@@ -952,26 +952,12 @@ def test_a_whisper_model_that_will_not_load_falls_back_to_base():
     assert asked == ['large-v3', 'base'] and text.startswith('the fallback'), (asked, text)
 
 
-def test_a_whisper_ffmpeg_decode_failure_is_a_transcription_failure():
-    """A corrupt or audio-less media file must not abort the batch on FFmpeg's
-    CalledProcessError."""
-
-    class Model:
-        def transcribe(self, path, language=None):
-            raise subprocess.CalledProcessError(1, ['ffmpeg', '-i', path],
-                                                stderr='No audio stream found')
-
-    with tempfile.TemporaryDirectory() as tmp:
-        audio = os.path.join(tmp, 'clip.mp3')
-        io.open(audio, 'wb').close()
-        with patch.object(whisper, 'load_model', return_value=Model()):
-            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                result = YouTubeTranscriber().transcribe_audio_file(
-                    audio, 'base', 'fr', 'en')
-    assert result == (None, 'en'), result
-
-
 def test_transcription_failures_cover_supported_exception_types():
+    """A file Whisper cannot decode fails its own transcription, not the batch.
+
+    Whisper reports ffmpeg's failure as a RuntimeError; ffmpeg's own
+    CalledProcessError is caught as well, should one ever arrive unwrapped.
+    """
     failures = (
         RuntimeError('decoder failed'),
         ValueError('invalid audio'),
@@ -994,6 +980,8 @@ def test_transcription_failures_cover_supported_exception_types():
 
 
 def test_whisper_transcription_flow_covers_language_and_model_combinations():
+    """Each target reaches Whisper as the right pass on the right weights, and
+    the transcript is named for the language it came out in."""
     cases = (
         # Target, source, English-only weights, Whisper language, options,
         # model selected, and the language written into the transcript name.
@@ -1227,21 +1215,30 @@ def test_a_video_only_file_has_no_audio_however_the_stream_was_served():
         assert t.strip_audio(muxed) == muxed
 
 
+def _video_only_pass(t, folder):
+    """A pass set up just far enough for fetch_video to fetch one 144p
+    video-only stream, as 'served', into `folder`."""
+    video_pass = object.__new__(module._Pass)
+    video_pass.transcriber = t
+    video_pass.cfg = SimpleNamespace(download_video=False, video_only=True,
+                                     video_scratch=None, url='https://youtu.be/example')
+    video_pass.only_res = ['144p']
+    video_pass.video_res = []
+    video_pass.video_only_files = {}
+    video_pass.video_files = {}
+    video_pass.dir_for = lambda *_args: folder
+    video_pass.stem_for = lambda *_args: 'served'
+    return video_pass
+
+
 def test_failed_audio_stripping_is_not_reported_as_video_only():
+    """A muxed download whose audio could not be removed stayed under the
+    "Video Only" name and was reported as downloaded."""
     t = YouTubeTranscriber()
     with tempfile.TemporaryDirectory() as tmp:
         muxed = os.path.join(tmp, 'served.mp4')
         io.open(muxed, 'wb').close()
-        video_pass = object.__new__(module._Pass)
-        video_pass.transcriber = t
-        video_pass.cfg = SimpleNamespace(download_video=False, video_only=True,
-                                         video_scratch=None, url='https://youtu.be/example')
-        video_pass.only_res = ['144p']
-        video_pass.video_res = []
-        video_pass.video_only_files = {}
-        video_pass.video_files = {}
-        video_pass.dir_for = lambda *_args: tmp
-        video_pass.stem_for = lambda *_args: 'served'
+        video_pass = _video_only_pass(t, tmp)
 
         output = io.StringIO()
         with patch.object(t, 'download_format', return_value=muxed):
@@ -1258,6 +1255,8 @@ def test_failed_audio_stripping_is_not_reported_as_video_only():
 
 
 def test_audio_stripping_handles_all_ffmpeg_failure_shapes():
+    """However ffmpeg fails - it raises, writes nothing, or its copy cannot
+    take the download's place - neither the download nor the copy is left."""
     failures = (
         ('nonzero exit', 'raise', subprocess.CalledProcessError(
             1, ['ffmpeg'], stderr='decode failed')),
@@ -1296,19 +1295,9 @@ def test_audio_stripping_handles_all_ffmpeg_failure_shapes():
             assert not os.path.exists(silent), label
 
 
-def test_stripping_a_file_without_audio_leaves_it_untouched():
-    t = YouTubeTranscriber()
-    with tempfile.TemporaryDirectory() as tmp:
-        media = os.path.join(tmp, 'video-only.mp4')
-        io.open(media, 'wb').write(b'video')
-        with patch.object(t, 'stream_codec', return_value=None):
-            with patch.object(module.subprocess, 'run') as ffmpeg:
-                assert t.strip_audio(media) == media
-        ffmpeg.assert_not_called()
-        assert io.open(media, 'rb').read() == b'video'
-
-
 def test_audio_probe_failures_never_publish_a_video_only_file():
+    """An ffprobe that could not run read as "no audio", so the muxed download
+    was published as video only without its audio ever being looked at."""
     failures = (
         subprocess.CalledProcessError(1, ['ffprobe'], stderr='invalid container'),
         OSError('ffprobe not found'),
@@ -1319,17 +1308,7 @@ def test_audio_probe_failures_never_publish_a_video_only_file():
         with tempfile.TemporaryDirectory() as tmp:
             media = os.path.join(tmp, 'served.mp4')
             io.open(media, 'wb').write(b'muxed media')
-            video_pass = object.__new__(module._Pass)
-            video_pass.transcriber = t
-            video_pass.cfg = SimpleNamespace(
-                download_video=False, video_only=True, video_scratch=None,
-                url='https://youtu.be/example')
-            video_pass.only_res = ['144p']
-            video_pass.video_res = []
-            video_pass.video_only_files = {}
-            video_pass.video_files = {}
-            video_pass.dir_for = lambda *_args: tmp
-            video_pass.stem_for = lambda *_args: 'served'
+            video_pass = _video_only_pass(t, tmp)
 
             def failed_probe(command, failure=failure, **_kwargs):
                 assert command[0] == 'ffprobe', command
@@ -1343,25 +1322,6 @@ def test_audio_probe_failures_never_publish_a_video_only_file():
             assert not video_pass.video_only_files, (type(failure).__name__, output.getvalue())
             assert 'Video downloaded to' not in output.getvalue()
             assert not os.path.exists(media)
-
-
-def test_successful_audio_stripping_replaces_the_muxed_file():
-    t = YouTubeTranscriber()
-    with tempfile.TemporaryDirectory() as tmp:
-        media = os.path.join(tmp, 'served.mp4')
-        silent = os.path.join(tmp, 'served.silent.mp4')
-        io.open(media, 'wb').write(b'muxed media')
-
-        def write_silent(command, **_kwargs):
-            with open(command[-1], 'wb') as output:
-                output.write(b'video only')
-
-        with patch.object(t, 'stream_codec', return_value='aac'):
-            with patch.object(module.subprocess, 'run', side_effect=write_silent):
-                result = t.strip_audio(media)
-        assert result == media
-        assert io.open(media, 'rb').read() == b'video only'
-        assert not os.path.exists(silent)
 
 
 def test_conversion_copies_what_it_can_and_leaves_nothing_behind():
@@ -1714,12 +1674,6 @@ def test_youtube_publishes_a_transcript_only_for_the_language_it_was_spoken_in()
     ])
     assert t.captions_to_text(vtt, '.vtt') == (
         'all right so here we are in front of the elephants')
-    rolling_vtt = '\n'.join([
-        'WEBVTT', '',
-        '00:00:00.000 --> 00:00:01.000', 'we have some', '',
-        '00:00:01.000 --> 00:00:02.000', 'we have some text', '',
-    ])
-    assert t.captions_to_text(rolling_vtt, '.vtt') == 'we have some text'
 
     # Exercise cue-boundary overlaps of different lengths and ensure unrelated
     # repeated words are not treated as rolling-cue duplication.
@@ -2509,6 +2463,8 @@ def test_a_local_media_source_runs_through_transcription_and_saves_transcript():
 
 
 def test_a_failed_local_transcription_does_not_abort_later_sources():
+    """A source Whisper cannot decode saves nothing, and the batch goes on to
+    transcribe the next one."""
     t = YouTubeTranscriber()
     calls = []
 

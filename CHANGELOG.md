@@ -108,6 +108,15 @@ regression test.
   of an answer waiting after it was eaten, so a path piped to a profile's
   next round arrived without its leading `/`. ffmpeg and ffprobe now get no
   stdin, as the ffmpeg runs of yt-dlp and Whisper already did.
+- **"Video Only" never names a file that still has its audio.** When the audio
+  of a muxed download could not be removed - ffprobe or ffmpeg failed, ffmpeg
+  wrote nothing, or its copy could not take the download's place - the file
+  was kept as served and reported as downloaded. It is now deleted and the
+  failure reported.
+- **Rolling captions are read once.** YouTube's captions restate the end of
+  the cue before so a viewer can finish reading it; that text is now dropped
+  wherever a cue begins with it, not only when a whole line repeats, and a
+  WebVTT cue's lines are read as one.
 
 ### Development
 

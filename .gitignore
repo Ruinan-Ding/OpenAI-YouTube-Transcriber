@@ -35,6 +35,8 @@ env.bak/
 *~
 .DS_Store
 Thumbs.db
+# Claude Code's per-machine permissions
+.claude/settings.local.json
 
 # Project-specific
 # Media files (large, generated)
