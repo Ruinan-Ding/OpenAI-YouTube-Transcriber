@@ -21,10 +21,10 @@ Bug fixes, features, and documentation improvements are all welcome.
 
 **Code style**: Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) as a general guide. Use clear variable names, keep lines under 100 characters, and add a docstring to any new function.
 
-**Test before submitting**: Run `make test` (or `python test_transcriber.py`) and `make lint`;
-both must pass. The suite runs whole download-and-convert pipelines through the real ffmpeg
-(those cases skip themselves if ffmpeg is missing), but it fakes the two network calls, so
-also exercise your changes manually:
+**Test before submitting**: Run `make test` (or `python test_transcriber.py`, which needs
+no pytest) and `make lint`; both must pass. The suite runs whole download-and-convert
+pipelines through the real ffmpeg (those cases are reported as skipped if ffmpeg is missing),
+but it fakes the network calls, so also exercise your changes manually:
 - Different YouTube URLs
 - Local files
 - Downloading as well as transcribe-only

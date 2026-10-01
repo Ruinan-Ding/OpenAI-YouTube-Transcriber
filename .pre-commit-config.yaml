@@ -1,20 +1,22 @@
 # black is deliberately not enabled: it wants 88 columns and double quotes, while
 # this codebase is 100 columns and single quotes (see .flake8). Turning it on
 # reformats ~450 lines to no benefit. flake8 below is the enforced standard.
+# The revs match the latest releases CI installs unpinned from requirements-dev.txt.
 repos:
   - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+    rev: 9.0.2
     hooks:
       - id: isort
 
-  - repo: https://github.com/pre-commit/mirrors-flake8
-    rev: 6.1.0
+  # From flake8's own repository: pre-commit/mirrors-flake8 is archived
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.4.1
     hooks:
       - id: flake8
         additional_dependencies: ["flake8-bugbear"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer

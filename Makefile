@@ -12,12 +12,13 @@ dev:
 	pip install -r requirements-dev.txt
 
 lint:
-	@echo "Running flake8..."
-	pip install --no-input flake8
+	@echo "Running flake8, isort and mypy, as CI does..."
 	flake8
+	isort --check-only .
+	mypy
 
 test:
-	python test_transcriber.py
+	python -m pytest -ra test_transcriber.py
 
 run:
 	python OpenAIYouTubeTranscriber.py
@@ -30,8 +31,8 @@ help:
 	@echo "  install  - Install package in editable mode"
 	@echo "  deps     - Install runtime dependencies from requirements.txt"
 	@echo "  dev      - Install development dependencies from requirements-dev.txt"
-	@echo "  lint     - Run flake8 linting (installs flake8 if missing)"
-	@echo "  test     - Run the self-check suite"
+	@echo "  lint     - Run flake8, isort and mypy as CI does (needs make dev)"
+	@echo "  test     - Run the test suite under pytest (needs make dev)"
 	@echo "  run      - Run the main script"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  help     - Show this message"

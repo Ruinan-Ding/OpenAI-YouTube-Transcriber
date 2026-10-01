@@ -1,0 +1,110 @@
+[build-system]
+# 77 is the first to read the SPDX license string below
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openai-youtube-transcriber"
+version = "1.2.0"
+description = "Extract and transcribe YouTube audio using OpenAI Whisper"
+readme = "README.md"
+authors = [{ name = "Ruinan Ding" }]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+keywords = ["youtube", "whisper", "transcription", "subtitles", "yt-dlp", "ffmpeg"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Office/Business",
+    "Environment :: Console",
+    "Topic :: Multimedia :: Video :: Conversion",
+]
+# 3.10+ is required by the match/case in YouTubeMixin.video_format
+requires-python = ">=3.10"
+# Kept in step with OpenAIYouTubeTranscriber/requirements.txt
+dependencies = [
+    "langdetect",
+    "yt-dlp",
+    # 1.2.3 is the first to read back a quoted value ending in a backslash,
+    # which a saved profile can hold (a Windows folder such as 'D:\Lectures #2\')
+    "python-dotenv>=1.2.3",
+    "openai-whisper @ git+https://github.com/openai/whisper.git",
+]
+
+[project.optional-dependencies]
+# AI transcript enhancement. The app runs without them, and says what to
+# install when a backend that needs one is picked.
+ai = ["openai", "anthropic", "transformers", "torch"]
+
+[project.urls]
+Homepage = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber"
+Changelog = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/issues"
+
+[project.scripts]
+openai-youtube-transcriber = "openai_youtube_transcriber.cli:main"
+
+[tool.setuptools]
+# Named rather than discovered: OpenAIYouTubeTranscriber/ beside them is the
+# data directory, not a package. The app is openai_youtube_transcriber; the
+# script of the old name stays, for `python OpenAIYouTubeTranscriber.py` and
+# code that imports it.
+py-modules = ["OpenAIYouTubeTranscriber"]
+# The prompts and sample profiles it ships have to travel with it: a wheel
+# held the module alone, and an installed copy offered no prompt at all. Each
+# goes in as a package of data, which the app finds through the import
+# system; the samples are copied into the working directory's Profile/ on
+# first run, where the user's own profiles live.
+packages = ["openai_youtube_transcriber", "openai_youtube_transcriber_prompts",
+            "openai_youtube_transcriber_profiles"]
+# Only the files named below, never whatever else a checkout holds
+include-package-data = false
+
+[tool.setuptools.package-dir]
+openai_youtube_transcriber_prompts = "OpenAIYouTubeTranscriber/Prompt"
+openai_youtube_transcriber_profiles = "OpenAIYouTubeTranscriber/Profile"
+
+# What the project ships, named one by one rather than globbed: Prompt/ and
+# Profile/ are also where a checkout's user saves their own prompts and
+# profiles, and a wheel built there must carry none of them. config.txt, which
+# can hold an API key, is never among them.
+[tool.setuptools.package-data]
+# PEP 561: the annotations are the package's types, for code that imports it
+openai_youtube_transcriber = ["py.typed"]
+openai_youtube_transcriber_prompts = [
+    "prompt-refinement.txt", "prompt0-translator.txt",
+    "prompt1-summarizer.txt", "prompt2-explainer.txt",
+]
+openai_youtube_transcriber_profiles = [
+    "profile-transcriber.txt", "profile0-translator.txt",
+    "profile1-video_downloader.txt", "profile2-audio_downloader.txt",
+]
+
+[tool.mypy]
+# The oldest Python the package runs on, so that a later one's feature fails here
+python_version = "3.10"
+files = ["openai_youtube_transcriber", "OpenAIYouTubeTranscriber.py"]
+strict = true
+# yt-dlp and Whisper publish no types, so everything they return is Any. A
+# function handing it on says what it is, and that is taken as it stands
+# rather than cast at every return.
+warn_return_any = false
+warn_unreachable = true
+enable_error_code = ["truthy-bool", "redundant-expr", "ignore-without-code"]
+
+[[tool.mypy.overrides]]
+# Published without type information
+module = ["whisper", "yt_dlp", "langdetect"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The AI backends, which only the ai extra installs. Reading the typed ones
+# would be most of the check's time, for calls the app makes a handful of.
+module = ["openai", "anthropic", "transformers", "torch", "huggingface_hub"]
+ignore_missing_imports = true
+follow_imports = "skip"

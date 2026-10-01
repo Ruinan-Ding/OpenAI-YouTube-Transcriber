@@ -109,6 +109,98 @@ regression test.
   next round arrived without its leading `/`. ffmpeg and ffprobe now get no
   stdin, as the ffmpeg runs of yt-dlp and Whisper already did.
 
+### Development
+
+- **`pyproject.toml` replaces `setup.py`.** Same package, module, data files
+  and console command; the optional AI backends are now the `ai` extra
+  (`pip install ".[ai]"`).
+- **The tests run under pytest** (`make test`, and in CI with `-ra`), and
+  still without it (`python test_transcriber.py`). `conftest.py` restores
+  whatever a test patched after every test, so a failure cannot leak into the
+  next; the plain runner now runs every test and lists each failure instead of
+  stopping at the first; a test that cannot run here (no ffmpeg, no symlinks)
+  is reported as skipped instead of passing silently.
+- **CI and hooks are current**: `actions/checkout@v7` and
+  `actions/setup-python@v7` (Node 24; the v4/v5 majors ran on the deprecated
+  Node 20), isort 9.0.2, flake8 7.4.1 from its own repository (the mirror
+  was archived) and pre-commit-hooks v6.0.0. `make lint` runs isort as well
+  as flake8, as CI does. Ten files gained the final newline the repository's
+  own end-of-file hook asks for.
+- **Each setting is described once.** A profile and an interactive session
+  (with the answers a "Run again?" round remembers) used to be settled by two
+  functions of about 150 lines each, which had drifted apart: a field could
+  mean one thing typed and another in a profile. `_configure` now settles
+  every setting for both. A `SETTINGS` table says what a profile that leaves a
+  field out, or blank, means, and two small sources (`_Profile`, `_Remembered`)
+  say where the answers are kept. A test holds the two to the same result for
+  the same answers. What a user sees changes only at the edges:
+  - `s` and `skip` decline a stored yes/no, as they already did for
+    `AI_REFINEMENT` and the placement fields. `DOWNLOAD_VIDEO=skip` was called
+    invalid and asked.
+  - A pre-1.2 `NO_AUDIO_IN_VIDEO` that is neither yes nor no is asked about,
+    as any yes/no field is, instead of being taken as no.
+  - A profile's format fields are reported when loaded, like its other fields.
+  - "Invalid value" names the profile it came from, not ".env".
+  - "Loaded URL: … transcript(s) to refine" appears only when the profile's
+    own URL names them, not for transcripts typed at the prompt.
+- **A session's state is no longer kept in the process environment.** What
+  one round hands the next ("Run again?", the profile to reload, an
+  interactive round's answers) was a set of `_REPEAT_*` and `LAST_*`
+  variables, and a loaded profile was copied field by field into the
+  environment. Now it's a `Session` object that `main()` owns: `_Profile`
+  keeps the profile's fields, and `_Remembered` both writes and reads what a
+  round remembers. Only configuration still goes to the environment, where
+  the backends read it: `config.txt`, and a profile's own `AI_PROVIDER`,
+  `MODEL`, `API_KEY` or other non-field lines, which override `config.txt` as
+  before. This fixes three problems, each with a test:
+  - A variable set in the shell answered for a profile. `VIDEO_ONLY=y` in
+    the shell turned on a video-only download for a profile that left the
+    field out, and a shell's `URL` stood in for a profile naming none.
+  - A shell's `LAST_*` variable answered a first interactive round, and a
+    shell's `_REPEAT_INVOCATION` made the first round a repeat, which skipped
+    `config.txt`'s profile.
+  - A repeat whose profile was deleted between rounds fell back to choosing
+    again, then looked for the vanished profile every round after.
+  `REPEAT` is also read like every other field now, so a profile's value is
+  reported when loaded and an invalid one is named before it is asked.
+- **One source's pass is a list of named steps.** `_run_one` was 380 lines of
+  nested closures sharing a dozen locals. It is now a `_Pass`, which settles
+  the source's qualities and keeps what the steps share, and `_run_one` calls
+  its steps in order: fetch the video, fetch the audio, merge, save YouTube's
+  transcripts, transcribe, convert, clear the temporary audio. Nothing a user
+  sees changes: over four YouTube passes and a local one, the old and new
+  code make the same downloads, merges, conversions and transcriptions,
+  print the same lines and write the same files.
+- **The app is a package.** The 5,400-line `OpenAIYouTubeTranscriber.py` is
+  now `openai_youtube_transcriber/`, eighteen modules of up to about 700 lines
+  each, whose imports run one way (see DEV.md's "Code Layout"). The
+  2,500-line `YouTubeTranscriber` class is composed of six mixins, one per
+  concern: inputs, files, YouTube, media, transcription and enhancement.
+  - Every definition moved unchanged. Checked by comparing each one's syntax
+    tree, all 102 top-level definitions and 148 class members, against the
+    original. The one exception is `captions_to_text`, now a classmethod, as
+    a mixin can't name the class it ends up in.
+  - `OpenAIYouTubeTranscriber.py` stays as the script that runs the app, so
+    `python OpenAIYouTubeTranscriber.py`, `python .` and
+    `import OpenAIYouTubeTranscriber` work as before. The installed
+    `openai-youtube-transcriber` command now runs
+    `openai_youtube_transcriber.cli:main`, whose name can't be mistaken for
+    the `OpenAIYouTubeTranscriber/` data folder in the working directory.
+  - The tests now import the modules they test, patch a function in the
+    module that calls it, and answer the console through `builtins.input`.
+    `conftest.py` restores every module in the package, and
+    `YouTubeTranscriber` and its mixins.
+- **The package is type-checked.** Every function says what it takes and
+  returns, and `mypy` runs in CI and in `make lint`: strict, except for
+  values handed on from yt-dlp and Whisper, which publish no types (see
+  DEV.md's "Type Checking"). What the mixins share, and what one calls on
+  another, is declared on a `TranscriberBase` they all derive from. Nothing
+  a user sees changes, except for the one bug the checker found:
+  - Picking a listed profile that is not a file (a folder named like one,
+    or a profile deleted while the list was on screen) ended the session
+    with a `TypeError`. It is now reported as not found, and the round
+    goes on interactively.
+
 ## [1.2.0] - 2026-09-12
 
 ### Added
