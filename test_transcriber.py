@@ -16,6 +16,8 @@ import sys
 import tempfile
 import unicodedata
 from contextlib import redirect_stderr, redirect_stdout
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import whisper
 from dotenv import dotenv_values
@@ -950,6 +952,91 @@ def test_a_whisper_model_that_will_not_load_falls_back_to_base():
     assert asked == ['large-v3', 'base'] and text.startswith('the fallback'), (asked, text)
 
 
+def test_a_whisper_ffmpeg_decode_failure_is_a_transcription_failure():
+    """A corrupt or audio-less media file must not abort the batch on FFmpeg's
+    CalledProcessError."""
+
+    class Model:
+        def transcribe(self, path, language=None):
+            raise subprocess.CalledProcessError(1, ['ffmpeg', '-i', path],
+                                                stderr='No audio stream found')
+
+    with tempfile.TemporaryDirectory() as tmp:
+        audio = os.path.join(tmp, 'clip.mp3')
+        io.open(audio, 'wb').close()
+        with patch.object(whisper, 'load_model', return_value=Model()):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = YouTubeTranscriber().transcribe_audio_file(
+                    audio, 'base', 'fr', 'en')
+    assert result == (None, 'en'), result
+
+
+def test_transcription_failures_cover_supported_exception_types():
+    failures = (
+        RuntimeError('decoder failed'),
+        ValueError('invalid audio'),
+        subprocess.CalledProcessError(1, ['ffmpeg'], stderr='no audio stream'),
+    )
+
+    for failure in failures:
+        class Model:
+            def transcribe(self, path, language=None, failure=failure):
+                raise failure
+
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = os.path.join(tmp, 'clip.mp3')
+            io.open(audio, 'wb').close()
+            with patch.object(whisper, 'load_model', return_value=Model()):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    result = YouTubeTranscriber().transcribe_audio_file(
+                        audio, 'base', 'fr', 'en')
+        assert result == (None, 'en'), (type(failure).__name__, result)
+
+
+def test_whisper_transcription_flow_covers_language_and_model_combinations():
+    cases = (
+        # Target, source, English-only weights, Whisper language, options,
+        # model selected, and the language written into the transcript name.
+        ('auto', None, False, None, {}, 'base', 'fr'),
+        ('fr', 'ja', False, 'ja', {}, 'base', 'ja'),
+        ('en', 'ja', False, 'ja', {'task': 'translate'}, 'base', 'en'),
+        ('en', 'en', True, 'en', {}, 'base.en', 'en'),
+    )
+
+    for (target, source_language, use_en_model, whisper_language, options,
+         model_name, written) in cases:
+        t = YouTubeTranscriber()
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = os.path.join(tmp, 'lecture.mp4')
+            io.open(source_path, 'wb').close()
+            t.TRANSCRIPT_DIR = os.path.join(tmp, 'Transcript')
+            t.RAW_TRANSCRIPT_DIR = os.path.join(t.TRANSCRIPT_DIR, 'Raw')
+            t.startfile = lambda _path: None
+
+            class Model:
+                def transcribe(self, path, language=None, source_path=source_path,
+                               whisper_language=whisper_language, target=target,
+                               options=options, written=written, **actual_options):
+                    assert path == source_path
+                    assert language == whisper_language, (target, language)
+                    assert actual_options == options, (target, actual_options)
+                    return {'text': 'recognized words', 'language': written}
+
+            cfg = module.SessionConfig(
+                url=source_path, is_local_file=True, sources=[(source_path, True, None)],
+                used_fields={}, transcribe_audio=True, target_language=target,
+                target_languages=[target], source_language=source_language,
+                use_en_model=use_en_model)
+            with patch.object(t, 'is_valid_media_file', return_value=True):
+                with patch.object(whisper, 'load_model', return_value=Model()) as load_model:
+                    with redirect_stdout(io.StringIO()):
+                        module._run_pipeline(t, cfg)
+
+            transcript = os.path.join(t.TRANSCRIPT_DIR, f'lecture [Whisper {written}].txt')
+            assert io.open(transcript, encoding='utf-8').read() == 'recognized words'
+            load_model.assert_called_once_with(model_name)
+
+
 def test_a_refined_transcript_is_not_deleted_before_its_raw_copy_is_saved():
     """A refine-only run retires the source from Transcript/ once its text is in
     Raw/. A Raw/ save that failed still let the refinement report success, and
@@ -1138,6 +1225,143 @@ def test_a_video_only_file_has_no_audio_however_the_stream_was_served():
         assert not os.path.exists(os.path.join(tmp, 'served.silent.mp4'))
         # Nothing to strip is not a failure, and costs no second ffmpeg run
         assert t.strip_audio(muxed) == muxed
+
+
+def test_failed_audio_stripping_is_not_reported_as_video_only():
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        muxed = os.path.join(tmp, 'served.mp4')
+        io.open(muxed, 'wb').close()
+        video_pass = object.__new__(module._Pass)
+        video_pass.transcriber = t
+        video_pass.cfg = SimpleNamespace(download_video=False, video_only=True,
+                                         video_scratch=None, url='https://youtu.be/example')
+        video_pass.only_res = ['144p']
+        video_pass.video_res = []
+        video_pass.video_only_files = {}
+        video_pass.video_files = {}
+        video_pass.dir_for = lambda *_args: tmp
+        video_pass.stem_for = lambda *_args: 'served'
+
+        output = io.StringIO()
+        with patch.object(t, 'download_format', return_value=muxed):
+            with patch.object(t, 'stream_codec', return_value='aac'):
+                with patch.object(module.subprocess, 'run',
+                                  side_effect=subprocess.CalledProcessError(
+                                      1, ['ffmpeg'], stderr='disk full')):
+                    with redirect_stdout(output), redirect_stderr(io.StringIO()):
+                        video_pass.fetch_video()
+        assert not video_pass.video_only_files
+        assert 'Video downloaded to' not in output.getvalue()
+        assert not os.path.exists(muxed)
+        assert not os.path.exists(os.path.join(tmp, 'served.silent.mp4'))
+
+
+def test_audio_stripping_handles_all_ffmpeg_failure_shapes():
+    failures = (
+        ('nonzero exit', 'raise', subprocess.CalledProcessError(
+            1, ['ffmpeg'], stderr='decode failed')),
+        ('missing ffmpeg', 'raise', OSError('ffmpeg not found')),
+        ('missing output', 'no_output', None),
+        ('empty output', 'empty_output', None),
+        ('rename failure', 'rename', OSError('permission denied')),
+    )
+
+    for label, behavior, exception in failures:
+        t = YouTubeTranscriber()
+        with tempfile.TemporaryDirectory() as tmp:
+            media = os.path.join(tmp, 'served.mp4')
+            silent = os.path.join(tmp, 'served.silent.mp4')
+            io.open(media, 'wb').write(b'muxed media')
+
+            def ffmpeg(command, behavior=behavior, exception=exception, **_kwargs):
+                if behavior == 'raise':
+                    raise exception
+                if behavior in ('empty_output', 'rename'):
+                    with open(command[-1], 'wb') as output:
+                        if behavior == 'rename':
+                            output.write(b'video only')
+
+            with patch.object(t, 'stream_codec', return_value='aac'):
+                with patch.object(module.subprocess, 'run', side_effect=ffmpeg):
+                    if behavior == 'rename':
+                        with patch.object(module.os, 'replace', side_effect=exception):
+                            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                                result = t.strip_audio(media)
+                    else:
+                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                            result = t.strip_audio(media)
+            assert result is None, (label, result)
+            assert not os.path.exists(media), label
+            assert not os.path.exists(silent), label
+
+
+def test_stripping_a_file_without_audio_leaves_it_untouched():
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        media = os.path.join(tmp, 'video-only.mp4')
+        io.open(media, 'wb').write(b'video')
+        with patch.object(t, 'stream_codec', return_value=None):
+            with patch.object(module.subprocess, 'run') as ffmpeg:
+                assert t.strip_audio(media) == media
+        ffmpeg.assert_not_called()
+        assert io.open(media, 'rb').read() == b'video'
+
+
+def test_audio_probe_failures_never_publish_a_video_only_file():
+    failures = (
+        subprocess.CalledProcessError(1, ['ffprobe'], stderr='invalid container'),
+        OSError('ffprobe not found'),
+    )
+
+    for failure in failures:
+        t = YouTubeTranscriber()
+        with tempfile.TemporaryDirectory() as tmp:
+            media = os.path.join(tmp, 'served.mp4')
+            io.open(media, 'wb').write(b'muxed media')
+            video_pass = object.__new__(module._Pass)
+            video_pass.transcriber = t
+            video_pass.cfg = SimpleNamespace(
+                download_video=False, video_only=True, video_scratch=None,
+                url='https://youtu.be/example')
+            video_pass.only_res = ['144p']
+            video_pass.video_res = []
+            video_pass.video_only_files = {}
+            video_pass.video_files = {}
+            video_pass.dir_for = lambda *_args: tmp
+            video_pass.stem_for = lambda *_args: 'served'
+
+            def failed_probe(command, failure=failure, **_kwargs):
+                assert command[0] == 'ffprobe', command
+                raise failure
+
+            output = io.StringIO()
+            with patch.object(t, 'download_format', return_value=media):
+                with patch.object(module.subprocess, 'run', side_effect=failed_probe):
+                    with redirect_stdout(output), redirect_stderr(io.StringIO()):
+                        video_pass.fetch_video()
+            assert not video_pass.video_only_files, (type(failure).__name__, output.getvalue())
+            assert 'Video downloaded to' not in output.getvalue()
+            assert not os.path.exists(media)
+
+
+def test_successful_audio_stripping_replaces_the_muxed_file():
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        media = os.path.join(tmp, 'served.mp4')
+        silent = os.path.join(tmp, 'served.silent.mp4')
+        io.open(media, 'wb').write(b'muxed media')
+
+        def write_silent(command, **_kwargs):
+            with open(command[-1], 'wb') as output:
+                output.write(b'video only')
+
+        with patch.object(t, 'stream_codec', return_value='aac'):
+            with patch.object(module.subprocess, 'run', side_effect=write_silent):
+                result = t.strip_audio(media)
+        assert result == media
+        assert io.open(media, 'rb').read() == b'video only'
+        assert not os.path.exists(silent)
 
 
 def test_conversion_copies_what_it_can_and_leaves_nothing_behind():
@@ -1473,6 +1697,12 @@ def test_youtube_publishes_a_transcript_only_for_the_language_it_was_spoken_in()
     ]})
     assert t.captions_to_text(payload, '.json3') == (
         'in front of the elephants and that is cool')
+    rolling = json.dumps({'events': [
+        {'segs': [{'utf8': 'we have some'}]},
+        {'segs': [{'utf8': 'we have some text'}]},
+        {'segs': [{'utf8': 'some text to say'}]},
+    ]})
+    assert t.captions_to_text(rolling, '.json3') == 'we have some text to say'
 
     vtt = '\n'.join([
         'WEBVTT', 'Kind: captions', 'Language: en', '',
@@ -1484,6 +1714,32 @@ def test_youtube_publishes_a_transcript_only_for_the_language_it_was_spoken_in()
     ])
     assert t.captions_to_text(vtt, '.vtt') == (
         'all right so here we are in front of the elephants')
+    rolling_vtt = '\n'.join([
+        'WEBVTT', '',
+        '00:00:00.000 --> 00:00:01.000', 'we have some', '',
+        '00:00:01.000 --> 00:00:02.000', 'we have some text', '',
+    ])
+    assert t.captions_to_text(rolling_vtt, '.vtt') == 'we have some text'
+
+    # Exercise cue-boundary overlaps of different lengths and ensure unrelated
+    # repeated words are not treated as rolling-cue duplication.
+    cases = (
+        ('we have some', 'we have some text', 'we have some text'),
+        ('once upon a time', 'time passed', 'once upon a time passed'),
+        ('birds are here', 'some birds flew', 'birds are here some birds flew'),
+        ('same words', 'same words', 'same words'),
+    )
+    for previous, current, expected in cases:
+        json3 = json.dumps({'events': [
+            {'segs': [{'utf8': previous}]}, {'segs': [{'utf8': current}]},
+        ]})
+        assert t.captions_to_text(json3, '.json3') == expected
+        vtt = '\n'.join([
+            'WEBVTT', '',
+            '00:00:00.000 --> 00:00:01.000', previous, '',
+            '00:00:01.000 --> 00:00:02.000', current, '',
+        ])
+        assert t.captions_to_text(vtt, '.vtt') == expected
 
 
 def _caption_info(**over):
@@ -2212,6 +2468,80 @@ def test_a_local_pass_skips_youtubes_own_transcripts():
                                    yt_transcript_languages=['en'], used_fields={})
         with redirect_stdout(io.StringIO()):
             module._run_one(t, cfg)
+
+
+def test_a_local_media_source_runs_through_transcription_and_saves_transcript():
+    """A local path can enter as a source, reach Whisper, and save its output."""
+
+    t = YouTubeTranscriber()
+    opened = []
+    t.startfile = opened.append
+    model_calls = []
+
+    class Model:
+        def transcribe(self, path, language=None):
+            model_calls.append((path, language))
+            return {'text': 'A complete local transcription flow.', 'language': 'en'}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = os.path.join(tmp, 'lecture recording.mp4')
+        io.open(source, 'wb').close()
+        t.TRANSCRIPT_DIR = os.path.join(tmp, 'Transcript')
+        t.RAW_TRANSCRIPT_DIR = os.path.join(t.TRANSCRIPT_DIR, 'Raw')
+        with patch.object(t, 'is_valid_media_file', return_value=True) as valid_media:
+            sources = t.source_entries(source)
+            assert sources == [(source, True, None)], sources
+            cfg = module.SessionConfig(
+                url=source, is_local_file=True, sources=sources, used_fields={},
+                transcribe_audio=True, target_language='auto', target_languages=['auto'])
+            with patch.object(whisper, 'load_model', return_value=Model()) as load_model:
+                with redirect_stdout(io.StringIO()):
+                    module._run_pipeline(t, cfg)
+
+        transcript = os.path.join(
+            t.TRANSCRIPT_DIR, 'lecture recording [Whisper en].txt')
+        assert io.open(transcript, encoding='utf-8').read() == (
+            'A complete local transcription flow.')
+        assert model_calls == [(source, None)], model_calls
+        load_model.assert_called_once_with('base')
+        assert valid_media.call_count == 2, valid_media.call_count
+        assert opened == [transcript], opened
+
+
+def test_a_failed_local_transcription_does_not_abort_later_sources():
+    t = YouTubeTranscriber()
+    calls = []
+
+    class Model:
+        def transcribe(self, path, language=None):
+            calls.append(path)
+            if path.endswith('failed.mp4'):
+                raise subprocess.CalledProcessError(
+                    1, ['ffmpeg', '-i', path], stderr='No audio stream found')
+            return {'text': 'The later source succeeded.', 'language': 'en'}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        failed = os.path.join(tmp, 'failed.mp4')
+        good = os.path.join(tmp, 'good.mp4')
+        for path in (failed, good):
+            io.open(path, 'wb').close()
+        t.TRANSCRIPT_DIR = os.path.join(tmp, 'Transcript')
+        t.RAW_TRANSCRIPT_DIR = os.path.join(t.TRANSCRIPT_DIR, 'Raw')
+        sources = [(failed, True, None), (good, True, None)]
+        cfg = module.SessionConfig(
+            url=failed, is_local_file=True, sources=sources, used_fields={},
+            transcribe_audio=True, target_language='auto', target_languages=['auto'])
+        with patch.object(t, 'is_valid_media_file', return_value=True):
+            with patch.object(whisper, 'load_model', return_value=Model()):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    module._run_pipeline(t, cfg)
+
+        assert calls == [failed, good], calls
+        assert not os.path.exists(os.path.join(
+            t.TRANSCRIPT_DIR, 'failed [Whisper en].txt'))
+        assert io.open(os.path.join(
+            t.TRANSCRIPT_DIR, 'good [Whisper en].txt'), encoding='utf-8').read() == (
+                'The later source succeeded.')
 
 
 def test_a_local_file_is_its_own_highest_and_lowest():

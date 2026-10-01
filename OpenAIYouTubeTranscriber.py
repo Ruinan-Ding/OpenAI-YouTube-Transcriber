@@ -1911,8 +1911,8 @@ MODEL=
     def captions_to_text(payload: str, ext: str) -> str:
         """A caption file's text, as prose.
 
-        YouTube's rolling captions restate the line before them so a viewer can
-        finish reading it, so a line that arrives twice running is one line.
+        YouTube's rolling captions restate the end of the previous cue so a
+        viewer can finish reading it; that shared text belongs only once.
         """
         if ext == '.json3':
             cues = [''.join(seg.get('utf8', '') for seg in (event.get('segs') or []))
@@ -1920,21 +1920,37 @@ MODEL=
         else:
             cues = YouTubeTranscriber.vtt_cue_lines(payload)
         lines: list[str] = []
+        previous: list[str] = []
         for cue in cues:
-            cue = ' '.join(cue.split())
-            if cue and (not lines or cue != lines[-1]):
-                lines.append(cue)
+            words = cue.split()
+            if not words:
+                continue
+            if previous:
+                for overlap in range(min(len(previous), len(words)), 0, -1):
+                    previous_end = [
+                        re.sub(r'^\W+|\W+$', '', word).casefold()
+                        for word in previous[-overlap:]
+                    ]
+                    current_start = [
+                        re.sub(r'^\W+|\W+$', '', word).casefold()
+                        for word in words[:overlap]
+                    ]
+                    if previous_end == current_start:
+                        words = words[overlap:]
+                        break
+            previous = cue.split()
+            if words:
+                lines.append(' '.join(words))
         return ' '.join(lines)
 
     @staticmethod
     def vtt_cue_lines(payload: str) -> list[str]:
-        """The spoken lines of a WebVTT file, block by block.
+        """The spoken text of WebVTT cues, one item per timed block.
 
-        A WebVTT file is blocks between blank lines, and only a cue's payload -
-        the lines after its timing line - is speech. Read line by line, a cue's
-        numeric identifier and all but the first line of a NOTE were kept as
-        speech, and '&amp;' stayed encoded. A header, NOTE, STYLE or REGION
-        block has no timing line and so contributes nothing.
+        Only a cue's payload - the lines after its timing line - is speech.
+        A cue's numeric identifier and NOTE, STYLE or REGION blocks do not
+        contribute text; character references are decoded after tags are
+        removed.
         """
         lines: list[str] = []
         for block in re.split(r'\n[ \t]*\n', payload.replace('\r\n', '\n').replace('\r', '\n')):
@@ -1946,7 +1962,12 @@ MODEL=
                 continue
             # Tags first, then the character references: an encoded '&lt;'
             # is text, and must not be taken for the start of a tag
-            lines += [html.unescape(re.sub(r'<[^>]*>', '', row)) for row in rows[timing + 1:]]
+            cue = ' '.join(
+                text for row in rows[timing + 1:]
+                if (text := html.unescape(re.sub(r'<[^>]*>', '', row))).strip()
+            )
+            if cue:
+                lines.append(cue)
         return lines
 
     @staticmethod
@@ -2293,12 +2314,14 @@ MODEL=
         return cached[name]
 
     @staticmethod
-    def stream_property(path: str, kind: str, entry: str) -> str | None:
+    def stream_property(path: str, kind: str, entry: str,
+                        strict: bool = False) -> str | None:
         """One ffprobe field of a file's first video or audio stream, or None.
 
         None covers every way of not knowing: no such stream, no ffprobe, and a
         container that does not record the field - matroska rarely stores an
-        audio bitrate.
+        audio bitrate. strict lets callers that must distinguish an absent
+        stream from a failed probe handle subprocess errors themselves.
         """
         try:
             probe = subprocess.run(
@@ -2307,14 +2330,16 @@ MODEL=
                  '-show_entries', f'stream={entry}', '-of', 'csv=p=0', path],
                 capture_output=True, check=True, **FFMPEG_RUN).stdout.strip()
         except (subprocess.CalledProcessError, OSError):
+            if strict:
+                raise
             return None
         value = probe.splitlines()[0].strip() if probe else ""
         return None if value in ("", "N/A") else value
 
     @classmethod
-    def stream_codec(cls, path: str, kind: str) -> str | None:
+    def stream_codec(cls, path: str, kind: str, strict: bool = False) -> str | None:
         """The codec of a file's first video or audio stream, or None."""
-        return cls.stream_property(path, kind, 'codec_name')
+        return cls.stream_property(path, kind, 'codec_name', strict)
 
     @classmethod
     def source_height(cls, path: str) -> int | None:
@@ -2328,7 +2353,7 @@ MODEL=
         value = cls.stream_property(path, 'audio', 'bit_rate')
         return round(int(value) / 1000) if value and _is_number(value) else None
 
-    def strip_audio(self, path: str) -> str:
+    def strip_audio(self, path: str) -> str | None:
         """Drop a file's audio track, copying the video rather than re-encoding.
 
         A height YouTube publishes only as a progressive stream matches no
@@ -2337,7 +2362,13 @@ MODEL=
         was served, and a copy keeps FORMAT_ORIGINAL's promise of no second
         generation.
         """
-        if self.stream_codec(path, 'audio') is None:
+        try:
+            audio_codec = self.stream_codec(path, 'audio', strict=True)
+        except (subprocess.CalledProcessError, OSError) as e:
+            error(f"Error: could not inspect the audio in "
+                  f"{os.path.basename(path)}: {str(e)}")
+            return self._discard(path)
+        if audio_codec is None:
             return path
         stem, extension = os.path.splitext(path)
         silent = f"{stem}.silent{extension}"
@@ -2348,14 +2379,22 @@ MODEL=
         except (subprocess.CalledProcessError, OSError) as e:
             error(f"Error: could not remove the audio from "
                   f"{os.path.basename(path)}: {str(e)}")
-            return path
-        # ffmpeg can exit 0 having written nothing usable, and this replaces the
-        # download: an unusable result has to leave the served file alone
+            self._discard(silent)
+            return self._discard(path)
+        # ffmpeg can exit 0 having written nothing usable; do not leave the
+        # audio-bearing download under a name that promises video only
         if not os.path.exists(silent) or os.path.getsize(silent) == 0:
             error(f"Error: stripping the audio from {os.path.basename(path)} "
-                  f"produced nothing; keeping the file as served.")
-            return path
-        os.replace(silent, path)
+                  f"produced nothing.")
+            self._discard(silent)
+            return self._discard(path)
+        try:
+            os.replace(silent, path)
+        except OSError as e:
+            error(f"Error: could not replace {os.path.basename(path)} "
+                  f"with its audio-free copy: {str(e)}")
+            self._discard(silent)
+            return self._discard(path)
         return path
 
     def convert_media(self, source: str, target_format: str, kind: str, output_dir: str,
@@ -2653,7 +2692,7 @@ MODEL=
                       "The audio might be silent or not contain speech.")
                 return None, target_language
 
-        except (RuntimeError, ValueError) as e:
+        except (RuntimeError, ValueError, subprocess.CalledProcessError) as e:
             error(f"Error during transcription: {str(e)}")
             return None, "en"
 
@@ -5218,8 +5257,11 @@ class _Pass:
                 self.url, transcriber.video_format(res),
                 self.dir_for("video_only", transcriber.VIDEO_WITHOUT_AUDIO_DIR),
                 self.stem_for("video_only") + transcriber.quality_tag(res) + " - Video Only")
-            self.video_only_files[res] = transcriber.strip_audio(downloaded)
-            print(f"Video downloaded to {os.path.abspath(self.video_only_files[res])}")
+            video_only = transcriber.strip_audio(downloaded)
+            if video_only is None:
+                continue
+            self.video_only_files[res] = video_only
+            print(f"Video downloaded to {os.path.abspath(video_only)}")
 
         for res in self.video_res:
             if res in self.video_only_files:
