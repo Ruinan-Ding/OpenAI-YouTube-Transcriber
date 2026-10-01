@@ -1,16 +1,19 @@
 """pytest setup for test_transcriber.py.
 
 The tests stand in for the network, ffmpeg's failures and the console by
-swapping module attributes and environment variables, and put them back in a
-finally. A test that fails before its finally ran, or forgets one, used to
-leave its stand-in for every test after it. Here everything they touch is
-restored after each test, whatever happened in it.
+swapping module attributes, input() and environment variables, and put them
+back in a finally. A test that fails before its finally ran, or forgets one,
+used to leave its stand-in for every test after it. Here everything they touch
+is restored after each test, whatever happened in it.
 
 The tests still run without pytest: `python test_transcriber.py`.
 """
 
+import builtins
 import getpass
+import importlib
 import os
+import pkgutil
 import subprocess
 import sys
 import types
@@ -20,11 +23,17 @@ import setuptools
 import whisper
 import yt_dlp
 
-import OpenAIYouTubeTranscriber
+import openai_youtube_transcriber
+from openai_youtube_transcriber.transcriber import YouTubeTranscriber
 
-# What the tests patch: whole modules, and the classes whose methods they swap
-PATCHED = (OpenAIYouTubeTranscriber, OpenAIYouTubeTranscriber.YouTubeTranscriber,
-           whisper, yt_dlp, yt_dlp.YoutubeDL, subprocess, getpass, setuptools)
+# Every module of the package, each patched in its own right: a test swaps a
+# function in the module that calls it
+MODULES = tuple(importlib.import_module(f'{openai_youtube_transcriber.__name__}.{found.name}')
+                for found in pkgutil.iter_modules(openai_youtube_transcriber.__path__))
+# What the tests patch: the package's modules, YouTubeTranscriber and the
+# mixins it is made of, and the modules they stand in for
+PATCHED = (MODULES + YouTubeTranscriber.__mro__[:-1]
+           + (whisper, yt_dlp, yt_dlp.YoutubeDL, subprocess, getpass, setuptools))
 # Modules the tests replace in sys.modules with stand-ins for the AI backends
 STAND_INS = ('openai', 'anthropic', 'transformers')
 
@@ -45,12 +54,15 @@ def _restore(owner, before):
 def restore_global_state():
     """Snapshot what the tests patch, and put it all back afterwards."""
     attributes = [(owner, dict(vars(owner))) for owner in PATCHED]
+    # The console: every module reads the builtin, so that is what is answered
+    real_input = builtins.input
     environment = dict(os.environ)
     modules = {name: sys.modules.get(name) for name in STAND_INS}
     path, cwd = list(sys.path), os.getcwd()
     try:
         yield
     finally:
+        builtins.input = real_input
         os.chdir(cwd)
         sys.path[:] = path
         for name, module in modules.items():

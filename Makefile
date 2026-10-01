@@ -12,9 +12,10 @@ dev:
 	pip install -r requirements-dev.txt
 
 lint:
-	@echo "Running flake8 and isort, as CI does..."
+	@echo "Running flake8, isort and mypy, as CI does..."
 	flake8
 	isort --check-only .
+	mypy
 
 test:
 	python -m pytest -ra test_transcriber.py
@@ -30,7 +31,7 @@ help:
 	@echo "  install  - Install package in editable mode"
 	@echo "  deps     - Install runtime dependencies from requirements.txt"
 	@echo "  dev      - Install development dependencies from requirements-dev.txt"
-	@echo "  lint     - Run flake8 and isort as CI does (needs make dev)"
+	@echo "  lint     - Run flake8, isort and mypy as CI does (needs make dev)"
 	@echo "  test     - Run the test suite under pytest (needs make dev)"
 	@echo "  run      - Run the main script"
 	@echo "  clean    - Remove build artifacts"

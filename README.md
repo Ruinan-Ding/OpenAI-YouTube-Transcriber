@@ -932,7 +932,7 @@ pip install -r requirements-dev.txt
 
 Common tasks:
 ```bash
-make lint    # flake8 and isort, as CI runs them
+make lint    # flake8, isort and mypy, as CI runs them
 make test    # The test suite, under pytest
 make run     # Run the app
 ```

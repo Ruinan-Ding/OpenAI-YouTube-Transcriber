@@ -27,6 +27,8 @@ jobs:
 
       - run: flake8
       - run: isort --check-only .
+      # The configuration is pyproject.toml's [tool.mypy]
+      - run: mypy
       # -ra lists every skip, so a test that could not run here is not
       # mistaken for one that passed
       - run: python -m pytest -ra test_transcriber.py
