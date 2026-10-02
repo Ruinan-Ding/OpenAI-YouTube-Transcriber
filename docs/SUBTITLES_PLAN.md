@@ -129,7 +129,7 @@ video, and each codec of the video-only file.
    Reuse what the script already has rather than moving the prototype's copies:
    `vtt_cue_lines` for WebVTT, `convert_media`'s retry loop and `_discard` for ffmpeg runs, and
    `longest_missing_run`'s word splitter. Then delete `subtitle_prototype.py`, with its tests
-   moved into `test_transcriber.py`, where CI runs them; CI runs neither today.
+   moved into `test_transcriber.py`.
 
    **Fixed in the prototype** (2 Oct), after a review reproduced each one. The port carries the
    fixes and their tests:
@@ -157,7 +157,7 @@ video, and each codec of the video-only file.
    - **A container with no text subtitles** is reported and left alone, no longer made an MKV
      (decision 5 can still choose the MKV).
 
-   CI now runs `test_subtitle_prototype.py`.
+   CI now runs `test_subtitle_prototype.py` and type-checks the prototype.
 2. **Keep Whisper's timing.** `transcribe_audio_file` keeps only the text and language (the
    cache near "The text and its language, not the segments"). Have it return the segments too,
    with `word_timestamps=True` when any `*_SUB_WHISPER` is `y`, on transcription passes only.

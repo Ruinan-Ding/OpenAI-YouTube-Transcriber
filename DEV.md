@@ -50,6 +50,9 @@ command runs. From the top, it holds:
 - one pass per source: `_run_pipeline`, `_Pass` and its steps, `_run_one`;
 - the session's rounds, "Run again?", and `main()`.
 
+`subtitle_prototype.py` is a standalone trial of subtitles, not part of the app or the
+wheel; `docs/SUBTITLES_PLAN.md` says what it is for and when it goes.
+
 ## Workflow
 
 **Run the app to test changes:**
@@ -64,8 +67,8 @@ make lint
 
 **Run the test suite:**
 ```bash
-make test                        # python -m pytest -ra test_transcriber.py
-python test_transcriber.py       # the same tests, no pytest needed
+make test                        # pytest over test_transcriber.py and test_subtitle_prototype.py
+python test_transcriber.py       # the app's tests, no pytest needed
 ```
 
 The tests are plain functions and plain `assert`, so they run either way.

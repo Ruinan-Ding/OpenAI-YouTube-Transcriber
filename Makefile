@@ -18,7 +18,7 @@ lint:
 	mypy
 
 test:
-	python -m pytest -ra test_transcriber.py
+	python -m pytest -ra test_transcriber.py test_subtitle_prototype.py
 
 run:
 	python OpenAIYouTubeTranscriber.py

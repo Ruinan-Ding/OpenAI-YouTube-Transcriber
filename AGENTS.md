@@ -46,14 +46,15 @@ Python script, `OpenAIYouTubeTranscriber.py`.
 ```bash
 make dev                          # the development tools (requirements-dev.txt)
 make lint                         # flake8, isort and mypy, as CI runs them; must be clean
-make test                         # python -m pytest -ra test_transcriber.py
-python test_transcriber.py        # the same tests without pytest
+make test                         # pytest over test_transcriber.py and test_subtitle_prototype.py
+python test_transcriber.py        # the app's tests without pytest
 python OpenAIYouTubeTranscriber.py   # the app (or: python .)
 ```
 
-CI (`.github/workflows/tests.yml`) runs flake8, isort, mypy and the suite on every push to
-`main` and every pull request, on Ubuntu with Python 3.11. It installs ffmpeg, so the
-pipeline tests that merge and re-encode real files run there; locally they are reported as
+CI (`.github/workflows/tests.yml`) runs flake8, isort, mypy and both test files on every push
+to `main` and every pull request, with Python 3.11: the tests on Ubuntu and Windows, the
+linters on Ubuntu. It installs ffmpeg, so the pipeline tests that merge and re-encode real
+files run there; locally they are reported as
 skipped (`-ra`) without it. `DEV.md` has the rest.
 
 ## Architecture invariants
@@ -184,8 +185,8 @@ Open, waiting on the owner: the decisions at the end of `docs/SUBTITLES_PLAN.md`
 - **CI is Linux and the owner is on Windows.** A double-quoted Windows path in a profile lost
   its backslashes to dotenv's escapes (`\t`, `\n`), `~/clip.mp3` expanded to
   `C:\Users\me/clip.mp3`, and a test built `'file://' + path`, which is no URL with a drive
-  letter. Every Linux run passed. A Windows CI job and those fixes are on
-  `fix/windows-paths-and-captions`.
+  letter. Every Linux run passed. Fixed, and CI has run the tests on Windows since
+  2 Oct 2026.
 - **yt-dlp's `bv*[ext=mp4]` can be AV1**, which Windows plays only with the AV1 Video
   Extension installed. A stream copy keeps it AV1.
 - **Whisper's word timestamps stretch over silences**: after a pause the first word gets no

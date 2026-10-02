@@ -133,6 +133,11 @@ regression test.
 - **CI runs the tests on Windows too**, beside Linux; the linters and mypy
   run once, on Linux. The two path fixes above were found by running the
   suite on Windows, where every Linux run had passed.
+- **`AGENTS.md` is the one guide for AI agents** working on the repo, with
+  `CLAUDE.md` pointing to it, and `PUNCHLIST.md` tracks what is in flight.
+- **A subtitle prototype**, `subtitle_prototype.py`: standalone, not part of
+  the app or the wheel. `docs/SUBTITLES_PLAN.md` holds the plan and the
+  decisions it waits on. CI runs and type-checks it.
 - **`pyproject.toml` replaces `setup.py`.** Same package, module, data files
   and console command; the optional AI backends are now the `ai` extra
   (`pip install ".[ai]"`).

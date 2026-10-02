@@ -20,14 +20,14 @@ Last updated 2 Oct 2026.
 
 ## 1. Windows paths (merged into `main` 2 Oct 2026)
 
-Merged without a pull request; CI first runs on the push of the merge.
+Merged without a pull request. CI has passed on Linux and Windows since.
 
 | # | Item | Status |
 |---|---|---|
 | 1.1 | A double-quoted Windows path in a profile or `config.txt` keeps its backslashes (`"C:\Users\me\new"`, `"\\server\share"`, `"D:\"`). | WRITTEN |
 | 1.2 | `~/clip.mp3` expands in Windows' own separators. | WRITTEN |
 | 1.3 | Captions read as prose keep a word said twice across two cues ("He had" / "had enough"). | WRITTEN |
-| 1.4 | CI runs the tests on Windows as well as Linux. First run: the push of the merge. | WRITTEN |
+| 1.4 | CI runs the tests on Windows as well as Linux. Green on every push since the merge. | WRITTEN |
 
 ## 2. Media fixes on `main` (`f3bc322`, `729070b`)
 

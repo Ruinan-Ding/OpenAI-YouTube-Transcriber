@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import html
+import io
 import json
 import os
 import re
@@ -35,7 +36,8 @@ import yt_dlp
 from dotenv import load_dotenv
 
 from OpenAIYouTubeTranscriber import (FFMPEG_RUN, AIEnhancementMode,
-                                      LocalModel, Provider, YouTubeTranscriber)
+                                      LocalModel, Provider, YouTubeTranscriber,
+                                      _env_text)
 
 # Reading limits, as broadcast and streaming style guides set them
 MAX_LINE = 42
@@ -535,7 +537,9 @@ def ai_asker(backend: str, local_model: str | None = None) -> Callable[[str, str
     transcriber = YouTubeTranscriber()
     config = os.path.join(transcriber.PROFILE_DIR, transcriber.CONFIG_ENV)
     if os.path.exists(config):
-        load_dotenv(config, override=True)
+        # Through _env_text, as the script reads it: a double-quoted Windows
+        # path keeps its backslashes
+        load_dotenv(stream=io.StringIO(_env_text(config)), override=True)
     if backend == 'local':
         model = local_model or LocalModel.default().hf_model_id
         return _one_request(transcriber, lambda prompt, text: transcriber.enhance_text(

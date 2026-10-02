@@ -83,7 +83,8 @@ openai_youtube_transcriber_profiles = [
 [tool.mypy]
 # The oldest Python the package runs on, so that a later one's feature fails here
 python_version = "3.10"
-files = ["OpenAIYouTubeTranscriber.py"]
+# The subtitle prototype too, until it is folded in: it leans on the script's internals
+files = ["OpenAIYouTubeTranscriber.py", "subtitle_prototype.py"]
 strict = true
 # yt-dlp and Whisper publish no types, so everything they return is Any. A
 # function handing it on says what it is, and that is taken as it stands

@@ -37,7 +37,7 @@ These come from `AGENTS.md`; they are the ones most often broken.
 
 - **Lint, as CI does:** `flake8`, then `isort --check-only .`, then `mypy`. mypy checks only the main script; its configuration is in `pyproject.toml`.
 - **Tests, as CI does:** `python -m pytest -ra test_transcriber.py test_subtitle_prototype.py`
-- **Known drift:** `make test` still runs only `test_transcriber.py`, while CI runs both. It's a one-line fix in the `Makefile`.
+- **`make test` and `make lint`** run the same as CI.
 
 On the owner's machine:
 - **The repo** is `C:\Users\DRuin\OneDrive\Documents\OpenAI-YouTube-Transcriber`.
