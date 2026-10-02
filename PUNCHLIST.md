@@ -39,8 +39,8 @@ it.
 
 ## 3. Subtitles (`feature/subtitles-prototype`, `f0bf28a`)
 
-A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. Pushed
-to `5d912ad`; `f0bf28a` is local. "Me at the zoo" with subtitles, three ways, and "La liebre y
+A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. Pushed;
+the pull request is not open yet. "Me at the zoo" with subtitles, three ways, and "La liebre y
 la tortuga" with English and Spanish tracks are in `OpenAIYouTubeTranscriber/Video/Subtitled/`
 for the owner to watch.
 
