@@ -14,21 +14,20 @@ A passing test is not a working feature. Nothing moves to **SEEN** except by the
 so. When an item lands on `main` and the owner has seen it, it leaves this list for
 `CHANGELOG.md`.
 
-Last updated 1 Oct 2026.
+Last updated 2 Oct 2026.
 
 ---
 
-## 1. Windows paths (`fix/windows-paths-and-captions`, `67f353f`)
+## 1. Windows paths (merged into `main` 2 Oct 2026)
 
-Pushed; the pull request is not open yet (it waits on a `gh` login). Linux CI has not run on
-it.
+Merged without a pull request; CI first runs on the push of the merge.
 
 | # | Item | Status |
 |---|---|---|
 | 1.1 | A double-quoted Windows path in a profile or `config.txt` keeps its backslashes (`"C:\Users\me\new"`, `"\\server\share"`, `"D:\"`). | WRITTEN |
 | 1.2 | `~/clip.mp3` expands in Windows' own separators. | WRITTEN |
 | 1.3 | Captions read as prose keep a word said twice across two cues ("He had" / "had enough"). | WRITTEN |
-| 1.4 | CI runs the tests on Windows as well as Linux. Never run: CI starts with the pull request. | WRITTEN |
+| 1.4 | CI runs the tests on Windows as well as Linux. First run: the push of the merge. | WRITTEN |
 
 ## 2. Media fixes on `main` (`f3bc322`, `729070b`)
 
@@ -37,12 +36,14 @@ it.
 | 2.1 | A "Video Only" download whose audio cannot be removed is deleted and the failure reported, instead of kept with its audio. | WRITTEN |
 | 2.2 | YouTube's rolling captions, read as prose, keep each cue's restated text once. | WRITTEN |
 
-## 3. Subtitles (`feature/subtitles-prototype`, `f0bf28a`)
+## 3. Subtitles (merged into `main` 2 Oct 2026, as a prototype)
 
-A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. Pushed;
-the pull request is not open yet. "Me at the zoo" with subtitles, three ways, and "La liebre y
-la tortuga" with English and Spanish tracks are in `OpenAIYouTubeTranscriber/Video/Subtitled/`
-for the owner to watch.
+A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. How
+subtitles fit the app is **to be specified later by the owner**: whether and when a video is
+subtitled, what a video-only (no audio) download gets, how subtitles go into a merged video
+download, and soft or hard muxing. Nothing goes into the main script until then. "Me at the
+zoo" with subtitles, three ways, and "La liebre y la tortuga" with English and Spanish tracks
+are in `OpenAIYouTubeTranscriber/Video/Subtitled/` for the owner to watch.
 
 | # | Item | Status |
 |---|---|---|
@@ -54,12 +55,12 @@ for the owner to watch.
 | 3.6 | Soft subtitles: a track the player can turn off (MP4, MKV, WebM). | WRITTEN |
 | 3.7 | Hard subtitles: burned into the picture, a separate file. | WRITTEN |
 | 3.8 | Prefer H.264 over AV1 when the video is downloaded to be subtitled, so Windows plays it without an extension. | OPEN |
-| 3.9 | Into the main script: settings, `.srt` beside the outputs, soft track by default (plan, phases 2-4). | OPEN |
-| 3.10 | Decisions: which timing source wins, where the `.srt` goes, whether hard subtitles are in the first release. | OPEN |
+| 3.9 | Into the main script. Waits on the owner's specification (3.10). | OPEN |
+| 3.10 | The owner's specification: whether and when a video is subtitled, video-only (no audio) downloads, merged video downloads, soft or hard muxing; and which timing source wins, where the `.srt` goes. | OPEN |
 | 3.11 | A full cue ends at its last sentence end, or its last clause end a third in, not mid-phrase ("...la liebre y la" / "tortuga." is gone), and "Mr." no longer ends a cue. Rerun on the Spanish fable, both languages. | WRITTEN |
 | 3.12 | Translation needs `medium` or larger (not `large-v3-turbo`, never trained to translate); the setting should not default to `base` for it. | OPEN |
 
-## 4. Agent workflow (`chore/agent-workflow`)
+## 4. Agent workflow (merged into `main` 2 Oct 2026)
 
 | # | Item | Status |
 |---|---|---|

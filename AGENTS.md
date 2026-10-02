@@ -165,14 +165,20 @@ when the owner decided.
   "had enough" keeps both words.
 - **"Video Only" never names a file that still has its audio** (1 Oct 2026): when the audio of
   a muxed download cannot be removed, the download is deleted and the failure reported.
-- **Subtitles are prototyped apart from the script first** (1 Oct 2026): `subtitle_prototype.py`
-  and `docs/SUBTITLES_PLAN.md`, on `feature/subtitles-prototype`. Subtitles are timed from
-  Whisper or YouTube's captions, never by a language model. **Polish mode** corrects each
-  cue's wording and keeps its timestamps exactly: the owner's *"maybe the user decides to keep
-  timestamp but fix grammar"*. Both soft subtitles (a track) and burned-in ones were asked about.
+- **Subtitles are prototyped apart from the script first** (1 Oct 2026):
+  `subtitle_prototype.py` and `docs/SUBTITLES_PLAN.md`, merged into `main` as a prototype
+  (2 Oct 2026). Subtitles are timed from Whisper or YouTube's captions, never by a language
+  model.
+  **Polish mode** corrects each cue's wording and keeps its timestamps exactly: the owner's
+  *"maybe the user decides to keep timestamp but fix grammar"*. Both soft subtitles (a track)
+  and burned-in ones were asked about.
 
 Open, waiting on the owner (from `docs/SUBTITLES_PLAN.md`):
 
+- How subtitles fit the app is **to be specified later by the owner**: whether and when a video
+  is subtitled, what a video-only (no audio) download gets, how subtitles go into a merged
+  video download, and soft or hard muxing. **Don't build subtitles into the main script before
+  that.**
 - Which timing source wins when a video has both an uploader's track and Whisper output.
 - Where a video's `.srt` goes: beside the transcript, or beside the video.
 - Whether burned-in subtitles are in the first release.

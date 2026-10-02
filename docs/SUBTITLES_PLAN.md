@@ -1,5 +1,15 @@
 # Subtitles: plan and prototype findings
 
+> **Status, 2 Oct 2026: merged into `main` as a prototype; the design is not decided.**
+> How subtitles fit the app will be specified later by the owner, including:
+> - whether and when a video is subtitled at all;
+> - a video-only download, which has no audio to time subtitles from;
+> - subtitles muxed into a merged (video and audio) download;
+> - soft subtitles (a track), hard ones (burned in), or both.
+>
+> The integration below is a proposal to be revised against that specification. Nothing
+> goes into `OpenAIYouTubeTranscriber.py` until then.
+
 Timed subtitles for any video the app handles: written as an `.srt` beside the
 transcript, muxed into the video as a track the viewer can switch off, or
 burned into the picture. **Polish** mode corrects each subtitle's wording with
@@ -113,7 +123,7 @@ asserting the `.srt` and the muxed track.
 
 ### Phases
 
-1. Prototype: **done** (this branch).
+1. Prototype: **done**, merged 2 Oct 2026.
 2. Raw subtitles: Whisper and YouTube timing, `.srt`, soft mux.
 3. Polish mode, once tried against a live model on a few long videos.
 4. Hard subs, and translated subtitles into languages other than English (cue
@@ -121,6 +131,7 @@ asserting the `.srt` and the muxed track.
 
 ## Decisions needed
 
+- The whole shape, to be specified by the owner (see the status note at the top).
 - When a video has both an uploader's track and Whisper output, which wins
   under `auto`? (The plan above prefers the uploader's track.)
 - Where the `.srt` goes: beside the transcript, or beside the video.
