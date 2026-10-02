@@ -38,12 +38,11 @@ Merged without a pull request; CI first runs on the push of the merge.
 
 ## 3. Subtitles (merged into `main` 2 Oct 2026, as a prototype)
 
-A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. How
-subtitles fit the app is **to be specified later by the owner**: whether and when a video is
-subtitled, what a video-only (no audio) download gets, how subtitles go into a merged video
-download, and soft or hard muxing. Nothing goes into the main script until then. "Me at the
-zoo" with subtitles, three ways, and "La liebre y la tortuga" with English and Spanish tracks
-are in `OpenAIYouTubeTranscriber/Video/Subtitled/` for the owner to watch.
+A standalone prototype, `subtitle_prototype.py`. The owner specified the settings on 2 Oct
+2026; the plan, `docs/SUBTITLES_PLAN.md`, ends with the decisions still open, and nothing goes
+into the main script until they are answered. "Me at the zoo" with subtitles, three ways, and
+"La liebre y la tortuga" with English and Spanish tracks are in
+`OpenAIYouTubeTranscriber/Video/Subtitled/` for the owner to watch.
 
 | # | Item | Status |
 |---|---|---|
@@ -55,10 +54,11 @@ are in `OpenAIYouTubeTranscriber/Video/Subtitled/` for the owner to watch.
 | 3.6 | Soft subtitles: a track the player can turn off (MP4, MKV, WebM). | WRITTEN |
 | 3.7 | Hard subtitles: burned into the picture, a separate file. | WRITTEN |
 | 3.8 | Prefer H.264 over AV1 when the video is downloaded to be subtitled, so Windows plays it without an extension. | OPEN |
-| 3.9 | Into the main script. Waits on the owner's specification (3.10). | OPEN |
-| 3.10 | The owner's specification: whether and when a video is subtitled, video-only (no audio) downloads, merged video downloads, soft or hard muxing; and which timing source wins, where the `.srt` goes. | OPEN |
+| 3.9 | Into the main script, in three phases (plan). Waits on the decisions (3.10). | OPEN |
+| 3.10 | Specified by the owner on 2 Oct 2026: `VIDEO_SUB`, `VIDEO_SUB_WHISPER`, `VIDEO_SUB_AI_REFINEMENT`, `VIDEO_SOFT_HARD_SUB` and the same for `VIDEO_ONLY_`. Its decisions are still open, at the end of the plan. | OPEN |
 | 3.11 | A full cue ends at its last sentence end, or its last clause end a third in, not mid-phrase ("...la liebre y la" / "tortuga." is gone), and "Mr." no longer ends a cue. Rerun on the Spanish fable, both languages. | WRITTEN |
 | 3.12 | Translation needs `medium` or larger (not `large-v3-turbo`, never trained to translate); the setting should not default to `base` for it. | OPEN |
+| 3.13 | Review fixes in the prototype: refinement in one request per batch and failures counted, soft mux keeps the file's own tracks, cues within limits after a cut, no negative times, hard copy 8-bit with playable audio, overlapping YouTube events clamped, CJK width, every Whisper language tagged. Rerun on the Spanish video (soft and hard); refinement never run against a real model. | WRITTEN |
 
 ## 4. Agent workflow (merged into `main` 2 Oct 2026)
 

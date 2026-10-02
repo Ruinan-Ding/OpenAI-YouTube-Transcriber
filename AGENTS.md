@@ -172,16 +172,12 @@ when the owner decided.
   **Polish mode** corrects each cue's wording and keeps its timestamps exactly: the owner's
   *"maybe the user decides to keep timestamp but fix grammar"*. Both soft subtitles (a track)
   and burned-in ones were asked about.
+- **The owner specified the subtitle settings** (2 Oct 2026): `VIDEO_SUB`,
+  `VIDEO_SUB_WHISPER`, `VIDEO_SUB_AI_REFINEMENT` and `VIDEO_SOFT_HARD_SUB`, and the same four
+  for `VIDEO_ONLY_`, each asked only when what it needs is on. See `docs/SUBTITLES_PLAN.md`.
 
-Open, waiting on the owner (from `docs/SUBTITLES_PLAN.md`):
-
-- How subtitles fit the app is **to be specified later by the owner**: whether and when a video
-  is subtitled, what a video-only (no audio) download gets, how subtitles go into a merged
-  video download, and soft or hard muxing. **Don't build subtitles into the main script before
-  that.**
-- Which timing source wins when a video has both an uploader's track and Whisper output.
-- Where a video's `.srt` goes: beside the transcript, or beside the video.
-- Whether burned-in subtitles are in the first release.
+Open, waiting on the owner: the decisions at the end of `docs/SUBTITLES_PLAN.md`.
+**Don't build subtitles into the main script until they are answered.**
 
 ## Known quirks
 
