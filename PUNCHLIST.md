@@ -65,3 +65,22 @@ into the main script until they are answered. "Me at the zoo" with subtitles, th
 | # | Item | Status |
 |---|---|---|
 | 4.1 | `AGENTS.md` (single source of guidance), `CLAUDE.md` pointer, `ponytail` declared for the repo, the `settings-sync` skill, this punchlist. | WRITTEN |
+
+## 5. Whole-codebase review (2 Oct 2026, nothing fixed yet)
+
+Found by a review of the whole codebase; ✓ was reproduced by running the code, the rest
+from reading it. Each fix needs a test that fails on the code as it is.
+
+| # | Item | Status |
+|---|---|---|
+| 5.1 | **Can lose a file.** Downloads are written straight into their folder without `_take_path`, so a local source queued later in the batch with the same name (video "Lecture", then `Audio/Lecture.m4a`) is overwritten, then deleted by `_convert_all`. Claiming download names also removes `merge()`'s `samefile` special case. | OPEN |
+| 5.2 | **Can lose a file.** `_convert_all` deletes the download once any format is written, though another asked for (`mp3,flac`, flac failing) did not land (invariant 3). | OPEN |
+| 5.3 | **Ends the batch.** `convert_media`'s in-place `os.replace` is unguarded: a OneDrive or Defender lock raises `PermissionError`, which `_run_pipeline` does not catch, and the sources after it are skipped (invariant 5). | OPEN |
+| 5.4 | A `DownloadFailed` partway through a pass skips `convert()` and `clear_temp_audio()`: the video-only file stays in the downloaded codec, and Audio/Temp is left full, unreported. | OPEN |
+| 5.5 | ✓ A double-quoted path is refused at the source prompt and the transcript and prompt pickers (Explorer's "Copy as path", drag and drop); the profile and folder prompts strip the quotes. | OPEN |
+| 5.6 | ✓ "Run again?" after a batch that ends on a transcript or local file keeps only `TARGET_LANGUAGE` and `KEEP_TRANSCRIPT`: `_Remembered.carry` reads the last pass's `cfg.url`. | OPEN |
+| 5.7 | "Run again?" never carries `PROMPT`, or a backend chosen at the console, so both are asked every round (`docs/USAGE.md` says a repeat asks only for the new source). | OPEN |
+| 5.8 | ✓ Two audio wordings for one stream (`medium,highest`, where medium is the top) make two identical merged files. | OPEN |
+| 5.9 | Tidy-ups: dependency errors go to stdout, not `error()`; `load_opening` runs ffmpeg without `FFMPEG_RUN` and no comment says why; `_same_file` repeats `_path_identity`; `audio_stream_for` rebuilds its selector on every call. | OPEN |
+| 5.10 | **Owner's decision.** `config.txt` is tracked, so its `.gitignore` line does nothing and a key typed into it is staged by `git add -A` (the committed copy is an empty template). Stop tracking it and let the app create it, ship `config.example.txt` instead, or leave it? Recommended: stop tracking it. | OPEN |
+| 5.11 | **Owner's decision.** `KEEP_TRANSCRIPT` left out of a profile means "ask", so a pre-1.2 profile that refines stops unattended (invariant 2). Should a missing value mean `y` (the old behaviour) or `n`? Recommended: `y`. | OPEN |
