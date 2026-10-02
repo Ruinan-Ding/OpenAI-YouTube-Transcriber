@@ -44,4 +44,4 @@ jobs:
         run: mypy
       # -ra lists every skip, so a test that could not run here is not
       # mistaken for one that passed
-      - run: python -m pytest -ra test_transcriber.py
+      - run: python -m pytest -ra test_transcriber.py test_subtitle_prototype.py

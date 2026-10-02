@@ -61,12 +61,22 @@ ABBREVIATIONS = {'mr.', 'mrs.', 'ms.', 'dr.', 'st.', 'jr.', 'prof.', 'vs.',
 # Each cue's text container: MP4 and its kin take only mov_text, WebM only WebVTT
 SUBTITLE_CODECS = {'.mp4': 'mov_text', '.m4v': 'mov_text', '.mov': 'mov_text',
                    '.mkv': 'srt', '.webm': 'webvtt'}
-# Containers name a language in three letters (ISO 639-2); Whisper and YouTube
-# give two. The common ones; anything else is tagged 'und', undetermined.
-LANGUAGE_TAGS = {'en': 'eng', 'fr': 'fre', 'de': 'ger', 'es': 'spa', 'it': 'ita',
-                 'pt': 'por', 'nl': 'dut', 'ru': 'rus', 'uk': 'ukr', 'pl': 'pol',
-                 'tr': 'tur', 'ar': 'ara', 'hi': 'hin', 'ja': 'jpn', 'ko': 'kor',
-                 'zh': 'chi', 'vi': 'vie', 'id': 'ind', 'th': 'tha', 'sv': 'swe'}
+# Containers name a language in three letters (ISO 639-2, the bibliographic
+# codes Matroska reads); Whisper and YouTube give two, which MP4 drops. Every
+# language Whisper knows, and the other two-letter codes YouTube uses most;
+# see _language_tag for the rest.
+LANGUAGE_TAGS = dict(pair.split(':') for pair in """
+    af:afr am:amh ar:ara as:asm az:aze ba:bak be:bel bg:bul bn:ben bo:tib br:bre
+    bs:bos ca:cat cs:cze cy:wel da:dan de:ger el:gre en:eng es:spa et:est eu:baq
+    fa:per fi:fin fo:fao fr:fre gl:glg gu:guj ha:hau he:heb hi:hin hr:hrv ht:hat
+    hu:hun hy:arm id:ind is:ice it:ita ja:jpn jw:jav ka:geo kk:kaz km:khm kn:kan
+    ko:kor la:lat lb:ltz ln:lin lo:lao lt:lit lv:lav mg:mlg mi:mao mk:mac ml:mal
+    mn:mon mr:mar ms:may mt:mlt my:bur ne:nep nl:dut nn:nno no:nor oc:oci pa:pan
+    pl:pol ps:pus pt:por ro:rum ru:rus sa:san sd:snd si:sin sk:slo sl:slv sn:sna
+    so:som sq:alb sr:srp su:sun sv:swe sw:swa ta:tam te:tel tg:tgk th:tha tk:tuk
+    tl:tgl tr:tur tt:tat uk:ukr ur:urd uz:uzb vi:vie yi:yid yo:yor zh:chi yue:chi
+    co:cos eo:epo fy:fry ga:gle gd:gla ig:ibo in:ind iw:heb ji:yid jv:jav ku:kur
+    ky:kir ny:nya or:ori rw:kin sm:smo st:sot ug:uig xh:xho zu:zul""".split())
 
 POLISH_PROMPT = """\
 You are correcting subtitles made by speech recognition. Each line of the input \
@@ -101,6 +111,12 @@ class Cue:
     text: str
 
 
+class BatchTooLong(Exception):
+    """A polish batch the backend would have cut into chunks. It cuts at
+    sentence ends, which fall inside a cue's line, and a cue lost "So we"
+    that way and still passed every check."""
+
+
 # Timing sources
 
 def whisper_cues(path: str, model_name: str = 'base', language: str | None = None,
@@ -118,17 +134,19 @@ def whisper_cues(path: str, model_name: str = 'base', language: str | None = Non
     result = model.transcribe(path, language=language, word_timestamps=not translate,
                               **options)
     segments = result.get('segments') or []
+    words: list[Word] = []
     if translate:
-        words = [word for segment in segments
-                 for word in segment_words(segment['start'], segment['end'], segment['text'])]
+        for segment in segments:
+            words += segment_words(segment['start'], segment['end'], segment['text'])
         return build_cues(words), 'en'
-    words = [word for segment in segments
-             for word in tighten([Word(word['start'], word['end'], word['word'])
-                                  for word in segment.get('words') or []])]
+    for segment in segments:
+        words += tighten([Word(word['start'], word['end'], word['word'])
+                          for word in segment.get('words') or []],
+                         floor=words[-1].end if words else 0.0)
     return build_cues(words), result.get('language')
 
 
-def tighten(words: list[Word]) -> list[Word]:
+def tighten(words: list[Word], floor: float = 0.0) -> list[Word]:
     """One segment's Whisper word times, with the silences they swallowed
     given back.
 
@@ -139,6 +157,10 @@ def tighten(words: list[Word]) -> list[Word]:
     than its letters account for is cut to that: from its end where nothing
     but zero-length words came before it, and otherwise from its start, so the
     silence after it reads as the pause it was.
+
+    Nothing moves back past `floor`, where the words before this segment
+    end: three words moved back from 0.15 s came out at -0.28 s, which an
+    .srt cannot hold.
     """
     words = [Word(word.start, word.end, word.text) for word in words]
     for index, word in enumerate(words):
@@ -149,8 +171,8 @@ def tighten(words: list[Word]) -> list[Word]:
             word.start = word.end - longest
             # The words snapped to the segment's start go just ahead of it
             for step, before in enumerate(reversed(words[:index])):
-                before.end = word.start - 0.15 * step
-                before.start = before.end - 0.15
+                before.end = max(floor, word.start - 0.15 * step)
+                before.start = max(floor, before.end - 0.15)
         else:
             word.end = word.start + longest
     return words
@@ -190,7 +212,8 @@ def json3_cues(payload: str) -> list[Cue]:
             # Summed in milliseconds: 1.2 + 2.16 is 3.3600000000000003
             start = event.get('tStartMs', 0)
             cues.append(Cue(start / 1000, (start + event.get('dDurationMs', 0)) / 1000, text))
-    return cues
+    # Each event is a window left open over the next; mov_text shows one at a time
+    return settle(cues, hold=False)
 
 
 def json3_words(events: list[dict[str, Any]]) -> list[Word]:
@@ -237,7 +260,7 @@ def vtt_cues(payload: str) -> list[Cue]:
                                for row in rows[timing + 1:]))
         if text:
             cues.append(Cue(_vtt_seconds(start), _vtt_seconds(end.split()[0]), text))
-    return cues
+    return settle(cues, hold=False)
 
 
 def _vtt_seconds(stamp: str) -> float:
@@ -286,6 +309,12 @@ def build_cues(words: list[Word]) -> list[Cue]:
                 cut = _clause_cut(current)
                 emit(current[:cut])
                 current = current[cut:]
+                # What is left fitted with the words cut off, but not always with
+                # this one too: "Yes." cut off left a 49-character line
+                if current and (not fits(_text(current + [word]))
+                                or word.end - current[0].start > MAX_CUE_SECONDS):
+                    emit(current)
+                    current = []
         current.append(word)
     if current:
         emit(current)
@@ -318,18 +347,25 @@ def _clause_cut(words: list[Word]) -> int:
     return len(words)
 
 
-def fits(text: str) -> bool:
-    """Whether text fits a cue's MAX_LINES (two) lines of MAX_LINE.
+def _width(text: str) -> int:
+    """How wide text shows: a full-width character (Chinese, Japanese, Korean)
+    takes two columns. Counted as one, a line held 42 of them, two and a half
+    times what a CJK subtitle line holds."""
+    return sum(2 if unicodedata.east_asian_width(char) in 'WF' else 1 for char in text)
 
-    Not its length against twice MAX_LINE: a line breaks only at a space, and
+
+def fits(text: str) -> bool:
+    """Whether text fits a cue's MAX_LINES (two) lines of MAX_LINE columns.
+
+    Not its width against twice MAX_LINE: a line breaks only at a space, and
     84 characters with none at the 42nd made a line of 44.
     """
     text = ' '.join(text.split())
-    if len(text) <= MAX_LINE:
+    if _width(text) <= MAX_LINE:
         return True
     if ' ' not in text:
-        return len(text) <= MAX_LINE * MAX_LINES
-    return any(index <= MAX_LINE and len(text) - index - 1 <= MAX_LINE
+        return _width(text) <= MAX_LINE * MAX_LINES
+    return any(_width(text[:index]) <= MAX_LINE and _width(text[index + 1:]) <= MAX_LINE
                for index, char in enumerate(text) if char == ' ')
 
 
@@ -340,29 +376,34 @@ def split_lines(text: str) -> str:
     middle. Text with no spaces (Chinese, Japanese) is cut at the middle.
     """
     text = ' '.join(text.split())
-    if len(text) <= MAX_LINE:
+    if _width(text) <= MAX_LINE:
         return text
     spaces = [index for index, char in enumerate(text) if char == ' ']
     if not spaces:
-        middle = len(text) // 2
-        return text[:middle] + '\n' + text[middle:]
+        middle = next(index for index in range(len(text))
+                      if _width(text[:index + 1]) * 2 >= _width(text))
+        return text[:middle + 1] + '\n' + text[middle + 1:]
 
     def cost(index: int) -> float:
-        left, right = text[:index], text[index + 1:]
-        overflow = max(len(left), len(right)) > MAX_LINE
-        punctuated = _ends(left, CLAUSE_END)
-        return abs(len(left) - len(right)) - (8 if punctuated else 0) + (1000 if overflow else 0)
+        left, right = _width(text[:index]), _width(text[index + 1:])
+        overflow = max(left, right) > MAX_LINE
+        punctuated = _ends(text[:index], CLAUSE_END)
+        return abs(left - right) - (8 if punctuated else 0) + (1000 if overflow else 0)
 
     best = min(spaces, key=cost)
     return text[:best] + '\n' + text[best + 1:]
 
 
-def settle(cues: list[Cue]) -> list[Cue]:
+def settle(cues: list[Cue], hold: bool = True) -> list[Cue]:
     """Each cue held LINGER past its last word and for at least
-    MIN_CUE_SECONDS, where the next leaves room, and none overlapping the next."""
+    MIN_CUE_SECONDS, where the next leaves room, and none overlapping the next.
+
+    `hold=False` only ends each cue before the next: timing someone wrote is
+    kept as written otherwise.
+    """
     for index, cue in enumerate(cues):
         limit = cues[index + 1].start - CUE_GAP if index + 1 < len(cues) else None
-        end = max(cue.end + LINGER, cue.start + MIN_CUE_SECONDS)
+        end = max(cue.end + LINGER, cue.start + MIN_CUE_SECONDS) if hold else cue.end
         if limit is not None:
             end = min(end, limit)
         cue.end = max(end, cue.start + 0.01)
@@ -375,22 +416,35 @@ def polish_cues(cues: list[Cue], ask: Callable[[str, str], str],
                 batch: int = 40) -> tuple[list[Cue], Counter[str]]:
     """Each cue's text corrected by a model, its timing untouched.
 
-    `ask(prompt, text)` is the model. Cues go in numbered batches, enough for
-    it to read whole sentences. A cue the reply leaves out, moves words into
-    or out of, or rewrites into words it was not, keeps its own text; returns
-    the cues and how many of each outcome there were.
+    `ask(prompt, text)` is the model, which raises when it fails. Cues go in
+    numbered batches, enough for it to read whole sentences, and in smaller
+    ones from the first the backend would have cut (BatchTooLong). A cue the
+    reply leaves out, moves words into or out of, or rewrites into words it
+    was not, keeps its own text; returns the cues and how many of each
+    outcome there were, a batch that failed counting as 'failed'.
     """
     result = list(cues)
     outcomes: Counter[str] = Counter()
-    for first in range(0, len(cues), batch):
+    first = 0
+    while first < len(cues):
         group = {first + offset + 1: _one_line(cue.text)
                  for offset, cue in enumerate(cues[first:first + batch])}
         numbered = '\n'.join(f'{number}|{text}' for number, text in group.items())
+        first += len(group)
         try:
             reply = ask(POLISH_PROMPT, numbered)
+        except BatchTooLong:
+            if batch > 1:
+                first -= len(group)
+                batch //= 2
+                continue
+            print(f"  Polish failed for cue {first}: too long for one request.")
+            outcomes['failed'] += 1
+            continue
         except Exception as e:  # a backend's own failure, whatever its library raises
-            print(f"  Polish failed for cues {first + 1}-{first + len(group)}: {e}")
-            reply = ''
+            print(f"  Polish failed for cues {first - len(group) + 1}-{first}: {e}")
+            outcomes['failed'] += len(group)
+            continue
         answers = parse_numbered(reply)
         moved = moved_cues(group, answers)
         for number, text in group.items():
@@ -484,15 +538,50 @@ def ai_asker(backend: str, local_model: str | None = None) -> Callable[[str, str
         load_dotenv(config, override=True)
     if backend == 'local':
         model = local_model or LocalModel.default().hf_model_id
-        return lambda prompt, text: transcriber.enhance_text(
-            text, AIEnhancementMode.LOCAL, prompt, local_model=model, keeps='words')
+        return _one_request(transcriber, lambda prompt, text: transcriber.enhance_text(
+            text, AIEnhancementMode.LOCAL, prompt, local_model=model, keeps='words'))
     provider = Provider.from_string(os.getenv('AI_PROVIDER')) or Provider.default()
     api_key = provider.resolve_api_key()
     if not api_key:
         raise SystemExit(f"No API key for {provider.key}: set API_KEY in {config}, "
                          f"or {provider.vendor_key_env}.")
-    return lambda prompt, text: transcriber.enhance_text(
-        text, AIEnhancementMode.API, prompt, api_key=api_key, provider=provider)
+    return _one_request(transcriber, lambda prompt, text: transcriber.enhance_text(
+        text, AIEnhancementMode.API, prompt, api_key=api_key, provider=provider))
+
+
+def _one_request(transcriber: YouTubeTranscriber,
+                 enhance: Callable[[str, str], str]) -> Callable[[str, str], str]:
+    """`enhance` made to send a batch in one request, and to raise when it fails.
+
+    The main script's backends cut text into chunks and hand back the input
+    for any chunk that fails, so a bad key or a cut-off reply read as forty
+    cues with nothing to fix. They all send their chunks through
+    _run_chunked_enhancement, which this replaces for the call.
+    ponytail: overrides a private method; at the port, give the backends a
+    single-request mode instead.
+    """
+    def ask(prompt: str, text: str) -> str:
+        sent: list[str] = []
+
+        def one(chunks: list[str], label: str, call_chunk: Callable[[str], str],
+                seams: list[str] | None = None) -> str:
+            if len(chunks) > 1:
+                raise BatchTooLong(f"{label} would send it in {len(chunks)} chunks")
+            reply = call_chunk(chunks[0])
+            if not reply:
+                raise RuntimeError(f"{label} sent nothing usable back (see above)")
+            sent.append(reply)
+            return reply
+
+        transcriber._run_chunked_enhancement = one  # type: ignore[method-assign,assignment]
+        try:
+            reply = enhance(prompt, text)
+        finally:
+            del transcriber._run_chunked_enhancement
+        if not sent:
+            raise RuntimeError("the AI backend did not run (see above)")
+        return reply
+    return ask
 
 
 # Writing and muxing
@@ -512,18 +601,44 @@ def _srt_time(seconds: float) -> str:
 def mux_soft(video: str, srt: str, output: str, language: str | None) -> str | None:
     """The video with the cues as a track a player can switch off.
 
-    Every stream is copied, so this takes seconds and loses nothing. A
-    container that holds no text subtitles gets Matroska, which holds any.
+    Every stream is copied, the video's own subtitles, fonts and chapters
+    among them, so this takes seconds and loses nothing. The new track is
+    the default only where the video had no subtitles of its own. A
+    container that holds no text subtitles is reported and left alone.
     """
-    stem, extension = os.path.splitext(output)
-    codec = SUBTITLE_CODECS.get(extension.lower())
+    codec = SUBTITLE_CODECS.get(os.path.splitext(output)[1].lower())
     if codec is None:
-        output, codec = stem + '.mkv', 'srt'
-    command = ['ffmpeg', '-y', '-v', 'error', '-i', video, '-i', srt,
-               '-map', '0:v', '-map', '0:a?', '-map', '1:0', '-c', 'copy', '-c:s', codec,
-               '-metadata:s:s:0', f'language={LANGUAGE_TAGS.get(language or "", "und")}',
-               output]
-    return _run_ffmpeg([command], output, 'add the subtitle track')
+        print(f"{os.path.basename(output)}: this container holds no subtitle track; "
+              f"use the .srt beside it.")
+        return None
+    # The new track comes after the video's own, and is numbered after them
+    new = _subtitle_streams(video)
+    base = ['ffmpeg', '-y', '-v', 'error', '-i', video, '-i', srt, '-map', '0']
+    tail = ['-map', '1:0', '-c', 'copy', f'-c:s:{new}', codec,
+            f'-metadata:s:s:{new}', f'language={_language_tag(language)}',
+            f'-disposition:s:{new}', '0' if new else 'default', output]
+    # A data stream (a timecode) the container cannot take is the one thing
+    # worth leaving out to get the track in
+    attempts = [base + tail, base + ['-map', '-0:d?'] + tail]
+    return _run_ffmpeg(attempts, output, 'add the subtitle track')
+
+
+def _subtitle_streams(video: str) -> int:
+    try:
+        probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 's',
+                                '-show_entries', 'stream=index', '-of', 'csv=p=0', video],
+                               capture_output=True, text=True, check=True, **FFMPEG_RUN)
+    except (subprocess.CalledProcessError, OSError):
+        return 0
+    return len(probe.stdout.split())
+
+
+def _language_tag(language: str | None) -> str:
+    """A container's three-letter code for a Whisper or YouTube language:
+    'en' and 'en-US' are 'eng'. A three-letter code is one already ('fil',
+    'haw'); anything else is 'und', undetermined."""
+    base = (language or '').split('-')[0].lower()
+    return LANGUAGE_TAGS.get(base) or (base if len(base) == 3 and base.isalpha() else 'und')
 
 
 def burn_in(video: str, srt: str, output: str,
@@ -536,12 +651,18 @@ def burn_in(video: str, srt: str, output: str,
     """
     with tempfile.TemporaryDirectory() as folder:
         shutil.copyfile(srt, os.path.join(folder, 'subs.srt'))
+        # 8-bit 4:2:0: a 10-bit source burned to High 10 H.264, which
+        # Windows' own player cannot play
         base = ['ffmpeg', '-y', '-v', 'error', '-i', os.path.abspath(video),
+                '-map', '0:v:0', '-map', '0:a?',
                 '-vf', f"subtitles=subs.srt:force_style='{style}'",
-                '-c:v', 'libx264', '-crf', '18', '-preset', 'medium']
+                '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p']
         target = os.path.abspath(output)
-        # The audio copied where MP4 takes it; re-encoded where it does not
-        attempts = [base + ['-c:a', 'copy', target], base + ['-c:a', 'aac', target]]
+        # The audio copied where MP4 plays it (not Opus), re-encoded where not
+        audio = YouTubeTranscriber.stream_codec(video, 'audio')
+        attempts = [base + ['-c:a', 'aac', target]]
+        if audio is None or YouTubeTranscriber.audio_plays_in(audio, 'mp4'):
+            attempts.insert(0, base + ['-c:a', 'copy', target])
         return _run_ffmpeg(attempts, output, 'burn in the subtitles', cwd=folder)
 
 

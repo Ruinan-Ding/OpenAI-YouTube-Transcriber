@@ -7,7 +7,8 @@ import sys
 import tempfile
 
 import subtitle_prototype as sp
-from subtitle_prototype import Cue, Word
+from OpenAIYouTubeTranscriber import YouTubeTranscriber
+from subtitle_prototype import BatchTooLong, Cue, Word
 
 
 class _Skipped(Exception):
@@ -33,7 +34,8 @@ def _assert_readable(cues):
     """Every cue fits the reading limits and leaves the next one room."""
     for cue in cues:
         lines = cue.text.split('\n')
-        assert len(lines) <= sp.MAX_LINES and all(len(line) <= sp.MAX_LINE for line in lines), cue
+        assert len(lines) <= sp.MAX_LINES and all(sp._width(line) <= sp.MAX_LINE
+                                                  for line in lines), cue
         assert cue.end > cue.start, cue
     for one, two in zip(cues, cues[1:]):
         assert one.end <= two.start - sp.CUE_GAP + 1e-9, (one, two)
@@ -67,6 +69,16 @@ def test_a_written_youtube_track_keeps_its_own_timing_and_lines():
     cues = sp.json3_cues(payload)
     assert cues == [Cue(1.2, 3.36, 'All right, so here we are, in front of the\nelephants'),
                     Cue(5.318, 7.974, 'the cool thing')], cues
+
+
+def test_overlapping_written_events_end_where_the_next_begins():
+    """YouTube leaves each event open over the next; mov_text shows one cue
+    at a time. The start, and an end that does not overlap, stay as written."""
+    payload = json.dumps({'events': [
+        {'tStartMs': 1000, 'dDurationMs': 6000, 'segs': [{'utf8': 'first'}]},
+        {'tStartMs': 2500, 'dDurationMs': 1000, 'segs': [{'utf8': 'second'}]},
+    ]})
+    assert sp.json3_cues(payload) == [Cue(1.0, 2.45, 'first'), Cue(2.5, 3.5, 'second')]
 
 
 def test_vtt_cues_keep_their_timing_and_skip_what_is_not_speech():
@@ -140,6 +152,22 @@ def test_a_titles_full_stop_ends_no_cue():
         'Mr. Búho was in charge of organizing the race and giving the start.'], cues
 
 
+def test_a_cue_left_after_a_cut_is_checked_again():
+    """A sentence cut off a full cue left the rest, and the word that did not
+    fit was added to it unchecked: a 43-character line. The same check
+    covers the time limit."""
+    words = [Word(0.0, 0.3, 'Yes.')] + [Word(0.3 + i * 0.3, 0.6 + i * 0.3, ' ' + 'x' * 9 + str(i))
+                                        for i in range(12)]
+    _assert_readable(sp.build_cues(words))
+
+
+def test_chinese_and_japanese_lines_are_measured_by_width():
+    """A full-width character takes two columns: counted as one, a line held 42."""
+    cues = sp.build_cues([Word(i * 0.2, i * 0.2 + 0.2, '今日は') for i in range(30)])
+    _assert_readable(cues)
+    assert max(len(line) for cue in cues for line in cue.text.split('\n')) <= sp.MAX_LINE // 2
+
+
 def test_whisper_words_give_back_the_silence_they_swallowed():
     """Whisper put "The" at the segment's start with no length and ran "cool"
     over a second and a half of silence after it."""
@@ -151,6 +179,17 @@ def test_whisper_words_give_back_the_silence_they_swallowed():
     assert (thing.start, thing.end) == (5.38, 5.60)
     # Stretched after speech, a word is cut from its start: the pause follows it
     assert hunts.start == 10.48 and hunts.end < 11.5, hunts
+
+
+def test_words_never_move_back_past_the_ones_before():
+    """Three zero-length words moved back 0.15 s each from 0.17 s reached -0.28 s,
+    which an .srt wrote as -1:59:59,720."""
+    first = [Word(0, 0, ' Um'), Word(0, 0, ' uh'), Word(0, 0, ' so'), Word(0, 0.5, ' a')]
+    assert all(word.start >= 0 and word.end >= 0 for word in sp.tighten(first))
+    later = [Word(5, 5, ' Um'), Word(5, 5, ' uh'), Word(5, 5, ' so'), Word(5, 5.5, ' a')]
+    assert all(word.start >= 4.9 for word in sp.tighten(later, floor=4.9))
+    srt = sp.to_srt(sp.build_cues(sp.tighten(first)))
+    assert '\n-' not in srt and '--> -' not in srt, srt
 
 
 def test_a_segment_is_shared_out_by_its_words_lengths():
@@ -217,7 +256,51 @@ def test_a_failed_polish_keeps_every_cue():
         raise RuntimeError('rate limited')
 
     polished, outcomes = sp.polish_cues(cues, model)
-    assert polished == cues and outcomes == {'missing': 2}, (polished, outcomes)
+    assert polished == cues and outcomes == {'failed': 2}, (polished, outcomes)
+
+
+def test_a_batch_the_backend_would_cut_goes_again_in_smaller_ones():
+    cues = [Cue(i, i + 1, f'cue {i}') for i in range(5)]
+    sizes = []
+
+    def model(prompt, text):
+        sizes.append(len(text.splitlines()))
+        if sizes[-1] > 2:
+            raise BatchTooLong('two chunks')
+        return text
+
+    polished, outcomes = sp.polish_cues(cues, model, batch=4)
+    assert sizes == [4, 2, 2, 1], sizes
+    assert polished == cues and outcomes == {'unchanged': 5}, outcomes
+
+
+def test_the_ai_backend_sends_one_request_and_raises_when_it_fails():
+    """The main script's backends hand back their input when a chunk fails,
+    which read as a batch with nothing to fix."""
+    transcriber = YouTubeTranscriber()
+
+    def backend(*chunks, reply='fixed'):
+        return lambda prompt, text: transcriber._run_chunked_enhancement(
+            list(chunks), 'stub', lambda chunk: reply)
+
+    assert sp._one_request(transcriber, backend('one'))('prompt', 'one') == 'fixed'
+    for enhance, error in ((backend('one', 'two'), BatchTooLong),
+                           (backend('one', reply=''), RuntimeError),
+                           # Set up wrong, it returns the text without sending it
+                           (lambda prompt, text: text, RuntimeError)):
+        try:
+            sp._one_request(transcriber, enhance)('prompt', 'one')
+        except error:
+            pass
+        else:
+            raise AssertionError(f'{enhance} did not raise {error.__name__}')
+    # The backend's own chunk loop is back once the request is done
+    assert '_run_chunked_enhancement' not in vars(transcriber)
+
+
+def test_language_tags():
+    assert [sp._language_tag(code) for code in ('en', 'en-US', 'el', 'iw', 'fil', 'xx', None)] \
+        == ['eng', 'eng', 'gre', 'heb', 'fil', 'und', 'und']
 
 
 def test_polish_goes_in_numbered_batches():
@@ -269,14 +352,36 @@ def test_subtitles_are_muxed_soft_and_burned_in():
         # An unknown language is 'und', which Matroska leaves out as its default
         mkv = sp.mux_soft(clip, srt, os.path.join(folder, 'soft.mkv'), 'xx')
         assert ('subtitle', 'subrip', None) in streams(mkv), streams(mkv)
-        # A container with no text subtitles becomes Matroska
-        avi = sp.mux_soft(clip, srt, os.path.join(folder, 'soft.avi'), 'en')
-        assert avi.endswith('soft.mkv'), avi
+        # A container with no text subtitles is left alone, not made Matroska
+        assert sp.mux_soft(clip, srt, os.path.join(folder, 'soft.avi'), 'en') is None
+        assert not os.path.exists(os.path.join(folder, 'soft.mkv').replace('soft', 'soft.avi'))
+        # A track the video already has is kept, and stays the default
+        both = sp.mux_soft(soft, srt, os.path.join(folder, 'both.mp4'), 'es')
+        subs = [s for s in streams(both) if s[0] == 'subtitle']
+        assert subs == [('subtitle', 'mov_text', 'eng'), ('subtitle', 'mov_text', 'spa')], subs
+        probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 's',
+                                '-show_entries', 'stream_disposition=default', '-of', 'csv=p=0',
+                                both], capture_output=True, check=True, text=True)
+        assert probe.stdout.split() == ['1', '0'], probe.stdout
 
         hard = sp.burn_in(clip, srt, os.path.join(folder, 'hard.mp4'))
         kinds = streams(hard)
         assert [kind for kind, _codec, _lang in kinds] == ['video', 'audio'], kinds
         assert os.path.getsize(hard) > 0
+
+        # A 10-bit source with Opus audio still burns to a file every player takes
+        rich = os.path.join(folder, 'rich.mkv')
+        made = subprocess.run(['ffmpeg', '-y', '-v', 'error',
+                               '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=10',
+                               '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+                               '-c:v', 'libx264', '-pix_fmt', 'yuv420p10le',
+                               '-c:a', 'libopus', '-shortest', rich], capture_output=True)
+        if made.returncode == 0:
+            hard = sp.burn_in(rich, srt, os.path.join(folder, 'rich hard.mp4'))
+            probe = subprocess.run(['ffprobe', '-v', 'error', '-show_entries',
+                                    'stream=codec_name,pix_fmt', '-of', 'csv=p=0', hard],
+                                   capture_output=True, check=True, text=True)
+            assert probe.stdout.split() == ['h264,yuv420p', 'aac'], probe.stdout
 
 
 if __name__ == '__main__':
