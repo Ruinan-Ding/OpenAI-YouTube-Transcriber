@@ -37,24 +37,27 @@ it.
 | 2.1 | A "Video Only" download whose audio cannot be removed is deleted and the failure reported, instead of kept with its audio. | WRITTEN |
 | 2.2 | YouTube's rolling captions, read as prose, keep each cue's restated text once. | WRITTEN |
 
-## 3. Subtitles (`feature/subtitles-prototype`, `5d912ad`)
+## 3. Subtitles (`feature/subtitles-prototype`, `f0bf28a`)
 
-A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. Not
-pushed. "Me at the zoo" with subtitles, three ways, is in
-`OpenAIYouTubeTranscriber/Video/Subtitled/` for the owner to watch.
+A standalone prototype, `subtitle_prototype.py`; the plan is `docs/SUBTITLES_PLAN.md`. Pushed
+to `5d912ad`; `f0bf28a` is local. "Me at the zoo" with subtitles, three ways, and "La liebre y
+la tortuga" with English and Spanish tracks are in `OpenAIYouTubeTranscriber/Video/Subtitled/`
+for the owner to watch.
 
 | # | Item | Status |
 |---|---|---|
 | 3.1 | Timed from a video's own written captions, cue timing kept as the uploader set it. Run on "Me at the zoo". | WRITTEN |
 | 3.2 | Timed from Whisper's word timestamps, with the silences Whisper stretches words over taken back out. Run on "Me at the zoo". | WRITTEN |
 | 3.3 | Timed from YouTube's own recognition (json3, a time per word). Checked on a real 3.5-minute track; not run through the whole prototype on such a video. | WRITTEN |
-| 3.4 | Whisper's English translation, timed by segment. Tests only. | WRITTEN |
+| 3.4 | Whisper's English translation, timed by segment. Run on a 108-second Spanish fable: `small` called the hare "the lion" throughout; `medium` translated it well, cues within about 0.3 s of the speech, 2 min 40 s on the CPU. | WRITTEN |
 | 3.5 | **Polish**: each cue's wording corrected by the AI backend, its timing kept. **Never run against a real model** (no API key on the development machine); tested with a stand-in. | WRITTEN |
 | 3.6 | Soft subtitles: a track the player can turn off (MP4, MKV, WebM). | WRITTEN |
 | 3.7 | Hard subtitles: burned into the picture, a separate file. | WRITTEN |
 | 3.8 | Prefer H.264 over AV1 when the video is downloaded to be subtitled, so Windows plays it without an extension. | OPEN |
 | 3.9 | Into the main script: settings, `.srt` beside the outputs, soft track by default (plan, phases 2-4). | OPEN |
 | 3.10 | Decisions: which timing source wins, where the `.srt` goes, whether hard subtitles are in the first release. | OPEN |
+| 3.11 | A full cue ends at its last sentence end, or its last clause end a third in, not mid-phrase ("...la liebre y la" / "tortuga." is gone), and "Mr." no longer ends a cue. Rerun on the Spanish fable, both languages. | WRITTEN |
+| 3.12 | Translation needs `medium` or larger (not `large-v3-turbo`, never trained to translate); the setting should not default to `base` for it. | OPEN |
 
 ## 4. Agent workflow (`chore/agent-workflow`)
 
