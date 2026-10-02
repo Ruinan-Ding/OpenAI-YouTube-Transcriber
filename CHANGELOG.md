@@ -116,10 +116,23 @@ regression test.
 - **Rolling captions are read once.** YouTube's captions restate the end of
   the cue before so a viewer can finish reading it; that text is now dropped
   wherever a cue begins with it, not only when a whole line repeats, and a
-  WebVTT cue's lines are read as one.
+  WebVTT cue's lines are read as one. A single word counts as restated only
+  when it was the whole cue before, so speech that says a word twice across
+  cues ("He had" / "had enough") keeps both.
+- **A double-quoted Windows path in a profile or `config.txt` keeps its
+  backslashes.** dotenv read `\t`, `\n` and the rest as escapes inside double
+  quotes - the quotes Explorer's "Copy as path" adds - so
+  `LOAD_PROFILE="C:\Users\me\new\work"` named a path with a newline in it,
+  `"\\server\share"` lost a backslash, and `"D:\"` was dropped unparsed.
+  Single-quoted and unquoted values read as before.
+- **`~` expands in Windows' own separators**: `~/clip.mp3` named the file
+  `C:\Users\me/clip.mp3` in every message and name built from it.
 
 ### Development
 
+- **CI runs the tests on Windows too**, beside Linux; the linters and mypy
+  run once, on Linux. The two path fixes above were found by running the
+  suite on Windows, where every Linux run had passed.
 - **`pyproject.toml` replaces `setup.py`.** Same package, module, data files
   and console command; the optional AI backends are now the `ai` extra
   (`pip install ".[ai]"`).

@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unicodedata
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -1676,10 +1677,16 @@ def test_youtube_publishes_a_transcript_only_for_the_language_it_was_spoken_in()
         'all right so here we are in front of the elephants')
 
     # Exercise cue-boundary overlaps of different lengths and ensure unrelated
-    # repeated words are not treated as rolling-cue duplication.
+    # repeated words are not treated as rolling-cue duplication. One shared
+    # word is a restatement only when it was the whole cue before: taken from
+    # any cue, the second "had" of "He had" / "had enough" was lost.
     cases = (
         ('we have some', 'we have some text', 'we have some text'),
-        ('once upon a time', 'time passed', 'once upon a time passed'),
+        ('so once upon a time', 'upon a time there was', 'so once upon a time there was'),
+        ('once upon a time', 'time passed', 'once upon a time time passed'),
+        ('He had', 'had enough.', 'He had had enough.'),
+        ('I told him no,', 'no, I will not.', 'I told him no, no, I will not.'),
+        ('Hello', 'hello there', 'Hello there'),
         ('birds are here', 'some birds flew', 'birds are here some birds flew'),
         ('same words', 'same words', 'same words'),
     )
@@ -1687,13 +1694,13 @@ def test_youtube_publishes_a_transcript_only_for_the_language_it_was_spoken_in()
         json3 = json.dumps({'events': [
             {'segs': [{'utf8': previous}]}, {'segs': [{'utf8': current}]},
         ]})
-        assert t.captions_to_text(json3, '.json3') == expected
+        assert t.captions_to_text(json3, '.json3') == expected, (previous, current)
         vtt = '\n'.join([
             'WEBVTT', '',
             '00:00:00.000 --> 00:00:01.000', previous, '',
             '00:00:01.000 --> 00:00:02.000', current, '',
         ])
-        assert t.captions_to_text(vtt, '.vtt') == expected
+        assert t.captions_to_text(vtt, '.vtt') == expected, (previous, current)
 
 
 def _caption_info(**over):
@@ -2320,6 +2327,51 @@ def test_the_config_txt_git_holds_is_blank():
     assert not filled, f'config.txt in git has a value in {filled}'
     assert shipped.stdout == 'LOAD_PROFILE=\n' + YouTubeTranscriber.CONFIG_TEMPLATE, \
         'config.txt in git has drifted from CONFIG_TEMPLATE'
+
+
+def test_a_double_quoted_windows_path_keeps_its_backslashes():
+    """dotenv reads \\t and \\n as escapes inside double quotes, the quotes
+    Explorer's "Copy as path" gives: C:\\Temp\\new came back holding a tab and
+    a newline, \\\\server lost a backslash, and "D:\\" was dropped unparsed."""
+    t = YouTubeTranscriber()
+    saved = r"C:\Prompts\it's #1.txt"
+    with tempfile.TemporaryDirectory() as tmp:
+        profile = os.path.join(tmp, 'profile.txt')
+        io.open(profile, 'w', encoding='utf-8').write('\n'.join([
+            r'VIDEO_PATH="C:\Temp\new folder"',
+            r'AUDIO_PATH="\\server\share\recordings"  # the NAS',
+            r'TRANSCRIPT_PATH="D:\"',
+            r'export VIDEO_ONLY_PATH = "C:\backup\videos"',
+            'URL=https://youtu.be/jNQXAC9IVRw',
+            # What the app writes is single-quoted, and reads back exactly
+            'PROMPT=' + t.env_value(saved),
+        ]) + '\n')
+        values = module._read_profile(profile)
+    assert values == {
+        'VIDEO_PATH': r'C:\Temp\new folder',
+        'AUDIO_PATH': r'\\server\share\recordings',
+        'TRANSCRIPT_PATH': 'D:\\',
+        'VIDEO_ONLY_PATH': r'C:\backup\videos',
+        'URL': 'https://youtu.be/jNQXAC9IVRw',
+        'PROMPT': saved,
+    }, values
+
+    # config.txt's LOAD_PROFILE, as copied from Explorer, names that path
+    asked = []
+    saved_env = os.environ.get('LOAD_PROFILE')
+    with tempfile.TemporaryDirectory() as home:
+        t.PROFILE_DIR = home
+        io.open(os.path.join(home, t.CONFIG_ENV), 'w', encoding='utf-8').write(
+            r'LOAD_PROFILE="C:\Users\me\new\profile-far.txt"' + '\n')
+        try:
+            with patch.object(module, '_profile_file',
+                              side_effect=lambda _t, name: asked.append(name)):
+                with redirect_stdout(io.StringIO()):
+                    module._select_profile(t, module.Session())
+        finally:
+            os.environ.pop('LOAD_PROFILE', None) if saved_env is None else os.environ.update(
+                LOAD_PROFILE=saved_env)
+    assert asked == [r'C:\Users\me\new\profile-far.txt'], asked
 
 
 def test_a_profile_can_be_named_by_its_full_path():
@@ -4866,7 +4918,8 @@ def test_a_download_reuses_the_metadata_already_fetched():
                        capture_output=True, check=True)
         info = {'id': 'abcdefghijk', 'title': 'clip', 'webpage_url': 'https://youtu.be/abcdefghijk',
                 'extractor': 'youtube', 'extractor_key': 'Youtube',
-                'formats': [{'format_id': '251', 'url': 'file://' + stream, 'ext': 'webm',
+                # as_uri, not 'file://' + path: C:\... after it is no URL
+                'formats': [{'format_id': '251', 'url': Path(stream).as_uri(), 'ext': 'webm',
                              'vcodec': 'none', 'acodec': 'opus', 'abr': 106.0,
                              'protocol': 'file'}]}
         t = YouTubeTranscriber()

@@ -7,7 +7,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows as well: its backslashes and drive letters are paths Linux never
+    # writes, and a quoted one was misread with every Linux run green
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       # The Node 24 majors: v4 and v5 run on Node 20, which Actions has deprecated
       - uses: actions/checkout@v7
@@ -17,7 +23,10 @@ jobs:
           cache: pip
 
       # The pipeline tests merge and re-encode real files
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
 
       # Whisper pulls torch; the CPU build is a tenth of the CUDA one and
       # satisfies the requirement below, so it is installed first
@@ -25,10 +34,14 @@ jobs:
       - run: pip install -r OpenAIYouTubeTranscriber/requirements.txt
       - run: pip install -r requirements-dev.txt
 
-      - run: flake8
-      - run: isort --check-only .
+      # The linters read the code, which is the same on both: once is enough
+      - if: runner.os == 'Linux'
+        run: flake8
+      - if: runner.os == 'Linux'
+        run: isort --check-only .
       # The configuration is pyproject.toml's [tool.mypy]
-      - run: mypy
+      - if: runner.os == 'Linux'
+        run: mypy
       # -ra lists every skip, so a test that could not run here is not
       # mistaken for one that passed
       - run: python -m pytest -ra test_transcriber.py
