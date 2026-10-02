@@ -108,6 +108,38 @@ def test_a_full_cue_is_cut_back_to_its_last_clause():
     _assert_readable(cues)
 
 
+def _spoken(text):
+    """text as words a quarter of a second each, with no pause between them."""
+    return [Word(i * 0.25, i * 0.25 + 0.25, (' ' if i else '') + word)
+            for i, word in enumerate(text.split())]
+
+
+def test_a_full_cue_is_cut_at_an_earlier_sentence_or_clause_not_mid_phrase():
+    """Both from a Spanish fable, where a cue had to be half full to be cut."""
+    cases = {
+        'la liebre empezó a pensar. Vio un claro en el bosque y se acostó bajo la sombra '
+        'de un árbol a descansar.':
+            ['la liebre empezó a pensar.',
+             'Vio un claro en el bosque y se acostó bajo la sombra de un árbol a descansar.'],
+        'Hola Gabriel, es tu papá, mira, hoy te voy a contar el cuento de la liebre y la '
+        'tortuga.':
+            ['Hola Gabriel, es tu papá, mira,',
+             'hoy te voy a contar el cuento de la liebre y la tortuga.'],
+    }
+    for text, expected in cases.items():
+        cues = sp.build_cues(_spoken(text))
+        assert [cue.text.replace('\n', ' ') for cue in cues] == expected, cues
+        _assert_readable(cues)
+
+
+def test_a_titles_full_stop_ends_no_cue():
+    cues = sp.build_cues(_spoken('but the turtle accepted. Mr. Búho was in charge of '
+                                 'organizing the race and giving the start.'))
+    assert [cue.text.replace('\n', ' ') for cue in cues] == [
+        'but the turtle accepted.',
+        'Mr. Búho was in charge of organizing the race and giving the start.'], cues
+
+
 def test_whisper_words_give_back_the_silence_they_swallowed():
     """Whisper put "The" at the segment's start with no length and ran "cool"
     over a second and a half of silence after it."""

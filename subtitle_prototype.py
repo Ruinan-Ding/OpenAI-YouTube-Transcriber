@@ -54,6 +54,9 @@ LONGEST_WORD = 1.5
 
 SENTENCE_END = '.!?…。！？'
 CLAUSE_END = SENTENCE_END + ',;:、，；：'
+# Titles whose full stop ends nothing: "Mr. Búho" is one name, not two sentences
+ABBREVIATIONS = {'mr.', 'mrs.', 'ms.', 'dr.', 'st.', 'jr.', 'prof.', 'vs.',
+                 'sr.', 'sra.', 'srta.', 'dra.'}
 
 # Each cue's text container: MP4 and its kin take only mov_text, WebM only WebVTT
 SUBTITLE_CODECS = {'.mp4': 'mov_text', '.m4v': 'mov_text', '.mov': 'mov_text',
@@ -254,7 +257,7 @@ def build_cues(words: list[Word]) -> list[Cue]:
 
     A cue ends at a pause, at MAX_CUE_SECONDS, or where its text would not
     fit MAX_LINES lines of MAX_LINE; a full cue is cut back to its last
-    sentence or clause end if that leaves it at least half full. A sentence
+    sentence end, or its last clause end a third in (_clause_cut). A sentence
     that ends with the cue at least a third full closes it too, so cues
     start where sentences do.
     """
@@ -274,7 +277,7 @@ def build_cues(words: list[Word]) -> list[Cue]:
             paused = word.start - current[-1].end >= PAUSE_BREAK
             too_long = (not fits(_text(current + [word]))
                         or word.end - current[0].start > MAX_CUE_SECONDS)
-            sentence_done = (current[-1].text.rstrip()[-1:] in SENTENCE_END
+            sentence_done = (_ends(current[-1].text, SENTENCE_END)
                              and len(_text(current)) >= capacity / 3)
             if paused or sentence_done:
                 emit(current)
@@ -293,13 +296,25 @@ def _text(words: list[Word]) -> str:
     return ' '.join(''.join(word.text for word in words).split())
 
 
+def _ends(text: str, marks: str) -> bool:
+    """Whether text ends on one of marks, a title's full stop aside."""
+    last = (text.split() or [''])[-1]
+    return last[-1:] in marks and last.lower() not in ABBREVIATIONS
+
+
 def _clause_cut(words: list[Word]) -> int:
-    """Where to end a cue that is full: after its last clause end in its
-    second half, or else after all of it."""
-    for index in range(len(words) - 1, 0, -1):
-        if (words[index - 1].text.rstrip()[-1:] in CLAUSE_END
-                and len(_text(words[:index])) >= len(_text(words)) / 2):
-            return index
+    """Where to end a cue that is full: after its last sentence end, or else
+    after its last clause end at least a third in, or else after all of it.
+
+    Asking either for half the cue cut "...bajo la sombra de un" / "árbol a
+    descansar." past an earlier sentence end, and left "tortuga." alone in
+    a cue of its own after "...de la liebre y la".
+    """
+    for marks, share in ((SENTENCE_END, 0.0), (CLAUSE_END, 1 / 3)):
+        for index in range(len(words) - 1, 0, -1):
+            if (_ends(words[index - 1].text, marks)
+                    and len(_text(words[:index])) >= len(_text(words)) * share):
+                return index
     return len(words)
 
 
@@ -335,7 +350,7 @@ def split_lines(text: str) -> str:
     def cost(index: int) -> float:
         left, right = text[:index], text[index + 1:]
         overflow = max(len(left), len(right)) > MAX_LINE
-        punctuated = left[-1:] in CLAUSE_END
+        punctuated = _ends(left, CLAUSE_END)
         return abs(len(left) - len(right)) - (8 if punctuated else 0) + (1000 if overflow else 0)
 
     best = min(spaces, key=cost)

@@ -30,6 +30,8 @@ Timing sources, best first:
 2. **Whisper**: per-word times (`word_timestamps=True`). For a translation into
    English, per segment only (Whisper warns that word times on translations
    may not be reliable), with words spread across the segment by length.
+   Tried on a Spanish fable: `small` mistranslates (the hare became "the lion");
+   `medium` reads well, its cues within about 0.3 s of the speech.
 3. **YouTube's speech recognition** (json3): per-word start times.
 
 Polish checks every reply line before using it. A cue keeps its original text
