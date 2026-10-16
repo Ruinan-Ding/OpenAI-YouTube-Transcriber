@@ -58,8 +58,10 @@ Video-only subtitles: soft, hard or both? [soft]:
 - **`VIDEO_SUB_WHISPER`**: a track for each Whisper transcript written, one per language in
   `TARGET_LANGUAGE`.
   - A transcription is timed word by word.
-  - Whisper's English translation is timed by segment, and needs the `medium` model or larger
-    (punchlist 3.12).
+  - Whisper's English translation is timed by segment. Multilingual `tiny`, `base` and
+    `small` also translate; `medium` or `large` are recommended for quality, and turbo is
+    not trained for translation. Model selection and fallback remain an owner decision
+    (punchlist 3.12); see [Whisper's guidance](https://github.com/openai/whisper#command-line-usage).
 - **`VIDEO_SUB_AI_REFINEMENT`**: a refined copy of each of those tracks. Each subtitle's
   wording is corrected and its timing is kept. It runs on the `AI_REFINEMENT` backend with a
   prompt of its own, not `PROMPT`: a summary or an explanation has no timing to keep. It refines
@@ -225,7 +227,7 @@ video, and each codec of the video-only file.
 Not specified yet, so not planned:
 - subtitles translated into other languages through the translator prompt;
 - preferring H.264 over AV1 when downloading a video to subtitle (punchlist 3.8);
-- warning when Whisper is asked to translate with a model too small for it (3.12).
+- translation model selection, fallback and any quality warning (3.12).
 
 ## Decisions for the owner
 

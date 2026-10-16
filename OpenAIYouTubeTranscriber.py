@@ -2183,7 +2183,8 @@ MODEL=
         return f'bestaudio[abr<={ceiling}]/bestaudio'
 
     def download_format(self, url: str, format_selector: str, output_dir: str,
-                        filename_stem: str, reuse: bool = False) -> str:
+                        filename_stem: str, reuse: bool = False,
+                        claim_path: Callable[[str], str] | None = None) -> str:
         """Download one yt-dlp format into output_dir, named after filename_stem.
 
         The extension is whatever the chosen stream actually is, not one we
@@ -2199,37 +2200,64 @@ MODEL=
         video's, whose file was then passed off as this one's.
         """
         os.makedirs(output_dir, exist_ok=True)
+        template = os.path.join(output_dir, filename_stem).replace('%', '%%') + '.%(ext)s'
         options = dict(self.YDL_OPTS, format=format_selector, overwrites=not reuse,
-                       outtmpl={'default': os.path.join(output_dir,
-                                                        filename_stem + ".%(ext)s")})
+                       outtmpl={'default': template})
 
         # The metadata this run already fetched, handed back as --load-info-json
         # does: extracted again for every download, one video with four
         # deliverables fetched its page and player four more times, and the
         # formats chosen could differ from the ones the names were made from
         info = getattr(self, '_video_info', {}).get(url)
+        scratch: tempfile.TemporaryDirectory[str] | None = None
         try:
             with yt_dlp.YoutubeDL(options) as ydl:
+                if claim_path is not None:
+                    if reuse and info:
+                        resolved = ydl.process_ie_result(ydl.sanitize_info(info), download=False)
+                        if resolved and resolved.get('ext'):
+                            target = claim_path(ydl.prepare_filename(resolved))
+                            if os.path.isfile(target) and os.path.getsize(target):
+                                return target
+                    # Even a claimed final name has .part and fragment sidecars:
+                    # yt-dlp consumed a queued source named after one of those.
+                    # Publish only the complete file; a retry reuses its ID cache above.
+                    scratch = tempfile.TemporaryDirectory(
+                        prefix='download-', dir=output_dir, ignore_cleanup_errors=True)
+                    ydl.params['outtmpl']['default'] = (
+                        os.path.join(scratch.name, filename_stem).replace('%', '%%')
+                        + '.%(ext)s')
                 # download() returns a status code; the resolved filename is
                 # only on the info dict the extraction hands back
                 downloaded = (ydl.process_ie_result(ydl.sanitize_info(info), download=True)
                               if info else ydl.extract_info(url, download=True))
+            requested = (downloaded or {}).get('requested_downloads') or [{}]
+            path = requested[0].get('filepath')
+            if not path or not os.path.exists(path) or not os.path.getsize(path):
+                error(f"Error: the download did not produce a usable file in {output_dir}")
+                raise DownloadFailed(f"no usable file produced in {output_dir}")
+            if scratch is not None:
+                assert claim_path is not None
+                target = claim_path(os.path.join(output_dir, os.path.basename(path)))
+                os.replace(path, target)
+                path = target
+            return path
         except yt_dlp.utils.DownloadError as e:
             error(f"Error: YouTube refused the download: {str(e)}")
             print("If this persists, YouTube may have changed something. "
                   "Try: pip install --upgrade yt-dlp")
             raise DownloadFailed("YouTube refused the download") from e
-
-        requested = (downloaded or {}).get('requested_downloads') or [{}]
-        path = requested[0].get('filepath')
-        if not path or not os.path.exists(path):
-            error(f"Error: the download did not produce a file in {output_dir}")
-            raise DownloadFailed(f"no file produced in {output_dir}")
-        return path
+        except OSError as e:
+            error(f"Error saving the download in {output_dir}: {e}")
+            raise DownloadFailed('the download could not be saved') from e
+        finally:
+            if scratch is not None:
+                scratch.cleanup()
 
     def download_audio_stream(self, info: Info, filename_stem: str, is_temp: bool = False,
                               format_selector: str = 'bestaudio/best',
-                              keep_in: str | None = None) -> tuple[str, str]:
+                              keep_in: str | None = None,
+                              claim_path: Callable[[str], str] | None = None) -> tuple[str, str]:
         """Download an audio stream (optionally to the temp directory).
 
         The default 'bestaudio' keeps yt-dlp's preference for the
@@ -2248,8 +2276,12 @@ MODEL=
         if reuse:
             filename_stem = f"{filename_stem} [{info['id']}]"
 
+        # Supplied metadata also resolves a retry's name before staging, so an
+        # existing cache is reused rather than downloading the stream again.
+        self.__dict__.setdefault('_video_info', {}).setdefault(info['webpage_url'], info)
         relative_path = self.download_format(
-            info['webpage_url'], format_selector, output_dir, filename_stem, reuse=reuse)
+            info['webpage_url'], format_selector, output_dir, filename_stem, reuse=reuse,
+            claim_path=claim_path)
 
         absolute_path = os.path.abspath(relative_path)
         print(f"Audio downloaded to {absolute_path}")
@@ -2381,9 +2413,16 @@ MODEL=
             return self._discard(path)
         if audio_codec is None:
             return path
-        stem, extension = os.path.splitext(path)
-        silent = f"{stem}.silent{extension}"
+        _stem, extension = os.path.splitext(path)
         print(f"Removing the audio {os.path.basename(path)} arrived with...")
+        try:
+            # A predictable .silent name overwrote an unrelated queued source.
+            handle, silent = tempfile.mkstemp(suffix=extension, prefix='.silent-',
+                                              dir=os.path.dirname(path) or '.')
+            os.close(handle)
+        except OSError as e:
+            error(f"Error: could not prepare an audio-free copy of {os.path.basename(path)}: {e}")
+            return self._discard(path)
         try:
             subprocess.run(['ffmpeg', '-y', '-i', path, '-c', 'copy', '-an', silent],
                            capture_output=True, check=True, **FFMPEG_RUN)
@@ -2465,7 +2504,14 @@ MODEL=
             print(f"Skipping {os.path.basename(target)}: it is the source file itself.")
             return None
         if in_place:
-            target = os.path.join(output_dir, f"{filename_stem}.converting.{container}")
+            try:
+                # .converting was somebody else's file, overwritten then moved away.
+                handle, target = tempfile.mkstemp(suffix=f'.{container}', prefix='.converting-',
+                                                  dir=output_dir)
+                os.close(handle)
+            except OSError as e:
+                error(f"Error preparing the conversion of {os.path.basename(source)}: {e}")
+                return None
 
         last_error = ""
         for extra in attempts:
@@ -2477,7 +2523,7 @@ MODEL=
                 continue
             except OSError:
                 error("Error running ffmpeg")
-                return None
+                return self._discard(target)
             # ffmpeg can exit 0 having written nothing usable - an encoder that
             # only warns on a codec its container will not hold, a truncated
             # write. The caller deletes the source on our word, so an empty
@@ -2487,7 +2533,12 @@ MODEL=
                 self._discard(target)
                 continue
             if in_place:
-                os.replace(target, source)
+                try:
+                    os.replace(target, source)
+                except OSError as e:
+                    # OneDrive or a player may hold the source open after ffmpeg finishes.
+                    error(f"Error replacing {os.path.basename(source)} after conversion: {e}")
+                    return self._discard(target)
                 return source
             return target
 
@@ -5043,12 +5094,12 @@ def _path_identity(path: str) -> str:
 def _file_key(path: str) -> tuple[str, str]:
     """Where a path puts its file, to tell two paths to one file apart.
 
-    The folder is resolved through symlinks, and the name compared without
+    The path is resolved through symlinks, and the name compared without
     regard to case, which Windows and macOS do not tell apart. Treating two
     names that differ only in case as one file costs a suffix at worst.
     """
-    folder, name = os.path.split(os.path.abspath(os.path.expanduser(path)))
-    return os.path.normcase(os.path.realpath(folder)), name.casefold()
+    folder, name = os.path.split(os.path.realpath(os.path.expanduser(path)))
+    return os.path.normcase(folder), name.casefold()
 
 
 # The deliverable a batch source holds its own path as, until it is read
@@ -5068,7 +5119,7 @@ def _reserve_sources(cfg: SessionConfig) -> None:
 
 
 def _take_path(cfg: SessionConfig, path: str, what: object,
-               discriminator: str | None = None) -> str:
+               discriminator: str | None = None, source: str | None = None) -> str:
     """The path one deliverable is written to: `path`, unless the batch has
     given it to another.
 
@@ -5088,6 +5139,11 @@ def _take_path(cfg: SessionConfig, path: str, what: object,
     for candidate in variants:
         key = _file_key(candidate)
         holder = cfg.taken.get(key)
+        if (source is not None and holder is not None and holder[0] == cfg.identity
+                and _same_file(candidate, source)):
+            # The conversion may replace its own download. Keep its reservation
+            # so a repeat can reuse that download's name, not take a numbered copy.
+            return candidate
         if holder in (None, owner, (cfg.identity, _SOURCE)):
             cfg.taken[key] = owner
             return candidate
@@ -5147,6 +5203,7 @@ class _Pass:
         # Audio fetched only to merge or to transcribe, rather than to keep
         self.temp_audio_paths: list[str] = []
         self.transcription_failed = False
+        self.incomplete = False
         # One download per distinct stream, shared by every deliverable that
         # wants it, and kept as downloaded until the last of them has been written
         self.video_only_files: dict[str, str] = {}
@@ -5294,9 +5351,11 @@ class _Pass:
             downloaded = transcriber.download_format(
                 self.url, transcriber.video_format(res),
                 self.dir_for("video_only", transcriber.VIDEO_WITHOUT_AUDIO_DIR),
-                self.stem_for("video_only") + transcriber.quality_tag(res) + " - Video Only")
+                self.stem_for("video_only") + transcriber.quality_tag(res) + " - Video Only",
+                claim_path=functools.partial(_take_path, cfg, what=('download', 'video', res)))
             video_only = transcriber.strip_audio(downloaded)
             if video_only is None:
+                self.incomplete = True
                 continue
             self.video_only_files[res] = video_only
             print(f"Video downloaded to {os.path.abspath(video_only)}")
@@ -5333,7 +5392,9 @@ class _Pass:
             self.audio_files[stream], _ = transcriber.download_audio_stream(
                 self.info, self.audio_stem_for(tier), is_temp=False,
                 format_selector=transcriber.audio_format(tier, self.info),
-                keep_in=self.dir_for("audio", transcriber.AUDIO_DIR))
+                keep_in=self.dir_for("audio", transcriber.AUDIO_DIR),
+                claim_path=functools.partial(_take_path, self.cfg,
+                                             what=('download', 'audio', stream)))
             self.saved_audio_files.append((tier, self.audio_files[stream]))
 
         for tier in self.merge_audio:
@@ -5341,7 +5402,9 @@ class _Pass:
             if stream not in self.audio_files:
                 self.audio_files[stream], _ = transcriber.download_audio_stream(
                     self.info, self.audio_stem_for(tier), is_temp=True,
-                    format_selector=transcriber.audio_format(tier, self.info))
+                    format_selector=transcriber.audio_format(tier, self.info),
+                    claim_path=functools.partial(_take_path, self.cfg,
+                                                 what=('download', 'temp_audio', stream)))
                 self.temp_audio_paths.append(self.audio_files[stream])
             self.merge_files[tier] = self.audio_files[stream]
 
@@ -5360,27 +5423,20 @@ class _Pass:
                     container = (os.path.splitext(self.video_files[res])[1].lstrip('.')
                                  if chosen == transcriber.FORMAT_ORIGINAL
                                  else transcriber.format_extension(chosen) or chosen)
-                    for fmt in (chosen if merge_shares else None, chosen):
-                        output = os.path.join(
-                            self.dir_for("video", transcriber.VIDEO_DIR),
-                            self.stem_for("video") + transcriber.quality_tag(
-                                res, *self.audio_marks(tier), fmt) + f".{container}")
-                        # The audio saved to the same folder in the same container
-                        # can have this very name: ffmpeg refused to write over its
-                        # own input, and the failed merge's cleanup deleted that
-                        # input. The format tag tells the merge apart.
-                        if not (os.path.exists(output) and any(
-                                os.path.samefile(output, audio)
-                                for audio in self.audio_files.values()
-                                if os.path.exists(audio))):
-                            break
+                    output = os.path.join(
+                        self.dir_for("video", transcriber.VIDEO_DIR),
+                        self.stem_for("video") + transcriber.quality_tag(
+                            res, *self.audio_marks(tier), chosen if merge_shares else None)
+                        + f".{container}")
                     # Taken before the audio converted after it can take it
-                    output = _take_path(cfg, output, ("merge", res, tier, chosen))
+                    output = _take_path(cfg, output, ("merge", res, tier, chosen),
+                                        transcriber.quality_tag(chosen))
                     # Every merge reads the streams as downloaded, so the scratch
                     # copies are cleared once afterwards rather than by the first
                     if transcriber.combine_audio_video(self.video_files[res],
                                                        self.merge_files[tier],
                                                        output) is None:
+                        self.incomplete = True
                         error(f"Error: the merged video was not created at {output}")
 
     def speech_audio_file(self) -> str:
@@ -5394,7 +5450,10 @@ class _Pass:
                 # to save bandwidth would defeat the point
                 self.audio_path, _ = transcriber.download_audio_stream(
                     self.info, self.audio_stem_for(self.speech_audio), is_temp=True,
-                    format_selector=transcriber.audio_format(self.speech_audio, self.info))
+                    format_selector=transcriber.audio_format(self.speech_audio, self.info),
+                    claim_path=functools.partial(
+                        _take_path, cfg,
+                        what=('download', 'temp_audio', self.audio_stream_for(self.speech_audio))))
                 self.temp_audio_paths.append(self.audio_path)
             self.speech_file = self.audio_path
         elif transcriber.is_valid_media_file(self.url):
@@ -5479,31 +5538,57 @@ class _Pass:
         chosen = self.formats(raw, default) if made else []
         share = _shared_container(transcriber, chosen, kind)
         for quality, source in made:
+            cfg.taken.setdefault(_file_key(source), (cfg.identity, ('download', kind, quality)))
             written: list[str] = []
+            replacement: str | None = None
             for fmt in chosen:
                 if fmt == transcriber.FORMAT_ORIGINAL:
                     written.append(source)
                     continue
                 stem = name_for(quality, fmt if share else None)
                 extension = _container_of(transcriber, fmt, kind)
+                nominal = os.path.join(folder, f"{stem}.{extension}")
                 # AUDIO_PATH and VIDEO_PATH one folder, one container for both:
                 # the audio was written over the merged video
-                target = _take_path(cfg, os.path.join(folder, f"{stem}.{extension}"),
+                target = _take_path(cfg, nominal,
                                     ("convert", kind, quality, fmt),
-                                    " - Audio" if kind == "audio" else None)
+                                    " - Audio" if kind == "audio" else None,
+                                    source=source if len(chosen) == 1 else None)
                 stem = os.path.basename(target)[:-len(extension) - 1]
                 print(f"Re-encoding {os.path.basename(source)} to {fmt}...")
                 converted = transcriber.convert_media(source, fmt, kind, folder, stem)
                 if converted:
                     print(f"Saved {os.path.abspath(converted)}")
                     written.append(converted)
-            # Nothing converted, so the file as downloaded is all there is:
-            # keeping it beats ending the run with neither
-            if written and source not in written and os.path.exists(source):
+                    if len(chosen) > 1 and _same_file(nominal, source):
+                        replacement = converted
+                else:
+                    self.incomplete = True
+            complete = len(written) == len(chosen)
+            if complete and replacement is not None:
+                # A same-container result keeps its usual name, but only after
+                # every other format landed: swapping sooner lost the download
+                # a failed later conversion still needed for a retry.
+                try:
+                    os.replace(replacement, source)
+                except OSError as e:
+                    error(f"Error replacing the pre-conversion file: {e}")
+                    self.incomplete = True
+                    complete = False
+                else:
+                    written[written.index(replacement)] = source
+                    print(f"Saved {os.path.abspath(source)}")
+            # A partial success still needs the original download for a retry;
+            # retire it only when every requested replacement landed.
+            if (complete and written
+                    and not any(_same_file(source, path) for path in written)
+                    and os.path.exists(source)):
                 try:
                     os.remove(source)
                 except OSError as e:
                     print(f"Note: could not remove the pre-conversion file: {str(e)}")
+            elif not complete and os.path.exists(source):
+                print(f"Keeping the download for retry: {os.path.abspath(source)}")
 
     def clear_temp_audio(self) -> None:
         """Delete the audio fetched only to merge or to transcribe.
@@ -5514,7 +5599,7 @@ class _Pass:
         for path in dict.fromkeys(self.temp_audio_paths):
             if not os.path.exists(path):
                 continue
-            if self.transcription_failed:
+            if self.transcription_failed or self.incomplete:
                 print(f"Keeping downloaded audio for retry: {os.path.abspath(path)}")
                 continue
             try:
@@ -5542,25 +5627,34 @@ def _run_one(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
         return
 
     run = _Pass(transcriber, cfg)
-    if cfg.is_local_file:
-        _local_deliverables(transcriber, cfg, run.filename_base)
-    run.fetch_video()
-    run.fetch_audio()
-    run.merge()
-    _clear_video_scratch(transcriber, cfg)
+    try:
+        if cfg.is_local_file:
+            _local_deliverables(transcriber, cfg, run.filename_base)
+        run.fetch_video()
+        run.fetch_audio()
+        run.merge()
+        _clear_video_scratch(transcriber, cfg)
 
-    # A list can mix a video with a local file, and DOWNLOAD_YT_TRANSCRIPT was
-    # answered for the video: this pass has no metadata to read captions out of
-    if cfg.yt_transcript_languages and not cfg.is_local_file:
-        _save_yt_transcripts(transcriber, cfg, run.stem_for("transcript"))
+        # A list can mix a video with a local file, and DOWNLOAD_YT_TRANSCRIPT was
+        # answered for the video: this pass has no metadata to read captions out of
+        if cfg.yt_transcript_languages and not cfg.is_local_file:
+            _save_yt_transcripts(transcriber, cfg, run.stem_for("transcript"))
 
-    run.transcribe()
-    # Re-encode the standalone files last, so the merge and the transcription
-    # both worked from the stream as downloaded rather than a second-generation
-    # copy of it
-    run.convert()
-    run.clear_temp_audio()
-    print("Tasks complete.")
+        run.transcribe()
+    except (DownloadFailed, yt_dlp.utils.DownloadError, EOFError):
+        run.incomplete = True
+        raise
+    finally:
+        # A later fetch failing still owes the completed standalone downloads
+        # their formats. Keep retry audio when the work using it did not finish.
+        try:
+            run.convert()
+        finally:
+            run.clear_temp_audio()
+            if run.incomplete or run.transcription_failed:
+                error(f"Source incomplete: {run.url}")
+    if not run.incomplete and not run.transcription_failed:
+        print("Tasks complete.")
 
 
 def _save_inline_prompts(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:

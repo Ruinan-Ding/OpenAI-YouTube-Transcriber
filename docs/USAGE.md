@@ -216,6 +216,15 @@ Anything fetched below the best available quality is labelled with what it actua
 so downloads of the same video at different settings sit side by side:
 `Title [144p 60k].mp4`, `Title [60k].mp3`, `Title [144p] - Video Only.webm`.
 
+Downloads and retry audio cannot overwrite another output or a local source queued in the
+same batch. Conversion cleanup removes only its own scratch files. When one requested
+format fails, the original download and successful formats are kept.
+
+If a later download fails, complete standalone files already fetched are converted once,
+the source is reported as incomplete, and temporary audio needed for a retry is kept. A
+failed conversion or a file lock that prevents replacement is reported and the batch
+continues. See [Output Files](../README.md#output-files) for the preservation rules.
+
 ## Examples
 
 **Transcribe a YouTube video, downloading nothing:**

@@ -1,109 +1,147 @@
-> **Handoff prompt for Codex, written 2 Oct 2026 (at c79e56a).** Paste it into Codex as it is.
-> It is a snapshot: `AGENTS.md` and `PUNCHLIST.md` are kept current, and win where they differ.
+# Claude and Codex handoff
 
-You're picking up work on OpenAI-YouTube-Transcriber (github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber) from a Claude Code session. Everything below was committed and pushed as of c79e56a on `main`, with CI (Linux and Windows) green on it.
+> **Status: refreshed 15 Oct 2026; application review baseline remains `8d0b2d1`.** This
+> extends the 3 Oct review/safety snapshot (which replaced 2 Oct's `c79e56a` snapshot).
+> The combined safety/workflow delivery was rechecked on 15 Oct below. Git history and the
+> GitHub pull request record publication/CI state; the punchlist records owner acceptance.
 
-## Read first, in this order
+## Read first
 
-1. `AGENTS.md`: the single source of guidance for agents here. It covers how to work, the commands, the nine architecture invariants, the owner's decisions and the known quirks. It is binding.
-2. `PUNCHLIST.md`: what is in flight, each item OPEN, WRITTEN or SEEN.
-3. `docs/SUBTITLES_PLAN.md`: the subtitle feature. It holds the owner's specification and the plan, and ends with 10 open decisions.
-4. `CHANGELOG.md`, the [Unreleased] section.
+1. [AGENTS.md](../AGENTS.md): the source of agent guidance, architecture invariants and
+   owner decisions. Its Claude workflow uses the actual ponytail plugin; this handoff does
+   not substitute a checklist for it.
+2. [SCRUM_WORKFLOW.md](../SCRUM_WORKFLOW.md) and [backlog](../SCRUM_BACKLOG.md): Claude's
+   team, BDD/TDD delivery process and current goals/story; start with `/scrum <task>`.
+3. [PUNCHLIST.md](../PUNCHLIST.md): current work and evidence, with OPEN, WRITTEN and SEEN
+   defined there.
+4. [Subtitle plan](SUBTITLES_PLAN.md): the proposed integration and its ten unanswered
+   decisions. The eight proposed settings are not in the application yet.
+5. [Development setup](../DEV.md), then [CHANGELOG.md](../CHANGELOG.md), `[Unreleased]`.
 
-`CLAUDE.md` only points to `AGENTS.md`. `.claude/` holds Claude Code settings. One file there matters to you: `.claude/skills/settings-sync/SKILL.md` is a plain checklist for adding, renaming or removing a profile field. Follow it whenever you touch a setting.
+`CLAUDE.md` points to `AGENTS.md`. For any setting change, read
+[settings-sync](../.claude/skills/settings-sync/SKILL.md). Use the required Claude plugin
+workflow from `AGENTS.md`, plus correctness review of data preservation and failure handling:
+ponytail's review and audit cover overengineering, not general correctness.
 
-`AGENTS.md` says to run the `ponytail` plugin. That's a Claude Code plugin you don't have, so apply what it stands for instead:
-- make the smallest change that works;
-- reuse what the script already has;
-- use the standard library before writing new code;
-- add no dependencies or abstractions nobody asked for;
-- fix a bug at its root, in the shared function every caller goes through;
-- leave one test that fails if the logic breaks.
+## Verified starting state
 
-## Ground rules
+At the review baseline, the checkout was clean at `8d0b2d1`; local `main`,
+`feature/subtitles` and cached origin references pointed there. Cached references are not a
+fresh check of GitHub. Windows Python checks passed: **147 tests passed, 2 symlink tests
+skipped**, with flake8, isort and mypy clean. These are automated baseline checks, not owner
+acceptance or evidence that the newly found defects are fixed. Mypy checks both the app and
+`subtitle_prototype.py`; CI details and commands are in `DEV.md`.
 
-These come from `AGENTS.md`; they are the ones most often broken.
+The owner works in `C:\Users\DRuin\OneDrive\Documents\OpenAI-YouTube-Transcriber`.
+The existing application Python is
+`C:\Users\DRuin\AppData\Local\Programs\Python\Python312\python.exe`, with the runtime
+and checking tools installed. Ffmpeg and ffprobe are on PATH through Scoop. Follow `DEV.md`
+for an isolated development environment; do not install pre-commit into that existing Python.
 
-- **The owner decides what the app does**: a file name, a default, what a blank field means, whether something is deleted. If the Decisions section of `AGENTS.md` doesn't settle it, ask. Don't pick a "reasonable default".
-- **Record each decision** in the Decisions section of `AGENTS.md` the turn it's made.
-- **Only the owner moves a punchlist item to SEEN.** Say what you ran and what you didn't.
-- **The owner is on Windows.** CI runs on Linux and Windows. Test anything involving paths, quotes, file names or subprocesses on Windows.
-- **Don't build subtitles into `OpenAIYouTubeTranscriber.py`** until the owner has answered the 10 decisions in `docs/SUBTITLES_PLAN.md`.
-- **Never print API keys.** `OpenAIYouTubeTranscriber/Profile/config.txt` can hold them.
-- **Don't rewrite pushed history** (no amend plus force-push). Fix forward with a new commit.
-- **Commit or push only when the owner asks.**
+Earlier fixes and the prototype were merged directly; those are historical exceptions to the
+owner's PR decision. If `gh` is unauthenticated, create the PR through GitHub in the browser.
+Commit and push only when requested; fix forward without rewriting pushed history.
+Leave the local `fix/yt-dlp-migration` stash and locally excluded `test.txt` alone.
+Do not print configuration contents or API keys.
 
-## Commands
+## Delivery checks (15 Oct 2026)
 
-- **Lint, as CI does:** `flake8`, then `isort --check-only .`, then `mypy`. mypy checks only the main script; its configuration is in `pyproject.toml`.
-- **Tests, as CI does:** `python -m pytest -ra test_transcriber.py test_subtitle_prototype.py`
-- **`make test` and `make lint`** run the same as CI.
+The owner requested commit, push and merge of the pending safety/workflow changes. The
+delivery was prepared on `fix/pre-subtitle-media-safety` from `8d0b2d1`, with these fresh
+Windows Python 3.12 results: **159 passed, 3 symlink skips**, clean flake8/isort/mypy and
+the main tests passing as a plain script. Workflow YAML/JSON/link checks also pass. The
+fresh real application/profile smoke produced ten valid outputs from two local sources,
+preserving both originals and audio-free video-only files. The 3 Oct reproduction evidence
+below retains its original date.
 
-On the owner's machine:
-- **The repo** is `C:\Users\DRuin\OneDrive\Documents\OpenAI-YouTube-Transcriber`.
-- **The Python** with every dependency is `C:\Users\DRuin\AppData\Local\Programs\Python\Python312\python.exe`. It has flake8, isort, pytest, mypy, whisper and yt_dlp; ffmpeg and ffprobe are on PATH via scoop.
-- **Don't install pre-commit** into that Python: it upgrades filelock from 3 to 4, which torch and huggingface_hub rely on.
-- **Expect 147 passed, 2 skipped** on Windows. The two skips are symlink tests.
-- **`gh` isn't logged in** there, so branches have been merged into `main` directly, without pull requests.
+Publication follows the PR policy: check the GitHub PR/commit history for the actual CI and
+merge result, rather than treating this preparation snapshot as proof of publication.
+Owner-SEEN, live Claude team execution and live AI polish remain separate observations.
 
-## What happened this session
+## Claude Scrum setup (15 Oct 2026)
 
-1. **Media fixes** and a tidy-up of their tests, on `main` (f3bc322, 729070b).
-2. **Merged `fix/windows-paths-and-captions`:**
-   - A double-quoted Windows path in a profile or `config.txt` keeps its backslashes. python-dotenv had been decoding `\t` and `\n` inside them; the fix is `_env_text`.
-   - `~` expands in Windows separators (`_expand_home`).
-   - Captions read as prose keep a word said twice across two cues.
-   - CI gained a windows-latest job.
-3. **Merged `chore/agent-workflow`:** `AGENTS.md`, the `CLAUDE.md` pointer, `PUNCHLIST.md` and the settings-sync skill, with ponytail declared in `.claude/settings.json`.
-4. **Merged `feature/subtitles-prototype`:** `subtitle_prototype.py`, with `test_subtitle_prototype.py`. It is standalone: nothing in the main script calls it.
-   - **Timing** comes from Whisper's word timestamps, or from YouTube's captions (json3 or VTT). For Whisper, `tighten` gives back the silences Whisper stretches words over.
-   - **Cues** are cut to at most 2 lines of 42 columns and 7 seconds each.
-   - **Polish** (optional) corrects each cue's wording with the AI backend and keeps its timing.
-   - **Output:** an .srt, a soft track muxed in, or a burned-in hard copy.
-   - **Fixed since:** cues now break at sentence ends, and not after "Mr.". A review then found ten bugs, fixed in fb09f5c:
-     - polish sends each batch in one request, and a failed backend counts as failed;
-     - soft muxing keeps the streams the file already has;
-     - a cue is checked again after a cut;
-     - no negative times;
-     - the hard copy is 8-bit H.264 with audio Windows can play;
-     - overlapping YouTube events are clamped;
-     - Chinese, Japanese and Korean lines are measured in display width;
-     - every language Whisper knows is tagged.
-   - **Tried on real videos:**
-     - "Me at the zoo".
-     - A 108-second Spanish fable, "La liebre y la tortuga". Whisper `small` translated "liebre" (hare) as "the lion"; `medium` translated it well, with cues within about 0.3 s of the speech.
-     - The outputs are in `OpenAIYouTubeTranscriber/Video/Subtitled/`, which is gitignored.
-   - **Never run:** polish against a live model. There is no API key on the development machine.
-   - **Temporary:** for each polish request, `_one_request` overrides the main script's private `_run_chunked_enhancement`. The plan says to give the backends a single-request mode when the prototype is ported.
-5. **The owner specified the subtitle settings** (c79e56a):
-   - `VIDEO_SUB` (from the YouTube transcript), `VIDEO_SUB_WHISPER`, `VIDEO_SUB_AI_REFINEMENT` and `VIDEO_SOFT_HARD_SUB` (soft, hard or both);
-   - the same four for `VIDEO_ONLY_`;
-   - placed after `TRANSCRIPT_PATH` in profiles, each asked only when what it needs is on.
+Adapted the sibling ChessPlusPlus workflow to this CLI: ten reusable specialist profiles,
+the `/scrum` skill, experimental native in-process teams and a persistent backlog. The
+human remains Product Owner; BDD/TDD, senior engineering expectations and shared delivery
+are defined in the workflow. SDD is an optional later adoption. Preserve one writer per
+file, especially the application script and shared tests; capabilities are not ten workers
+that must all run on every task. No Sprint dates/goals or product priorities were invented.
 
-   `docs/SUBTITLES_PLAN.md` lays out the tracks, the outputs, the code changes, the tests and three phases, and ends with the 10 decisions.
+Windows YAML/JSON/link/structural checks pass; Claude Code 2.1.300's local agent-loader
+diagnostic lists all ten project profiles and its skill loader reports both project skills
+loaded. `/skills` is unavailable in headless mode; no interactive discovery/trial is claimed.
+Source hashes preserve the earlier dirty
+application, prototype, tests, profiles, package/dependency and CI files. The current
+workflow delta changes neither app behavior nor the subtitle integration gate. Detailed
+evidence: Windows Temp `oyt-scrum-20261015-iv4_3px4/STRUCTURAL.txt`; punchlist 7 records
+the durable outcome. Application suites were not rerun during workflow setup; the combined
+delivery's fresh application checks are recorded above.
 
-## Open, waiting on the owner
+The actual `/ponytail full` invocation was refused: the organization currently disables
+Claude subscription access for Claude Code. Installed plugin instructions were read and
+applied manually, without changing account policies/credentials. No live model/team trial,
+independent agent review or successful plugin execution is claimed. Use the next
+owner-selected bounded behavior story for the real workflow trial when access permits.
+Agent discovery and instruction walkthroughs do not demonstrate team performance.
 
-- **The 10 decisions** at the end of `docs/SUBTITLES_PLAN.md`:
-  1. hard copies, one per track and video file;
-  2. refined versus unrefined subtitles;
-  3. where the .srt files go;
-  4. YouTube's `all`;
-  5. containers that can't hold subtitles;
-  6. a local video without re-encoding;
-  7. the `VIDEO_SUB` name;
-  8. a sample profile;
-  9. refined subtitles without a transcript PROMPT;
-  10. file names and track titles.
-- **Two punchlist items:** 3.8 (prefer H.264 over AV1 when downloading a video to subtitle) and 3.12 (translation needs Whisper `medium` or larger).
-- **Old branches on GitHub** (`fix/windows-paths-and-captions`, `feature/subtitles-prototype`, `chore/agent-workflow`) are merged and redundant, but not deleted.
-- **Leave alone** a local stash on `fix/yt-dlp-migration` (a change to `config.txt`) and the locally excluded `test.txt`.
+## Work before subtitle integration
 
-## Your first reply
+The owner approved the pre-subtitle safety work on 3 Oct 2026:
 
-Don't change any code yet. Read the files above, then reply with:
-1. a short summary of the state, in your own words;
-2. anything in the docs that contradicts the code;
-3. the open decisions, in the order you'd ask them.
+- Record the review and decisions, and correct this handoff and development instructions.
+- Protect download destinations and conversion scratch paths: punchlist 5.1 and 6.1.
+- Preserve sources until every requested replacement lands, guard in-place replacement
+  failures, and finalize complete standalone files after a later download fails: 5.2–5.4.
+- Keep unfinished retry audio and report the source as incomplete; continue the batch.
 
-Then wait for the owner's task.
+The configuration and absent `KEEP_TRANSCRIPT` questions (formerly 5.10 and 5.11) are
+settled in `AGENTS.md`. Session consistency bugs 5.5–5.8 and tidy-ups 5.9 remain on the
+punchlist for later work. Track progress there and record the actual Windows checks and real
+runs; the baseline above must not be reused as validation of a new change.
+
+The safety implementation was prepared on `fix/pre-subtitle-media-safety`; 5.1–5.4 and
+6.1 are WRITTEN. See the punchlist's original safety validation for the 3 Oct checks: Windows
+**159 passed, 3 symlink skips**, clean lint/type checks, plain-script tests and a real
+application/profile smoke. A targeted Linux check exercised file-symlink reservations;
+the full Linux suite is checked by PR CI. No item was promoted to SEEN.
+
+The correctness review also reproduced yt-dlp consuming a queued `.part` source even
+after its final name was claimed. All shared-folder downloads now stage privately, then
+publish a claimed complete file; complete ID-named audio caches are reused before staging.
+
+On 3 Oct, Claude's `/ponytail full` invocation was blocked by its weekly usage limit.
+The installed plugin instructions were read and applied manually, with separate agent
+reviews for overengineering and correctness. Run the actual plugin review when Claude is
+available; do not describe that session as a completed Claude plugin run.
+
+## Subtitle state and next gate
+
+`subtitle_prototype.py` remains standalone. It times cues from Whisper or YouTube captions,
+optionally polishes wording, writes SRT, and produces soft or hard copies. The earlier real
+runs covered "Me at the zoo" and the 108-second Spanish fable "La liebre y la tortuga";
+outputs are in the gitignored `OpenAIYouTubeTranscriber/Video/Subtitled/` folder.
+
+Polish has **never run against a live model**. Its `_one_request` temporarily overrides the
+app's private chunking function; integration needs the planned single-request backend mode.
+Long-video quality and owner viewing remain unverified.
+
+The additional review is now punchlist 6.2–6.6: same-input/output mux cleanup can delete the
+input; linger exceeds the cue duration limit; equal-start cues overlap; mixed-width splitting
+exceeds the line width; and the prototype reports process success despite mux or burn
+failure. Their reproduction evidence is recorded in the punchlist. Repair and validate the
+prototype before porting its helpers.
+
+Resolve the ten subtitle decisions in `docs/SUBTITLES_PLAN.md` before integration. Also settle
+H.264 download preference, translation model selection and fallback, and existing subtitle
+track defaults. The plan proposes the first refined track as default, while the prototype
+preserves an existing track's default. These need one owner-approved policy.
+
+Punchlist 3.12 is a translation quality decision, not a capability restriction: multilingual
+`tiny`, `base` and `small` translate; Whisper recommends `medium` or `large` for quality,
+while turbo is not trained for translation. The app can fall back to `base` after a requested
+model fails to load, so a model policy must account for the actual loaded model.
+
+After the safety work and those decisions, follow the subtitle plan's staged integration:
+port core and tests, add the six non-AI fields, then add the two refinement fields after
+live-model validation. Do not treat the prototype's passing tests as permission to skip
+these gates.

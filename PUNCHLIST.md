@@ -14,7 +14,7 @@ A passing test is not a working feature. Nothing moves to **SEEN** except by the
 so. When an item lands on `main` and the owner has seen it, it leaves this list for
 `CHANGELOG.md`.
 
-Last updated 2 Oct 2026.
+Last updated 15 Oct 2026.
 
 ---
 
@@ -57,7 +57,7 @@ into the main script until they are answered. "Me at the zoo" with subtitles, th
 | 3.9 | Into the main script, in three phases (plan). Waits on the decisions (3.10). | OPEN |
 | 3.10 | Specified by the owner on 2 Oct 2026: `VIDEO_SUB`, `VIDEO_SUB_WHISPER`, `VIDEO_SUB_AI_REFINEMENT`, `VIDEO_SOFT_HARD_SUB` and the same for `VIDEO_ONLY_`. Its decisions are still open, at the end of the plan. | OPEN |
 | 3.11 | A full cue ends at its last sentence end, or its last clause end a third in, not mid-phrase ("...la liebre y la" / "tortuga." is gone), and "Mr." no longer ends a cue. Rerun on the Spanish fable, both languages. | WRITTEN |
-| 3.12 | Translation needs `medium` or larger (not `large-v3-turbo`, never trained to translate); the setting should not default to `base` for it. | OPEN |
+| 3.12 | Decide the translation model and fallback policy. Multilingual `tiny`, `base` and `small` support translation; `medium` or `large` are recommended for quality, and `large-v3-turbo` is not trained to translate. The Spanish trial favoured `medium`; it does not establish a required minimum. See [Whisper's model guidance](https://github.com/openai/whisper#command-line-usage). | OPEN |
 | 3.13 | Review fixes in the prototype: refinement in one request per batch and failures counted, soft mux keeps the file's own tracks, cues within limits after a cut, no negative times, hard copy 8-bit with playable audio, overlapping YouTube events clamped, CJK width, every Whisper language tagged. Rerun on the Spanish video (soft and hard); refinement never run against a real model. | WRITTEN |
 
 ## 4. Agent workflow (merged into `main` 2 Oct 2026)
@@ -66,21 +66,73 @@ into the main script until they are answered. "Me at the zoo" with subtitles, th
 |---|---|---|
 | 4.1 | `AGENTS.md` (single source of guidance), `CLAUDE.md` pointer, `ponytail` declared for the repo, the `settings-sync` skill, this punchlist. | WRITTEN |
 
-## 5. Whole-codebase review (2 Oct 2026, nothing fixed yet)
+## 5. Whole-codebase review (2 Oct 2026; safety fixes written 3 Oct)
 
 Found by a review of the whole codebase; ✓ was reproduced by running the code, the rest
 from reading it. Each fix needs a test that fails on the code as it is.
 
 | # | Item | Status |
 |---|---|---|
-| 5.1 | **Can lose a file.** Downloads are written straight into their folder without `_take_path`, so a local source queued later in the batch with the same name (video "Lecture", then `Audio/Lecture.m4a`) is overwritten, then deleted by `_convert_all`. Claiming download names also removes `merge()`'s `samefile` special case. | OPEN |
-| 5.2 | **Can lose a file.** `_convert_all` deletes the download once any format is written, though another asked for (`mp3,flac`, flac failing) did not land (invariant 3). | OPEN |
-| 5.3 | **Ends the batch.** `convert_media`'s in-place `os.replace` is unguarded: a OneDrive or Defender lock raises `PermissionError`, which `_run_pipeline` does not catch, and the sources after it are skipped (invariant 5). | OPEN |
-| 5.4 | A `DownloadFailed` partway through a pass skips `convert()` and `clear_temp_audio()`: the video-only file stays in the downloaded codec, and Audio/Temp is left full, unreported. | OPEN |
+| 5.1 | Downloads stage privately, including yt-dlp's `.part` and fragment files, then claim the complete file before publishing it. A queued local source survives both final-name and sidecar collisions; file symlinks share their target's reservation. Merges use that allocator instead of a separate `samefile` check. Complete ID-named retry audio is still reused. | WRITTEN |
+| 5.2 | `_convert_all` keeps the original until every requested format lands. A same-container result is published over the download only after the other formats succeed; partial successes keep their files and the untouched download for a retry. | WRITTEN |
+| 5.3 | In-place replacement catches a Windows file lock, reports the failure and removes only its scratch file. The original survives and the next batch source runs. A locked deferred replacement keeps the completed conversions too. | WRITTEN |
+| 5.4 | A later download failure finalizes complete standalone downloads once, reports the source as incomplete and keeps retry audio. The next source still runs; merge-only video scratch is cleaned up. | WRITTEN |
 | 5.5 | ✓ A double-quoted path is refused at the source prompt and the transcript and prompt pickers (Explorer's "Copy as path", drag and drop); the profile and folder prompts strip the quotes. | OPEN |
 | 5.6 | ✓ "Run again?" after a batch that ends on a transcript or local file keeps only `TARGET_LANGUAGE` and `KEEP_TRANSCRIPT`: `_Remembered.carry` reads the last pass's `cfg.url`. | OPEN |
 | 5.7 | "Run again?" never carries `PROMPT`, or a backend chosen at the console, so both are asked every round (`docs/USAGE.md` says a repeat asks only for the new source). | OPEN |
 | 5.8 | ✓ Two audio wordings for one stream (`medium,highest`, where medium is the top) make two identical merged files. | OPEN |
 | 5.9 | Tidy-ups: dependency errors go to stdout, not `error()`; `load_opening` runs ffmpeg without `FFMPEG_RUN` and no comment says why; `_same_file` repeats `_path_identity`; `audio_stream_for` rebuilds its selector on every call. | OPEN |
-| 5.10 | **Owner's decision.** `config.txt` is tracked, so its `.gitignore` line does nothing and a key typed into it is staged by `git add -A` (the committed copy is an empty template). Stop tracking it and let the app create it, ship `config.example.txt` instead, or leave it? Recommended: stop tracking it. | OPEN |
-| 5.11 | **Owner's decision.** `KEEP_TRANSCRIPT` left out of a profile means "ask", so a pre-1.2 profile that refines stops unattended (invariant 2). Should a missing value mean `y` (the old behaviour) or `n`? Recommended: `y`. | OPEN |
+
+Decisions 5.10 and 5.11 were settled on 3 Oct 2026: configuration stays tracked and an absent
+`KEEP_TRANSCRIPT` still asks. The record is in `AGENTS.md`, *Decisions*.
+
+Safety validation on 3 Oct 2026: Windows Python 3.12, **159 passed, 3 symlink skips** across
+both test files; the main test file also passed as a plain script. Flake8, isort and mypy
+were clean. Seven defect regressions failed against the original `8d0b2d1` code; the
+sidecar regression also reproduced deletion before private staging. A separate Linux check
+ran the actual allocation functions with real file symlinks; the full Linux suite awaits CI.
+A real Windows application/profile smoke produced ten valid media outputs from two local
+sources, kept both originals and produced audio-free video-only copies. Network failure
+checks use disk-served streams and real yt-dlp/ffmpeg. These are agent checks, not owner
+acceptance; nothing is SEEN.
+
+The combined safety/workflow delivery was rechecked on 15 Oct before publication: Windows
+**159 passed, 3 symlink skips**, clean flake8/isort/mypy and the main tests passing as a
+plain script. A fresh Windows application/profile smoke again produced ten valid outputs
+and preserved its two local sources. GitHub's PR/commit history records the actual CI and
+merge result. These checks do not change owner-SEEN or validate deferred subtitle work.
+
+## 6. Additional review (3 Oct 2026)
+
+Evidence below was gathered before the safety changes. Reproduced means a targeted check,
+not an owner viewing or an end-to-end application run. Subtitle findings stay open until the
+prototype is repaired and checked separately from integration.
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 6.1 | Stripping audio and converting in place use unique scratch files. Existing `.silent` and `.converting` filenames survive, and each operation cleans up only its own temporary file. | Before the fix, real ffmpeg on Windows removed an existing reserved file; regression tests now preserve it. | WRITTEN |
+| 6.2 | **Can lose a file.** The prototype's soft-mux helper given the same input and output path removes the input during failure cleanup. Replacing a subtitled video needs a separate scratch output and a guarded swap. | Reproduced at helper level with real ffmpeg. | OPEN |
+| 6.3 | `settle()` adds linger after enforcing the seven-second limit, so a seven-second generated cue lasts 7.5 seconds. | Reproduced with a generated cue. | OPEN |
+| 6.4 | Cues with identical start times still overlap: `settle()`'s minimum positive duration overrides the next-cue limit. | Reproduced with two cues starting at 1.0 seconds. | OPEN |
+| 6.5 | Mixed-width unspaced text accepted by `fits()` can exceed 42 columns after `split_lines()`. | Reproduced with 84 columns of ASCII and a Chinese character; the two lines were 43 and 41 columns. | OPEN |
+| 6.6 | The prototype's `main()` returns 0 when requested soft muxing or burning fails, so callers see success for missing deliverables. | Inspection of the return handling; not exercised through the CLI. | OPEN |
+
+## 7. Claude Scrum workflow (15 Oct 2026)
+
+The owner asked to adapt ChessPlusPlus's full cross-functional workflow, with every
+capability held to a senior standard, TDD/BDD now and possible SDD later. Process and
+current goals live in [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) and
+[SCRUM_BACKLOG.md](SCRUM_BACKLOG.md); existing app/subtitle decisions remain in force.
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 7.1 | Ten specialist profiles, `/scrum`, native in-process team settings, shared backlog/events, BDD/TDD evidence, ownership/review and Definition of Done. SDD remains optional; model/permission policy and Ponytail configuration are preserved. | Windows YAML/JSON/local-link/structural checks pass. Claude Code 2.1.300's local agent-loader diagnostic lists all ten profiles, and its skill loader reports both project skills loaded. Existing application/prototype/tests/profiles/dependencies/CI match the dirty baseline byte-for-byte. | WRITTEN |
+| 7.2 | Exercise an owner-selected bounded behavior story through actual BDD/TDD, peer collaboration/review and integrated acceptance. Evaluate the senior standard from results, not profile labels. | No live-team/model trial or independent review ran. Claude Code subscription access is disabled by the current organization policy; the ponytail invocation was refused. | OPEN |
+| 7.3 | Agree the first Product/Sprint Goals, dates and duration, then inspect actual stakeholder feedback and one measurable retrospective improvement. | No Sprint or event is invented; workflow setup can proceed as an unscheduled story. | OPEN |
+
+Verification is scoped to workflow configuration, not the 3 Oct safety implementation.
+Instruction walkthroughs are self-review, not model-behavior tests. Workflow setup did not
+rerun application suites or make live AI calls; the later delivery checks are recorded
+above. GitHub records publication; owner-SEEN acceptance is still absent. Detailed
+structural evidence is in Windows Temp `oyt-scrum-20261015-iv4_3px4/STRUCTURAL.txt`;
+the tracked backlog/handoff retain the outcomes without depending on private logs alone.

@@ -122,6 +122,12 @@ def test_download_format_takes_the_extension_from_the_stream():
         def __exit__(self, *exc):
             return False
 
+        def sanitize_info(self, info):
+            return info
+
+        def process_ie_result(self, info, download=True):
+            return self.extract_info(info['webpage_url'], download=download)
+
         def extract_info(self, url, download=False):
             # yt-dlp resolves %(ext)s from the format it actually chose
             path = seen['outtmpl'].replace('%(ext)s', 'webm')
@@ -1418,20 +1424,24 @@ def test_pipeline_fetches_each_stream_once_and_names_what_it_saved():
         seed_audio = _make_clip(os.path.join(tmp, 'seed.mp3'), 'audio')
         fetched = []
 
-        def fake_video(url, selector, output_dir, stem):
+        def fake_video(url, selector, output_dir, stem, claim_path=None):
             fetched.append(selector)
             os.makedirs(output_dir, exist_ok=True)
             path = os.path.join(output_dir, stem + '.mp4')
+            if claim_path:
+                path = claim_path(path)
             shutil.copyfile(seed_video, path)
             return path
 
         def fake_audio(video_info, stem, is_temp=False, format_selector='',
-                       keep_in=None):
+                       keep_in=None, claim_path=None):
             fetched.append(format_selector)
             out = (os.path.join(t.AUDIO_DIR, t.TEMP_DIR) if is_temp
                    else (keep_in or t.AUDIO_DIR))
             os.makedirs(out, exist_ok=True)
             path = os.path.join(out, stem + '.mp3')
+            if claim_path:
+                path = claim_path(path)
             shutil.copyfile(seed_audio, path)
             return path, os.path.abspath(path)
 
@@ -1599,7 +1609,7 @@ def test_pipeline_fetches_each_stream_once_and_names_what_it_saved():
         # second entry still produces its video, through the real _run_one
         attempts = []
 
-        def flaky(url, selector, output_dir, stem):
+        def flaky(url, selector, output_dir, stem, claim_path=None):
             attempts.append(url)
             if len(attempts) == 1:
                 raise module.DownloadFailed('unavailable')
@@ -2887,7 +2897,7 @@ def test_several_target_languages_are_several_transcripts():
         fetched, passes = [], []
 
         def fake_audio(video_info, stem, is_temp=False, format_selector='',
-                       keep_in=None):
+                       keep_in=None, claim_path=None):
             fetched.append(format_selector)
             out = os.path.join(t.AUDIO_DIR, t.TEMP_DIR)
             os.makedirs(out, exist_ok=True)
@@ -3467,7 +3477,8 @@ def test_one_name_cannot_name_several_sources():
             'formats': [{'vcodec': 'none', 'acodec': 'opus', 'abr': 60,
                          'format_id': 'a', 'format_note': 'low'}]}
 
-        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+        def fake_audio(info, stem, is_temp=False, format_selector='',
+                       keep_in=None, claim_path=None):
             out = os.path.join(t.AUDIO_DIR, t.TEMP_DIR) if is_temp else (
                 keep_in or t.AUDIO_DIR)
             os.makedirs(out, exist_ok=True)
@@ -3520,15 +3531,19 @@ def test_the_merge_never_takes_the_name_of_the_audio_it_reads():
             {'format_id': 'a', 'vcodec': 'none', 'acodec': 'opus', 'abr': 60,
              'ext': 'webm', 'url': 'a', 'format_note': 'low'}]}
 
-        def fake(folder, stem):
+        def fake(folder, stem, claim_path=None):
             os.makedirs(folder, exist_ok=True)
             path = os.path.join(folder, stem + '.webm')
+            if claim_path:
+                path = claim_path(path)
             io.open(path, 'w', encoding='utf-8').write('x')
             return path
 
-        t.download_format = lambda url, selector, folder, stem, reuse=False: fake(folder, stem)
+        t.download_format = lambda url, selector, folder, stem, reuse=False, claim_path=None: (
+            fake(folder, stem, claim_path))
         t.download_audio_stream = (lambda info, stem, is_temp=False, format_selector='',
-                                   keep_in=None: (fake(keep_in, stem),) * 2)
+                                   keep_in=None, claim_path=None: (
+                                       fake(keep_in, stem, claim_path),) * 2)
         t.combine_audio_video = lambda video, audio, output: merges.append((audio, output))
         cfg = module.SessionConfig(
             sources=[('https://youtu.be/x', False, None)], used_fields={},
@@ -3798,11 +3813,12 @@ def test_the_audio_never_lands_on_the_merged_video():
         seed_video = _make_clip(os.path.join(tmp, 'seed.mp4'), 'video')
         seed_audio = _make_clip(os.path.join(tmp, 'seed.mp3'), 'audio')
 
-        def fake_video(url, selector, output_dir, stem):
+        def fake_video(url, selector, output_dir, stem, claim_path=None):
             os.makedirs(output_dir, exist_ok=True)
             return shutil.copyfile(seed_video, os.path.join(output_dir, stem + '.mp4'))
 
-        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+        def fake_audio(info, stem, is_temp=False, format_selector='',
+                       keep_in=None, claim_path=None):
             folder = os.path.join(t.AUDIO_DIR, t.TEMP_DIR) if is_temp else keep_in
             os.makedirs(folder, exist_ok=True)
             path = shutil.copyfile(seed_audio, os.path.join(folder, stem + '.mp3'))
@@ -3838,7 +3854,8 @@ def test_two_sources_with_one_title_keep_a_file_each():
         t.fetch_video_info = lambda url: dict(
             _plain_info(), id=url[-11:], title=titles[url], webpage_url=url)
 
-        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+        def fake_audio(info, stem, is_temp=False, format_selector='',
+                       keep_in=None, claim_path=None):
             os.makedirs(keep_in, exist_ok=True)
             path = os.path.join(keep_in, stem + '.webm')
             io.open(path, 'w', encoding='utf-8').write(info['id'])
@@ -3880,13 +3897,14 @@ def test_scratch_cleanup_deletes_only_what_the_pass_fetched():
         io.open(sentinel, 'w', encoding='utf-8').write('not yours')
         scratch, failing = [], [False]
 
-        def fake_video(url, selector, output_dir, stem):
+        def fake_video(url, selector, output_dir, stem, claim_path=None):
             scratch.append(output_dir)
             path = os.path.join(output_dir, stem + '.webm')
             io.open(path, 'w', encoding='utf-8').write('video')
             return path
 
-        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+        def fake_audio(info, stem, is_temp=False, format_selector='',
+                       keep_in=None, claim_path=None):
             if failing[0]:
                 raise module.DownloadFailed('gone')
             folder = os.path.join(t.AUDIO_DIR, t.TEMP_DIR)
@@ -4493,7 +4511,8 @@ def test_no_deliverable_or_queued_source_is_written_over():
         t.fetch_video_info = lambda url: dict(_plain_info(), id='x', title='clip')
         t.transcribe_audio_file = lambda *a: ('new words', 'en')
 
-        def fake_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+        def fake_audio(info, stem, is_temp=False, format_selector='',
+                       keep_in=None, claim_path=None):
             out = os.path.join(t.AUDIO_DIR, t.TEMP_DIR)
             os.makedirs(out, exist_ok=True)
             path = os.path.join(out, stem + '.mp3')
@@ -4520,7 +4539,8 @@ def test_no_deliverable_or_queued_source_is_written_over():
         t = YouTubeTranscriber()
         t.AUDIO_DIR = os.path.join(tmp, 'Audio')
 
-        def keep_audio(info, stem, is_temp=False, format_selector='', keep_in=None):
+        def keep_audio(info, stem, is_temp=False, format_selector='',
+                       keep_in=None, claim_path=None):
             path = os.path.join(keep_in, stem + '.webm')
             os.makedirs(keep_in, exist_ok=True)
             io.open(path, 'w').write(format_selector)
@@ -4938,6 +4958,486 @@ def test_a_download_reuses_the_metadata_already_fetched():
         assert t.stream_codec(path, 'audio') == 'opus'
         t.release_caches()
         assert not t._video_info
+
+
+def test_shared_downloads_preserve_local_sources_queued_after_them():
+    """yt-dlp wrote into the shared output folder before its filename was
+    claimed, overwriting a queued source before that source's pass read it."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    import yt_dlp
+
+    for kind in ('audio', 'video'):
+        with tempfile.TemporaryDirectory() as tmp:
+            stream = os.path.join(tmp, 'stream.webm')
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
+                           capture_output=True, check=True)
+            video = _make_clip(os.path.join(tmp, 'video.mp4'), 'video')
+            url = 'https://youtu.be/abcdefghijk'
+            info = {'id': 'abcdefghijk', 'title': 'clip', 'webpage_url': url,
+                    'extractor': 'youtube', 'extractor_key': 'Youtube', 'formats': [
+                        {'format_id': 'a', 'url': Path(stream).as_uri(), 'ext': 'webm',
+                         'vcodec': 'none', 'acodec': 'opus', 'abr': 106.0, 'protocol': 'file'},
+                        {'format_id': 'v', 'url': Path(video).as_uri(), 'ext': 'mp4',
+                         'vcodec': 'h264', 'acodec': 'none', 'height': 720, 'protocol': 'file'}]}
+            t = YouTubeTranscriber()
+            t.YDL_OPTS = dict(t.YDL_OPTS, enable_file_urls=True)
+            folder = os.path.join(tmp, 'outputs')
+            os.mkdir(folder)
+            queued = os.path.join(folder, 'clip.webm' if kind == 'audio'
+                                  else 'clip - Video Only.mp4')
+            if kind == 'audio':
+                subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                                'sine=frequency=880:duration=0.4', '-c:a', 'libopus', queued],
+                               capture_output=True, check=True)
+            else:
+                subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                                'color=blue:duration=0.4:size=160x120:rate=10',
+                                '-c:v', 'libx264', '-pix_fmt', 'yuv420p', queued],
+                               capture_output=True, check=True)
+            before = Path(queued).read_bytes()
+            settings = ({'download_audio': True, 'audio_resolution': 'highest',
+                         'audio_format': 'original', 'audio_path': folder} if kind == 'audio'
+                        else {'video_only': True, 'video_only_resolution': 'highest',
+                              'video_only_format': 'original', 'video_only_path': folder})
+            cfg = module.SessionConfig(sources=[(url, False, None), (queued, True, None)],
+                                       transcribe_audio=False, used_fields={}, **settings)
+            extracted = []
+            real = yt_dlp.YoutubeDL.extract_info
+
+            def metadata(ydl, address, download=True, info=info, extracted=extracted, **kwargs):
+                assert not download, 'the video was extracted again for a download'
+                extracted.append(address)
+                return info
+
+            yt_dlp.YoutubeDL.extract_info = metadata
+            try:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    module._run_pipeline(t, cfg)
+            finally:
+                yt_dlp.YoutubeDL.extract_info = real
+            assert Path(queued).read_bytes() == before, (kind, os.listdir(folder))
+            claimed = os.path.join(folder, 'clip (2).webm' if kind == 'audio'
+                                   else 'clip - Video Only (2).mp4')
+            assert t.is_valid_media_file(claimed), (kind, os.listdir(folder))
+            assert extracted == [url], extracted
+            t.release_caches()
+
+
+def test_download_sidecars_never_consume_a_queued_media_source():
+    """Reserving only the final filename left yt-dlp free to resume and rename
+    a queued local source whose name was the download's predictable .part file."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    import yt_dlp
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = _make_clip(os.path.join(tmp, 'stream.mp3'), 'audio')
+        folder = os.path.join(tmp, 'out')
+        os.mkdir(folder)
+        queued = os.path.join(folder, 'clip.mp3.part')
+        shutil.copyfile(stream, queued)
+        before = Path(queued).read_bytes()
+        url = 'https://youtu.be/abcdefghijk'
+        info = {'id': 'abcdefghijk', 'title': 'clip', 'webpage_url': url,
+                'extractor': 'youtube', 'extractor_key': 'Youtube', 'formats': [
+                    {'format_id': 'a', 'url': Path(stream).as_uri(), 'ext': 'mp3',
+                     'vcodec': 'none', 'acodec': 'mp3', 'abr': 128.0, 'protocol': 'file'}]}
+        t = YouTubeTranscriber()
+        t.YDL_OPTS = dict(t.YDL_OPTS, enable_file_urls=True)
+        cfg = module.SessionConfig(identity=info['id'], sources=[(queued, True, None)])
+        module._reserve_sources(cfg)
+        real = yt_dlp.YoutubeDL.extract_info
+        yt_dlp.YoutubeDL.extract_info = lambda ydl, address, download=True, **kw: info
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                t.fetch_video_info(url)
+                path = t.download_format(url, 'bestaudio/best', folder, 'clip',
+                                         claim_path=lambda path: module._take_path(
+                                             cfg, path, ('download', 'audio', 'a')))
+        finally:
+            yt_dlp.YoutubeDL.extract_info = real
+        assert Path(queued).read_bytes() == before
+        assert path == os.path.join(folder, 'clip.mp3')
+        assert t.is_valid_media_file(path)
+        assert sorted(os.listdir(folder)) == ['clip.mp3', 'clip.mp3.part']
+        t.release_caches()
+
+
+def test_retry_audio_claims_its_id_named_cache_and_reuses_it_without_fetching():
+    """A retained ID-named download could overwrite a queued local source;
+    allocating its path must still let a later retry reuse the same cached file."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = os.path.join(tmp, 'stream.webm')
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                        'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
+                       capture_output=True, check=True)
+        info = {'id': 'abcdefghijk', 'title': 'clip',
+                'webpage_url': 'https://youtu.be/abcdefghijk',
+                'extractor': 'youtube', 'extractor_key': 'Youtube', 'formats': [
+                    {'format_id': '251', 'url': Path(stream).as_uri(), 'ext': 'webm',
+                     'vcodec': 'none', 'acodec': 'opus', 'abr': 106.0, 'protocol': 'file'}]}
+        t = YouTubeTranscriber()
+        t.YDL_OPTS = dict(t.YDL_OPTS, enable_file_urls=True)
+        t.AUDIO_DIR = os.path.join(tmp, '50% complete')
+        folder = os.path.join(t.AUDIO_DIR, t.TEMP_DIR)
+        os.makedirs(folder)
+        queued = os.path.join(folder, 'clip [abcdefghijk].webm')
+        shutil.copyfile(stream, queued)
+        before = Path(queued).read_bytes()
+        cfg = module.SessionConfig(identity=info['id'], sources=[(queued, True, None)])
+        module._reserve_sources(cfg)
+
+        def claim(path):
+            return module._take_path(cfg, path, ('download', 'temp_audio', '251'))
+
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            first, _ = t.download_audio_stream(info, 'clip', is_temp=True, claim_path=claim)
+            # A retry with no stream available must succeed from its claimed cache.
+            os.remove(stream)
+            t.release_caches()
+            second, _ = t.download_audio_stream(info, 'clip', is_temp=True, claim_path=claim)
+        assert first == second == os.path.join(folder, 'clip [abcdefghijk] (2).webm')
+        assert Path(queued).read_bytes() == before
+        assert t.is_valid_media_file(second)
+        t.release_caches()
+
+
+def test_a_download_without_cached_metadata_stages_before_claiming_its_actual_path():
+    """When the stream extension was not known beforehand, claiming after a
+    download into the shared folder was already too late to save a queued file."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    import yt_dlp
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stream = os.path.join(tmp, 'stream.webm')
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                        'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
+                       capture_output=True, check=True)
+        url = 'https://youtu.be/abcdefghijk'
+        info = {'id': 'abcdefghijk', 'title': 'clip', 'webpage_url': url,
+                'extractor': 'youtube', 'extractor_key': 'Youtube', 'formats': [
+                    {'format_id': '251', 'url': Path(stream).as_uri(), 'ext': 'webm',
+                     'vcodec': 'none', 'acodec': 'opus', 'abr': 106.0, 'protocol': 'file'}]}
+        t = YouTubeTranscriber()
+        t.YDL_OPTS = dict(t.YDL_OPTS, enable_file_urls=True)
+        folder = os.path.join(tmp, 'out')
+        os.mkdir(folder)
+        queued = os.path.join(folder, 'clip.webm')
+        shutil.copyfile(stream, queued)
+        before = Path(queued).read_bytes()
+        cfg = module.SessionConfig(identity=info['id'], sources=[(queued, True, None)])
+        module._reserve_sources(cfg)
+        real = yt_dlp.YoutubeDL.extract_info
+        yt_dlp.YoutubeDL.extract_info = lambda ydl, address, download=True, **kw: (
+            ydl.process_ie_result(ydl.sanitize_info(info), download=download))
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                path = t.download_format(url, 'bestaudio/best', folder, 'clip',
+                                         claim_path=lambda path: module._take_path(
+                                             cfg, path, ('download', 'audio', '251')))
+        finally:
+            yt_dlp.YoutubeDL.extract_info = real
+        assert path == os.path.join(folder, 'clip (2).webm')
+        assert Path(queued).read_bytes() == before
+        assert sorted(os.listdir(folder)) == ['clip (2).webm', 'clip.webm']
+        assert t.is_valid_media_file(path)
+
+
+def test_queued_file_symlinks_and_their_targets_share_one_reservation():
+    """Resolving only a path's folder let an output overwrite a queued file
+    through its leaf symlink, or a queued symlink's real target directly."""
+    with tempfile.TemporaryDirectory() as tmp:
+        source = os.path.join(tmp, 'source.txt')
+        alias = os.path.join(tmp, 'alias.txt')
+        Path(source).write_text('queued words', encoding='utf-8')
+        try:
+            os.symlink(source, alias)
+        except (OSError, NotImplementedError):
+            _skip('no symlinks here')
+        for queued, target in ((source, alias), (alias, source)):
+            cfg = module.SessionConfig(identity='another source',
+                                       sources=[(queued, True, None)])
+            module._reserve_sources(cfg)
+            claimed = module._take_path(cfg, target, 'output')
+            assert claimed != target, (queued, target, claimed)
+            Path(claimed).write_text('new words', encoding='utf-8')
+            assert Path(source).read_text(encoding='utf-8') == 'queued words'
+            assert os.path.islink(alias)
+
+
+def test_a_later_download_failure_finalizes_standalone_files_and_keeps_retry_audio():
+    """A later audio fetch skipped standalone conversion and left retry files
+    unreported; finalizing that pass must not stop or duplicate the next pass."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    import yt_dlp
+
+    with tempfile.TemporaryDirectory() as tmp:
+        video = _make_clip(os.path.join(tmp, 'video.mp4'), 'video')
+        audio = os.path.join(tmp, 'audio.webm')
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                        'sine=frequency=440:duration=0.3', '-c:a', 'libopus', audio],
+                       capture_output=True, check=True)
+        first, second = 'https://youtu.be/AAAAAAAAAAA', 'https://youtu.be/BBBBBBBBBBB'
+        extracted = []
+        real = yt_dlp.YoutubeDL.extract_info
+
+        def metadata(ydl, address, download=True, **kwargs):
+            assert not download, 'the video was extracted again for a download'
+            extracted.append(address)
+            formats = [
+                {'format_id': f'v{height}', 'url': Path(video).as_uri(), 'ext': 'mp4',
+                 'vcodec': 'h264', 'acodec': 'none', 'height': height, 'protocol': 'file'}
+                for height in (144, 720)]
+            for number, bitrate, tier in (
+                    ('249', 60, 'low'), ('250', 106, 'medium'), ('251', 160, 'high')):
+                stream = (os.path.join(tmp, 'unavailable.webm')
+                          if address == first and tier == 'high' else audio)
+                formats.append({'format_id': number, 'url': Path(stream).as_uri(),
+                                'ext': 'webm', 'vcodec': 'none', 'acodec': 'opus',
+                                'abr': bitrate, 'format_note': tier, 'protocol': 'file'})
+            return {'id': address[-11:], 'title': 'clip' if address == first else 'next',
+                    'webpage_url': address, 'extractor': 'youtube',
+                    'extractor_key': 'Youtube', 'formats': formats}
+
+        t = YouTubeTranscriber()
+        t.YDL_OPTS = dict(t.YDL_OPTS, enable_file_urls=True)
+        t.AUDIO_DIR = os.path.join(tmp, 'Audio')
+        t.VIDEO_DIR = os.path.join(tmp, 'Video')
+        t.VIDEO_WITHOUT_AUDIO_DIR = os.path.join(tmp, 'VideoWithoutAudio')
+        cfg = module.SessionConfig(
+            sources=[(first, False, None), (second, False, None)], used_fields={},
+            transcribe_audio=False, video_only=True, video_only_resolution='highest',
+            video_only_format='mpeg4', download_audio=True, audio_resolution='lowest',
+            audio_format='wav', download_video=True, video_resolution='144p',
+            video_audio_resolution='medium,highest', video_format='mp4')
+        output, errors = io.StringIO(), io.StringIO()
+        yt_dlp.YoutubeDL.extract_info = metadata
+        try:
+            with redirect_stdout(output), redirect_stderr(errors):
+                module._run_pipeline(t, cfg)
+        finally:
+            yt_dlp.YoutubeDL.extract_info = real
+        for title in ('clip', 'next'):
+            path = os.path.join(t.VIDEO_WITHOUT_AUDIO_DIR, f'{title} - Video Only.mp4')
+            assert t.stream_codec(path, 'video') == 'mpeg4', output.getvalue()
+            assert t.stream_codec(path, 'audio') is None
+            assert t.is_valid_media_file(os.path.join(t.AUDIO_DIR, f'{title} [60k].wav'))
+            assert output.getvalue().count(f'Re-encoding {title} - Video Only.mp4') == 1
+        retry = os.path.join(t.AUDIO_DIR, t.TEMP_DIR, 'clip [106k] [AAAAAAAAAAA].webm')
+        assert t.is_valid_media_file(retry), output.getvalue()
+        assert os.listdir(os.path.dirname(retry)) == [os.path.basename(retry)]
+        assert t.is_valid_media_file(os.path.join(t.VIDEO_DIR, 'next [144p 106k].mp4'))
+        assert t.is_valid_media_file(os.path.join(t.VIDEO_DIR, 'next [144p].mp4'))
+        assert not os.path.exists(os.path.join(t.VIDEO_DIR, t.TEMP_DIR))
+        assert f'Source incomplete: {first}' in errors.getvalue(), errors.getvalue()
+        assert 'Keeping downloaded audio for retry' in output.getvalue(), output.getvalue()
+        assert output.getvalue().count('Tasks complete.') == 1, output.getvalue()
+        assert extracted == [first, second], extracted
+        t.release_caches()
+
+
+def test_a_failed_requested_format_keeps_the_download_and_successful_outputs():
+    """One successful format retired the download even though another requested
+    format failed; an early same-container conversion also changed retry input."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    for formats, extension in (('mp3,flac', 'mp3'), ('flac,mp3', 'mp3'),
+                               ('mp3,flac', 'wav'), ('flac,mp3', 'wav')):
+        t = YouTubeTranscriber()
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, f'clip.{extension}')
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                            'sine=frequency=440:duration=0.3', source],
+                           capture_output=True, check=True)
+            before = io.open(source, 'rb').read()
+            # A directory at a requested output forces a real ffmpeg write failure.
+            failed = os.path.join(tmp, 'clip.flac')
+            os.mkdir(failed)
+            cfg = module.SessionConfig(url=source, is_local_file=True,
+                                       transcribe_audio=False, used_fields={})
+            output, errors = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                run = module._Pass(t, cfg)
+                module._take_path(cfg, source, ('download', 'audio', None))
+                run._convert_all([(None, source)], formats, t.DEFAULT_AUDIO_FORMAT,
+                                 'audio', tmp, lambda _quality, _format: 'clip')
+            assert os.path.exists(source), (formats, output.getvalue(), errors.getvalue())
+            assert io.open(source, 'rb').read() == before, 'the retry input changed'
+            outputs = [os.path.join(tmp, name) for name in os.listdir(tmp)
+                       if name.endswith('.mp3') and os.path.join(tmp, name) != source]
+            assert len(outputs) == 1, (formats, os.listdir(tmp))
+            assert t.is_valid_media_file(outputs[0]), outputs
+            assert os.path.isdir(failed), 'cleanup removed an existing destination'
+            assert 'Keeping the download for retry' in output.getvalue(), output.getvalue()
+            assert 'Error converting to flac' in errors.getvalue(), errors.getvalue()
+
+
+def test_all_requested_formats_land_before_the_same_container_replaces_the_download():
+    """Deferring a same-container replacement protects failed conversions, but
+    a successful pass must still publish that result under its original name."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    for formats in ('mp3,wav', 'wav,mp3'):
+        t = YouTubeTranscriber()
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _make_clip(os.path.join(tmp, 'clip.mp3'), 'audio')
+            cfg = module.SessionConfig(url=source, is_local_file=True,
+                                       transcribe_audio=False, used_fields={})
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                run = module._Pass(t, cfg)
+                module._take_path(cfg, source, ('download', 'audio', None))
+                run._convert_all([(None, source)], formats, t.DEFAULT_AUDIO_FORMAT,
+                                 'audio', tmp, lambda _quality, _format: 'clip')
+            assert sorted(os.listdir(tmp)) == ['clip.mp3', 'clip.wav'], os.listdir(tmp)
+            assert t.is_valid_media_file(source)
+            assert t.is_valid_media_file(os.path.join(tmp, 'clip.wav'))
+
+
+def test_audio_stripping_never_uses_an_existing_silent_filename_as_scratch():
+    """The predictable .silent output overwrote another file, then moved it
+    away when it replaced the audio-bearing download."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        video = _make_clip(os.path.join(tmp, 'video.mp4'), 'video')
+        audio = _make_clip(os.path.join(tmp, 'audio.mp3'), 'audio')
+        source = os.path.join(tmp, 'served.mp4')
+        sentinel = os.path.join(tmp, 'served.silent.mp4')
+        io.open(sentinel, 'wb').write(b'another queued source')
+        before = io.open(sentinel, 'rb').read()
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            assert t.combine_audio_video(video, audio, source) == source
+            assert t.stream_codec(source, 'audio') is not None
+            assert t.strip_audio(source) == source
+        assert io.open(sentinel, 'rb').read() == before
+        assert t.stream_codec(source, 'audio') is None
+        assert t.stream_codec(source, 'video') is not None
+        assert not any(name.startswith('.silent-') for name in os.listdir(tmp)), os.listdir(tmp)
+
+
+def test_in_place_conversion_never_uses_an_existing_converting_filename_as_scratch():
+    """The predictable .converting output overwrote an unrelated file and
+    removed its name when it was moved over the conversion's source."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        source = _make_clip(os.path.join(tmp, 'clip.mp4'), 'video')
+        sentinel = os.path.join(tmp, 'clip.converting.mp4')
+        io.open(sentinel, 'wb').write(b'another queued source')
+        before = io.open(sentinel, 'rb').read()
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            assert t.convert_media(source, 'h264', 'video', tmp, 'clip') == source
+        assert io.open(sentinel, 'rb').read() == before
+        assert t.stream_codec(source, 'video') == 'h264'
+        assert not any(name.startswith('.converting-') for name in os.listdir(tmp)), os.listdir(tmp)
+
+
+def test_a_windows_file_lock_preserves_the_source_and_reports_failed_replacement():
+    """An unguarded os.replace raised when OneDrive or a player held the
+    source open, ending the batch and leaving its conversion scratch behind."""
+    if os.name != 'nt':
+        _skip('Windows file locking')
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        source = _make_clip(os.path.join(tmp, 'clip.mp4'), 'video')
+        before = io.open(source, 'rb').read()
+        errors = io.StringIO()
+        # A Windows read handle allows ffmpeg to read but denies replacement.
+        with io.open(source, 'rb'):
+            with redirect_stdout(io.StringIO()), redirect_stderr(errors):
+                converted = t.convert_media(source, 'h264', 'video', tmp, 'clip')
+        assert converted is None
+        assert io.open(source, 'rb').read() == before
+        assert os.listdir(tmp) == ['clip.mp4'], os.listdir(tmp)
+        assert 'Error replacing' in errors.getvalue(), errors.getvalue()
+        assert 'clip.mp4' in errors.getvalue(), errors.getvalue()
+
+
+def test_a_locked_download_does_not_stop_the_next_source():
+    """A Windows lock raised from in-place conversion out of the pipeline,
+    preventing every later source from producing its requested outputs."""
+    if os.name != 'nt':
+        _skip('Windows file locking')
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = _make_clip(os.path.join(tmp, 'seed.mp4'), 'video')
+        t = YouTubeTranscriber()
+        t.VIDEO_WITHOUT_AUDIO_DIR = os.path.join(tmp, 'VideoWithoutAudio')
+        urls = ('https://youtu.be/AAAAAAAAAAA', 'https://youtu.be/BBBBBBBBBBB')
+        t.fetch_video_info = lambda url: dict(
+            _plain_info(), id=url[-11:], title='first' if url == urls[0] else 'second',
+            webpage_url=url)
+        held = []
+
+        def download(url, selector, folder, stem, claim_path=None):
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, stem + '.mp4')
+            if claim_path:
+                path = claim_path(path)
+            shutil.copyfile(seed, path)
+            if url == urls[0]:
+                held.append(io.open(path, 'rb'))
+            return path
+
+        t.download_format = download
+        cfg = module.SessionConfig(sources=[(url, False, None) for url in urls],
+                                   used_fields={}, transcribe_audio=False, video_only=True,
+                                   video_only_resolution='highest', video_only_format='mpeg4')
+        output, errors = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(output), redirect_stderr(errors):
+                module._run_pipeline(t, cfg)
+        finally:
+            for handle in held:
+                handle.close()
+        first = os.path.join(t.VIDEO_WITHOUT_AUDIO_DIR, 'first - Video Only.mp4')
+        second = os.path.join(t.VIDEO_WITHOUT_AUDIO_DIR, 'second - Video Only.mp4')
+        assert Path(first).read_bytes() == Path(seed).read_bytes()
+        assert t.stream_codec(second, 'video') == 'mpeg4'
+        assert sorted(os.listdir(t.VIDEO_WITHOUT_AUDIO_DIR)) == [
+            'first - Video Only.mp4', 'second - Video Only.mp4']
+        assert 'Error replacing' in errors.getvalue(), errors.getvalue()
+        assert f'Source incomplete: {urls[0]}' in errors.getvalue(), errors.getvalue()
+        assert output.getvalue().count('Tasks complete.') == 1, output.getvalue()
+
+
+def test_a_windows_file_lock_keeps_all_outputs_when_deferred_replacement_fails():
+    """Publishing the same-container output after other formats succeed must
+    also catch a locked source without deleting either complete conversion."""
+    if os.name != 'nt':
+        _skip('Windows file locking')
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        source = _make_clip(os.path.join(tmp, 'clip.mp3'), 'audio')
+        before = io.open(source, 'rb').read()
+        cfg = module.SessionConfig(url=source, is_local_file=True,
+                                   transcribe_audio=False, used_fields={})
+        output, errors = io.StringIO(), io.StringIO()
+        with io.open(source, 'rb'):
+            with redirect_stdout(output), redirect_stderr(errors):
+                run = module._Pass(t, cfg)
+                module._take_path(cfg, source, ('download', 'audio', None))
+                run._convert_all([(None, source)], 'mp3,wav', t.DEFAULT_AUDIO_FORMAT,
+                                 'audio', tmp, lambda _quality, _format: 'clip')
+        assert io.open(source, 'rb').read() == before
+        outputs = [os.path.join(tmp, name) for name in os.listdir(tmp) if name != 'clip.mp3']
+        assert len(outputs) == 2, os.listdir(tmp)
+        assert all(t.is_valid_media_file(path) for path in outputs)
+        assert 'Error replacing' in errors.getvalue(), errors.getvalue()
+        assert 'Keeping the download for retry' in output.getvalue(), output.getvalue()
 
 
 if __name__ == '__main__':
