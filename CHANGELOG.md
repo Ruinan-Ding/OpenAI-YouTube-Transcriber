@@ -103,6 +103,23 @@ regression test.
 
 ### Also fixed
 
+- **Downloads cannot overwrite a source queued later in the batch.** Their real paths,
+  including temporary audio kept for a retry, are claimed before a shared folder is written
+  to. Downloads and yt-dlp's `.part` and fragment files are staged privately, then the
+  complete file is published. A name already reserved takes a suffix, as finished outputs do.
+- **Conversion scratch files cannot take an existing file's name.** Predictable `.silent`
+  and `.converting` paths could overwrite a queued source and delete it during cleanup.
+  Each operation now creates its own scratch file and removes only that file.
+- **A failed format leaves the download for a retry.** Asking for `mp3,flac` deleted the
+  download when MP3 succeeded even if FLAC failed. It is now retired only after every
+  requested replacement lands; successful outputs remain when another format fails.
+- **A locked replacement no longer ends the batch.** OneDrive or Defender holding an
+  in-place conversion's destination could raise out of the pass. The failure is now
+  reported, its scratch file is removed, and the original remains for a retry.
+- **A later download failure still converts complete standalone files.** The pass used
+  to leave earlier audio and video-only downloads in their served format without reporting
+  the unfinished work. Those files are now finalized once, the source is reported as
+  incomplete, and temporary audio needed for a retry is kept while the batch continues.
 - **ffmpeg no longer reads the keyboard.** It takes its commands from stdin
   while it works: `q` stopped a re-encode part way, and the first character
   of an answer waiting after it was eaten, so a path piped to a profile's
@@ -130,6 +147,14 @@ regression test.
 
 ### Development
 
+- **File-backed download tests release yt-dlp response cycles before cleanup.** Windows
+  could keep a fixture's input open after a successful download until garbage collection
+  happened to run. The tests now exercise delayed collection explicitly and release those
+  cycles before strict temporary-directory cleanup, without ignoring failed deletions.
+- **Claude development has a shared Scrum workflow**, adapted from ChessPlusPlus: ten
+  specialist profiles, `/scrum`, BDD examples, evidenced TDD, review, goals/backlog and a
+  shared Definition of Done. The owner remains Product Owner; SDD is an option for later.
+  Native experimental teams are configured in-process without changing models/permissions.
 - **CI runs the tests on Windows too**, beside Linux; the linters and mypy
   run once, on Linux. The two path fixes above were found by running the
   suite on Windows, where every Linux run had passed.

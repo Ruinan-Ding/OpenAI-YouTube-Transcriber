@@ -30,8 +30,23 @@ Under it, these hold:
 - **Read the code a change touches before changing it.** The script is one long file whose
   parts lean on each other (see the invariants); a small diff in the wrong place passes the
   tests and breaks a promise the app makes elsewhere.
-- **The owner works on Windows.** CI runs on Linux. Anything that touches a path, a quote, a
-  file name or a subprocess is tested on Windows before it is called done (see *Known quirks*).
+- **The owner works on Windows.** CI tests on Linux and Windows. Anything that touches a
+  path, a quote, a file name or a subprocess is tested on Windows before it is called done
+  (see *Known quirks*).
+
+## Claude Scrum delivery
+
+Use [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) for the cross-functional team, senior engineering
+standard, BDD examples, TDD, peer review and Definition of Done. `/scrum <task>` is the
+project entry point; `.claude/agents/` supplies the specialist profiles. The human owner
+is Product Owner. Specialties share delivery responsibility rather than forming sequential
+departments or additional approval gates.
+
+Apply the workflow proportionately and within the current runtime's delegation policy.
+Preserve dirty source and one writer per file, especially the single script and shared tests.
+[SCRUM_BACKLOG.md](SCRUM_BACKLOG.md) holds goals/stories/current work; the punchlist and
+handoff retain their existing roles. SDD remains a future option. This process changes no
+app behavior, existing authorization or subtitle integration decision.
 
 ## What this is
 
@@ -135,8 +150,8 @@ API key. A new shipped prompt or profile goes in that list.
 ## Style
 
 - **flake8 (with bugbear), isort and mypy must be clean.** 100 columns, single quotes, no
-  auto-formatter. mypy is strict on the script (`pyproject.toml`); the tests are not
-  annotated.
+  auto-formatter. mypy is strict on the app and subtitle prototype (`pyproject.toml`); the
+  tests are not annotated.
 - **A comment says why, and usually by naming what went wrong without the line under it**
   ("ffmpeg can exit 0 having written nothing usable…"). Match the density and voice of the
   code around it. Don't narrate what the code plainly does.
@@ -159,6 +174,11 @@ when the owner decided.
 - **Agent workflow** (1 Oct 2026): this file is the single source of agent guidance, with
   `CLAUDE.md` a pointer to it, `ponytail` for all code work, a `PUNCHLIST.md`, and skills for
   changes that touch many places, after the owner's ChessPlusPlus repo.
+- **Claude Scrum team** (15 Oct 2026): adapt ChessPlusPlus's cross-functional workflow to
+  this repo, with the human as Product Owner and all capabilities working to a senior
+  standard. Use BDD and TDD; specification-driven development remains an optional later
+  adoption. The delivery process lives in `SCRUM_WORKFLOW.md`, with `/scrum`, project
+  specialist profiles and a persistent backlog; existing repo/product decisions still hold.
 - **Changes land through pull requests** (1 Oct 2026), so CI runs before `main` moves.
 - **Captions read as prose drop a cue's restatement of the cue before it** (1 Oct 2026):
   YouTube's rolling captions repeat the end of the previous cue, and that text is kept once. A
@@ -176,13 +196,22 @@ when the owner decided.
 - **The owner specified the subtitle settings** (2 Oct 2026): `VIDEO_SUB`,
   `VIDEO_SUB_WHISPER`, `VIDEO_SUB_AI_REFINEMENT` and `VIDEO_SOFT_HARD_SUB`, and the same four
   for `VIDEO_ONLY_`, each asked only when what it needs is on. See `docs/SUBTITLES_PLAN.md`.
+- **Configuration stays tracked** (3 Oct 2026): keep `config.txt` and the current local
+  configuration workflow; do not replace it with a shipped example or stop tracking it.
+- **An absent `KEEP_TRANSCRIPT` still asks** (3 Oct 2026): a profile that omits the field
+  keeps the existing interactive question, including profiles written before the field existed.
+- **A later download failure still finalizes complete standalone files** (3 Oct 2026):
+  convert and name the complete media already fetched, report that source as incomplete, and
+  continue the batch. Keep temporary audio needed to retry unfinished work. A source is still
+  retained until every requested replacement succeeds; the "Video Only" deletion rule above
+  still applies.
 
 Open, waiting on the owner: the decisions at the end of `docs/SUBTITLES_PLAN.md`.
 **Don't build subtitles into the main script until they are answered.**
 
 ## Known quirks
 
-- **CI is Linux and the owner is on Windows.** A double-quoted Windows path in a profile lost
+- **Windows paths need Windows checks.** A double-quoted Windows path in a profile lost
   its backslashes to dotenv's escapes (`\t`, `\n`), `~/clip.mp3` expanded to
   `C:\Users\me/clip.mp3`, and a test built `'file://' + path`, which is no URL with a drive
   letter. Every Linux run passed. Fixed, and CI has run the tests on Windows since

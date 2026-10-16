@@ -538,8 +538,12 @@ Two sources of one list that would be written under one name - two videos with
 the same title, or `a/clip.mp4` and `b/clip.mp4` - each keep their files: the
 second takes its video ID (`Same title [dQw4w9WgXcQ].mp4`), or a number for a
 local file (`clip (2).mp4`). The same source named twice keeps its one name.
-No file is written over another file of the same run, or over a transcript the
-list has still to read: where a name is taken, the later file gets ` (2)`.
+No file is written over another file of the same run, or over a local source or transcript
+the list has still to read: where a name is taken, the later file gets a format tag or suffix
+such as ` (2)`. This applies
+to the downloads themselves and temporary audio kept for a retry, as well as finished files.
+Downloads use a private staging folder, so yt-dlp's partial and fragment files cannot consume
+a queued source either. Complete ID-named audio caches are reused on a retry.
 
 A saved profile writes a value in single quotes wherever dotenv would otherwise
 change it on the way back - a path containing ` #`, `$`, or quotes - and a
@@ -795,6 +799,17 @@ usually `.webm` (Opus) and a video-only download `.webm` (VP9) or `.mp4` (AVC), 
 as served. Converted files carry the format actually written, and the merged file is
 built by ffmpeg into the container `VIDEO_FORMAT` names.
 
+A download is kept until every requested replacement has been written. If `mp3,flac`
+produces the MP3 but FLAC fails, both the MP3 and the original download remain for a retry.
+Conversion scratch files belong to that operation alone; cleanup leaves other files alone,
+including files whose names end in `.silent` or `.converting` before the extension.
+
+If a later download fails, complete standalone audio and video-only downloads already on
+disk are converted once into the formats asked for. The source is reported as incomplete,
+temporary audio needed for unfinished work is kept, and the next source still runs. A file
+lock that prevents a conversion replacing its download is also reported without ending the
+batch; the download and any completed outputs are kept.
+
 Anything below the best available is labelled, so downloads at different qualities sit
 side by side instead of the second silently reusing the first:
 
@@ -918,6 +933,17 @@ If space is tight, skip the video download - audio is all that's needed for tran
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Claude development uses [the Scrum workflow](SCRUM_WORKFLOW.md): you are Product Owner,
+and ten specialist profiles share delivery using BDD, TDD and peer review. Start a fresh
+Claude Code session here and run `/scrum <task>`. Native experimental teams are enabled
+in-process; the lead selects relevant capabilities within runtime capacity and file
+ownership, using focused subagents or sequential work when appropriate.
+
+[SCRUM_BACKLOG.md](SCRUM_BACKLOG.md) holds goals and current stories; [AGENTS.md](AGENTS.md)
+owns repo constraints/decisions. Sprint dates/goals await actual planning. SDD is a possible
+later adoption, with no framework installed now. See [DEV.md](DEV.md) for setup/checks and
+the workflow for review, verification and account/runtime limits.
 
 Development setup:
 

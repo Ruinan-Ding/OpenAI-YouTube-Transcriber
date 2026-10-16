@@ -14,11 +14,14 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-Install everything:
+Install everything in the activated virtual environment. `requirements-dev.txt` includes
+pre-commit; do not install it into the owner's existing application Python, where it can
+change dependencies used by torch and Hugging Face. Keep that installation for application
+runs and Windows checks.
 
 ```bash
 make deps      # Install runtime dependencies
-make dev       # Install dev tools (linters, formatters, etc.)
+make dev       # Install dev tools in the activated virtual environment
 make install   # Install the package in editable mode
 ```
 
@@ -55,6 +58,15 @@ wheel; `docs/SUBTITLES_PLAN.md` says what it is for and when it goes.
 
 ## Workflow
 
+Claude development follows [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md), with the human as Product
+Owner, ten specialist profiles, BDD acceptance examples, evidenced TDD and shared review/Done
+criteria. Start a fresh Claude Code session and run `/scrum <task>`; the
+[backlog](SCRUM_BACKLOG.md) holds goals/current work. AGENTS.md remains the repo authority.
+Native interactive teams are enabled in-process; focused subagents or sequential work apply
+when appropriate. Use one writer per shared script/test file. The workflow covers runtime
+limits, actual verification and optional future SDD; these instructions do not prove a live
+team ran or install organization account access.
+
 **Run the app to test changes:**
 ```bash
 make run
@@ -84,7 +96,7 @@ network calls are faked.
 
 ## Type Checking
 
-Every function in the script says what it takes and returns, and `mypy`
+Every function in the app and subtitle prototype says what it takes and returns, and `mypy`
 (configured in `pyproject.toml`) holds it to that: strict, except that a value
 handed on from yt-dlp or Whisper, which publish no types, is taken as the type
 the function says. The tests are not annotated.
@@ -104,13 +116,17 @@ black defaults to 88 and double quotes, so it is not enabled. `flake8` (with
 
 ## Continuous Integration
 
-`.github/workflows/tests.yml` runs flake8, isort, mypy and the suite (under pytest) on
-every push to `main` and on every pull request, on Ubuntu with Python 3.11. It installs the
-CPU build of torch before the requirements, so Whisper does not drag in CUDA.
+`.github/workflows/tests.yml` runs the two test files under pytest on Ubuntu and Windows
+with Python 3.11, on every push to `main` and every pull request. Flake8, isort and mypy run
+on Ubuntu. Both jobs install ffmpeg and the CPU build of torch before the requirements, so
+the media checks run against real files and Whisper does not drag in CUDA.
 
 ## Git Hooks
 
-Install the pre-commit hooks to lint automatically on each commit:
+Install the pre-commit hooks from the activated development virtual environment to lint
+automatically on each commit. `make precommit-install` installs pre-commit into the active
+Python, so never run it against the owner's existing application installation. The hooks
+remember the environment's interpreter; keep that environment while using them.
 
 ```bash
 make precommit-install
@@ -135,9 +151,9 @@ pre-commit run --all-files
 
 - `make install`: Install the package in editable mode
 - `make deps`: Install runtime dependencies
-- `make dev`: Install development tools
+- `make dev`: Install development tools in the activated virtual environment
 - `make lint`: Run flake8, isort and mypy as CI does
 - `make test`: Run the test suite under pytest
 - `make run`: Run the app
 - `make clean`: Remove build artifacts
-- `make precommit-install`: Set up git hooks
+- `make precommit-install`: Set up git hooks from the activated virtual environment
