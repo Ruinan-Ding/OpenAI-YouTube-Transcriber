@@ -58,6 +58,15 @@ Publication follows the PR policy: check the GitHub PR/commit history for the ac
 merge result, rather than treating this preparation snapshot as proof of publication.
 Owner-SEEN, live Claude team execution and live AI polish remain separate observations.
 
+The [first PR CI run](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/actions/runs/38832961848)
+passed Linux but failed Windows while deleting the metadata test's file-URL input, after
+its download assertions passed. Disabling cyclic collection reproduced WinError 32 locally;
+collecting unreachable yt-dlp response cycles released the file. Download fixtures now
+exercise delayed collection and collect those cycles before strict temporary cleanup,
+restoring the caller's original collection mode. The cache-retry test points at an
+unavailable URL instead of deleting an input that the response may still hold open.
+This publication follow-up changes test lifetime management, not application behavior.
+
 ## Claude Scrum setup (15 Oct 2026)
 
 Adapted the sibling ChessPlusPlus workflow to this CLI: ten reusable specialist profiles,

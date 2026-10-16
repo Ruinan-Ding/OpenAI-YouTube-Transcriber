@@ -147,6 +147,10 @@ regression test.
 
 ### Development
 
+- **File-backed download tests release yt-dlp response cycles before cleanup.** Windows
+  could keep a fixture's input open after a successful download until garbage collection
+  happened to run. The tests now exercise delayed collection explicitly and release those
+  cycles before strict temporary-directory cleanup, without ignoring failed deletions.
 - **Claude development has a shared Scrum workflow**, adapted from ChessPlusPlus: ten
   specialist profiles, `/scrum`, BDD examples, evidenced TDD, review, goals/backlog and a
   shared Definition of Done. The owner remains Product Owner; SDD is an option for later.

@@ -3,6 +3,7 @@
 import ast
 import builtins
 import codecs
+import gc
 import getpass
 import importlib
 import inspect
@@ -15,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1136,6 +1137,23 @@ def _make_clip(path, kind):
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i', source]
                    + codec + [path], capture_output=True, check=True)
     return path
+
+
+@contextmanager
+def _download_directory():
+    """yt-dlp's file-URL response cycle kept its input open during Windows cleanup."""
+    collecting = gc.isenabled()
+    # Make CI's delayed collection deterministic rather than hoping it runs in time.
+    gc.disable()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                yield tmp
+            finally:
+                gc.collect()
+    finally:
+        if collecting:
+            gc.enable()
 
 
 def test_ffmpeg_leaves_stdin_to_the_prompts():
@@ -4931,7 +4949,7 @@ def test_a_download_reuses_the_metadata_already_fetched():
         _skip('no ffmpeg')
     import yt_dlp
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _download_directory() as tmp:
         stream = os.path.join(tmp, 'stream.webm')
         subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
                         'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
@@ -4968,7 +4986,7 @@ def test_shared_downloads_preserve_local_sources_queued_after_them():
     import yt_dlp
 
     for kind in ('audio', 'video'):
-        with tempfile.TemporaryDirectory() as tmp:
+        with _download_directory() as tmp:
             stream = os.path.join(tmp, 'stream.webm')
             subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
                             'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
@@ -5032,7 +5050,7 @@ def test_download_sidecars_never_consume_a_queued_media_source():
         _skip('no ffmpeg')
     import yt_dlp
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _download_directory() as tmp:
         stream = _make_clip(os.path.join(tmp, 'stream.mp3'), 'audio')
         folder = os.path.join(tmp, 'out')
         os.mkdir(folder)
@@ -5070,7 +5088,7 @@ def test_retry_audio_claims_its_id_named_cache_and_reuses_it_without_fetching():
     allocating its path must still let a later retry reuse the same cached file."""
     if not _ffmpeg_available():
         _skip('no ffmpeg')
-    with tempfile.TemporaryDirectory() as tmp:
+    with _download_directory() as tmp:
         stream = os.path.join(tmp, 'stream.webm')
         subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
                         'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
@@ -5097,7 +5115,7 @@ def test_retry_audio_claims_its_id_named_cache_and_reuses_it_without_fetching():
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             first, _ = t.download_audio_stream(info, 'clip', is_temp=True, claim_path=claim)
             # A retry with no stream available must succeed from its claimed cache.
-            os.remove(stream)
+            info['formats'][0]['url'] = Path(os.path.join(tmp, 'unavailable.webm')).as_uri()
             t.release_caches()
             second, _ = t.download_audio_stream(info, 'clip', is_temp=True, claim_path=claim)
         assert first == second == os.path.join(folder, 'clip [abcdefghijk] (2).webm')
@@ -5113,7 +5131,7 @@ def test_a_download_without_cached_metadata_stages_before_claiming_its_actual_pa
         _skip('no ffmpeg')
     import yt_dlp
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _download_directory() as tmp:
         stream = os.path.join(tmp, 'stream.webm')
         subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
                         'sine=frequency=440:duration=0.3', '-c:a', 'libopus', stream],
@@ -5177,7 +5195,7 @@ def test_a_later_download_failure_finalizes_standalone_files_and_keeps_retry_aud
         _skip('no ffmpeg')
     import yt_dlp
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _download_directory() as tmp:
         video = _make_clip(os.path.join(tmp, 'video.mp4'), 'video')
         audio = os.path.join(tmp, 'audio.webm')
         subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',

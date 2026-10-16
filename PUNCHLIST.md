@@ -136,3 +136,9 @@ rerun application suites or make live AI calls; the later delivery checks are re
 above. GitHub records publication; owner-SEEN acceptance is still absent. Detailed
 structural evidence is in Windows Temp `oyt-scrum-20261015-iv4_3px4/STRUCTURAL.txt`;
 the tracked backlog/handoff retain the outcomes without depending on private logs alone.
+
+## 8. Publication check (15 Oct 2026)
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 8.1 | Release yt-dlp file-URL response cycles before strict test-directory cleanup. Exercise delayed collection and restore its original mode; retain all download assertions. | PR #57's first CI run passed Linux but Windows could not delete the fixture's input. Reproduced locally with cyclic collection disabled; the fix passes that case, six focused real-download tests, the full Windows suite (159 passed, 3 symlink skips), the plain runner and lint/type checks. Later PR CI records the integrated result. | WRITTEN |
