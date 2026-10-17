@@ -37,6 +37,8 @@ env.bak/
 Thumbs.db
 # Claude Code's per-machine permissions
 .claude/settings.local.json
+# Ralph's prompts/session state belong to the current checkout, not a commit.
+.claude/ralph-loop.local.md*
 
 # Project-specific
 # Media files (large, generated)

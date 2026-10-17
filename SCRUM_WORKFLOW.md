@@ -1,9 +1,13 @@
-# Claude Scrum workflow
+# Claude SAFe / Scrum workflow
 
 One senior cross-functional team delivers this Python/media/AI CLI. The human is Product
 Owner. Specification-driven development (SDD) defines intent, BDD makes it observable, and
 TDD implements it. [AGENTS.md](AGENTS.md) owns repo constraints/product decisions; this guide
 owns delivery. User instructions and existing authorization prevail.
+For features, PI planning and shared dependencies/risks, use the on-demand
+[SAFe coordination guide](docs/SAFE_WORKFLOW.md). Current profiles remain one delivery team;
+SAFe accountabilities use existing capabilities rather than an automatic larger agent roster.
+Use [plugin routing](docs/CLAUDE_PLUGINS.md) when a task calls for plugin tools.
 
 Use `/scrum <task>` or describe development work normally. The
 [skill](.claude/skills/scrum/SKILL.md) translates informal “vibe coding” requests automatically;
@@ -19,6 +23,8 @@ Read AGENTS.md once per context and the active [backlog](SCRUM_BACKLOG.md) story
 | Delegated work/review | Team contract; assigned profile/spec/examples; affected source |
 | Staffing/runtime choice | Capabilities and runtime |
 | Scrum planning/events | Scrum accountabilities and events |
+| Multi-story feature, shared dependency/risk or SAFe/PI planning | Relevant sections of docs/SAFE_WORKFLOW.md |
+| Plugin setup, Ralph, targeted plugin review or release helpers | Relevant sections of docs/CLAUDE_PLUGINS.md |
 | Context growth/resume | Token discipline |
 
 Read affected code/callers before edits. Targeted context does not excuse incomplete
@@ -27,7 +33,8 @@ understanding. Invoke Ponytail as AGENTS.md requires; reuse unchanged instructio
 ## Delivery loop
 
 1. Inspect branch/HEAD, dirty source, affected callers and prior evidence. Select the
-   authorized outcome and create/update its compact spec through SDD intake.
+   authorized outcome and create/update its compact spec through SDD intake; link an existing
+   feature/objective where relevant. Bounded stories need no PI planning packet.
 2. Pair product/development/quality perspectives on BDD examples (Three Amigos). Recorded
    owner intent supplies product input; three perspectives need not mean three agents.
    Identify checks, design risks, dependencies and writer-owned tasks before editing.
@@ -59,7 +66,7 @@ an extra agent/model call or approval stage. Apply it to new requests and user s
    design rationale/tradeoffs; avoid separate documents repeating requirements/design/tasks.
 
 ```text
-Story ID / revision / status / source request:
+Story ID / revision / status / source request; parent feature/objective if present:
 Outcome; in / out of scope:
 Accepted intent + rule links; proposals / open questions:
 AC-ID: Given ... When ... Then ... -> test or observation -> result/pending
@@ -132,7 +139,7 @@ combined source. Only the assigned writer updates shared records.
 | [Security/reliability](.claude/agents/security-reliability.md) | Trust, secrets, subprocesses, data/resource safety |
 | [Release engineer](.claude/agents/release-engineer.md) | Integration, Windows/Linux CI, packaging, evidence |
 
-Profiles inherit the lead's model/runtime permissions. Advisory profiles have read/search/
+Project profiles inherit the lead's model/runtime permissions. Advisory profiles have read/search/
 Skill only; Skill grants no shell/edit tools. Start with the lead covering needed capabilities;
 add focused workers/reviewers for distinct useful results, not a full roster, permanent
 translator or testing department. Respect runtime delegation/capacity and file ownership.

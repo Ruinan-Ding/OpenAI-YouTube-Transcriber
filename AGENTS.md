@@ -14,6 +14,8 @@ hand it is `/plugin marketplace add DietrichGebert/ponytail`, then
 here; don't restate its rules in this file, run it. Siblings: `/ponytail-review` (a diff),
 `/ponytail-audit` (the repo), `/ponytail-debt`, `/ponytail-help`.
 
+Plugin setup, activation and limits: [docs/CLAUDE_PLUGINS.md](docs/CLAUDE_PLUGINS.md).
+
 Under it, these hold:
 
 - **What the app does is the owner's call, never a reasonable default.** A file name, a
@@ -34,20 +36,17 @@ Under it, these hold:
   path, a quote, a file name or a subprocess is tested on Windows before it is called done
   (see *Known quirks*).
 
-## Claude Scrum delivery
+## Claude SAFe / Scrum delivery
 
-Use [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) for the cross-functional team, senior engineering
-standard, SDD specs, BDD examples, TDD, peer review and Definition of Done. `/scrum <task>`
-is the project entry point; `.claude/agents/` supplies the specialist profiles. The human owner
-is Product Owner. Specialties share delivery responsibility rather than forming sequential
-departments or additional approval gates.
+[SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) defines senior cross-functional SDD/BDD/TDD, review
+and Done. `/scrum <task>` or a normal development request produces a compact spec, examples
+and tasks. The human is Product Owner; capabilities collaborate without departmental gates.
 
-Apply the workflow proportionately and within the current runtime's delegation policy.
-Preserve dirty source and one writer per file, especially the single script and shared tests.
-[SCRUM_BACKLOG.md](SCRUM_BACKLOG.md) holds goals/stories/current work; the punchlist and
-handoff retain their existing roles. Informal development requests automatically become a
-compact spec with examples and tasks; load only relevant context and capabilities. This
-process changes no app behavior, existing authorization or subtitle integration decision.
+Follow runtime delegation policy, preserve dirty source and assign one writer per file,
+especially the script/tests. [SCRUM_BACKLOG.md](SCRUM_BACKLOG.md) owns goals/current work;
+punchlist/handoff keep their existing roles. Load relevant context/capabilities only.
+[SAFe coordination](docs/SAFE_WORKFLOW.md) adds feature/PI alignment on demand through existing
+profiles. This changes no app behavior, authorization or subtitle integration decision.
 
 ## What this is
 
@@ -172,16 +171,17 @@ API key. A new shipped prompt or profile goes in that list.
 The owner's decisions, the running record. Not complete, and not meant to be. Dates are
 when the owner decided.
 
-- **Agent workflow** (1 Oct 2026): this file is the single source of agent guidance, with
+- **Agent workflow** (1 Oct 2026; updated 17 Oct): this file owns agent guidance, with
   `CLAUDE.md` a pointer to it, `ponytail` for all code work, a `PUNCHLIST.md`, and skills for
-  changes that touch many places, after the owner's ChessPlusPlus repo.
-- **Claude Scrum team** (15 Oct 2026; updated 17 Oct): adapt ChessPlusPlus's cross-functional
-  workflow to this repo, with the human as Product Owner and all capabilities working to a senior
-  standard. Use specification-driven development now, alongside BDD and TDD. Translate
-  informal “vibe coding” requirements automatically into a compact spec, examples and tasks;
-  keep prompts, context and delegation token efficient. The delivery process lives in
-  `SCRUM_WORKFLOW.md`, with `/scrum`, specialist profiles and a persistent backlog; existing
-  repo/product decisions still hold, including unresolved subtitle decisions.
+  changes that touch many places, after the owner's ChessPlusPlus repo. Add relevant Claude
+  plugins, including Ralph, while preserving token efficiency (17 Oct).
+- **Claude SAFe / Scrum team** (15 Oct 2026; updated 17 Oct): adapt ChessPlusPlus's
+  cross-functional team to this repo, with a human Product Owner and senior capabilities.
+  Adopt SDD now with automatic informal “vibe coding” intent-to-spec translation, BDD and TDD.
+  Add SAFe feature/PI coordination through existing profiles and on-demand guidance, keeping
+  context/delegation token efficient. `SCRUM_WORKFLOW.md`, `/scrum` and the backlog own delivery;
+  `docs/SAFE_WORKFLOW.md` owns scaling detail. Existing product decisions/subtitle gates hold;
+  no train, calendar or commitment is fabricated.
 - **Changes land through pull requests** (1 Oct 2026), so CI runs before `main` moves.
 - **Captions read as prose drop a cue's restatement of the cue before it** (1 Oct 2026):
   YouTube's rolling captions repeat the end of the previous cue, and that text is kept once. A

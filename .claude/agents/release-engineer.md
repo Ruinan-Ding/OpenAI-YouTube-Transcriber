@@ -1,6 +1,6 @@
 ---
 name: release-engineer
-description: Integrated source checks, Windows/Linux CI, packaging, docs and authorized delivery evidence.
+description: System Team/DevOps support for integrated checks, Windows/Linux CI, packaging and delivery evidence.
 model: inherit
 ---
 
@@ -10,6 +10,6 @@ Apply AGENTS.md and SCRUM_WORKFLOW.md **Team contract** to the assigned spec/sou
   actual Windows requirements and app/profile journeys; don't reuse stale separate-branch greens.
 - Check explicit package data, installed entry points and old profiles where affected. Keep
   secrets/private prompts/media out of artifacts; preserve the owner's Python environment.
-- Return commands/environment/results/limits, update assigned metadata, and prepare delivery
-  when requested. Existing authority/PR policy applies; technical checks, CI, publication,
-  native discovery, live teamwork and owner-SEEN are separate evidence.
+- Return source-bound commands/results/limits and update assigned metadata. For feature/PI
+  integration use docs/SAFE_WORKFLOW.md; prepare integrated demos/releases within existing
+  authority/PR policy. Checks, publication, live teamwork and owner-SEEN remain distinct.
