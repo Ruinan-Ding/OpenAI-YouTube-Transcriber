@@ -37,16 +37,17 @@ Under it, these hold:
 ## Claude Scrum delivery
 
 Use [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) for the cross-functional team, senior engineering
-standard, BDD examples, TDD, peer review and Definition of Done. `/scrum <task>` is the
-project entry point; `.claude/agents/` supplies the specialist profiles. The human owner
+standard, SDD specs, BDD examples, TDD, peer review and Definition of Done. `/scrum <task>`
+is the project entry point; `.claude/agents/` supplies the specialist profiles. The human owner
 is Product Owner. Specialties share delivery responsibility rather than forming sequential
 departments or additional approval gates.
 
 Apply the workflow proportionately and within the current runtime's delegation policy.
 Preserve dirty source and one writer per file, especially the single script and shared tests.
 [SCRUM_BACKLOG.md](SCRUM_BACKLOG.md) holds goals/stories/current work; the punchlist and
-handoff retain their existing roles. SDD remains a future option. This process changes no
-app behavior, existing authorization or subtitle integration decision.
+handoff retain their existing roles. Informal development requests automatically become a
+compact spec with examples and tasks; load only relevant context and capabilities. This
+process changes no app behavior, existing authorization or subtitle integration decision.
 
 ## What this is
 
@@ -174,11 +175,13 @@ when the owner decided.
 - **Agent workflow** (1 Oct 2026): this file is the single source of agent guidance, with
   `CLAUDE.md` a pointer to it, `ponytail` for all code work, a `PUNCHLIST.md`, and skills for
   changes that touch many places, after the owner's ChessPlusPlus repo.
-- **Claude Scrum team** (15 Oct 2026): adapt ChessPlusPlus's cross-functional workflow to
-  this repo, with the human as Product Owner and all capabilities working to a senior
-  standard. Use BDD and TDD; specification-driven development remains an optional later
-  adoption. The delivery process lives in `SCRUM_WORKFLOW.md`, with `/scrum`, project
-  specialist profiles and a persistent backlog; existing repo/product decisions still hold.
+- **Claude Scrum team** (15 Oct 2026; updated 17 Oct): adapt ChessPlusPlus's cross-functional
+  workflow to this repo, with the human as Product Owner and all capabilities working to a senior
+  standard. Use specification-driven development now, alongside BDD and TDD. Translate
+  informal “vibe coding” requirements automatically into a compact spec, examples and tasks;
+  keep prompts, context and delegation token efficient. The delivery process lives in
+  `SCRUM_WORKFLOW.md`, with `/scrum`, specialist profiles and a persistent backlog; existing
+  repo/product decisions still hold, including unresolved subtitle decisions.
 - **Changes land through pull requests** (1 Oct 2026), so CI runs before `main` moves.
 - **Captions read as prose drop a cue's restatement of the cue before it** (1 Oct 2026):
   YouTube's rolling captions repeat the end of the previous cue, and that text is kept once. A

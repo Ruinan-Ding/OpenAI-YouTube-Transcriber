@@ -59,13 +59,14 @@ wheel; `docs/SUBTITLES_PLAN.md` says what it is for and when it goes.
 ## Workflow
 
 Claude development follows [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md), with the human as Product
-Owner, ten specialist profiles, BDD acceptance examples, evidenced TDD and shared review/Done
+Owner, ten specialist profiles, compact SDD specs, BDD examples, TDD and shared review/Done
 criteria. Start a fresh Claude Code session and run `/scrum <task>`; the
 [backlog](SCRUM_BACKLOG.md) holds goals/current work. AGENTS.md remains the repo authority.
 Native interactive teams are enabled in-process; focused subagents or sequential work apply
 when appropriate. Use one writer per shared script/test file. The workflow covers runtime
-limits, actual verification and optional future SDD; these instructions do not prove a live
-team ran or install organization account access.
+limits and actual verification. Informal development requests automatically enter SDD;
+load only relevant sections/roles and reuse the story spec instead of repeating context.
+Configuration checks do not prove a live team ran or enable organization account access.
 
 **Run the app to test changes:**
 ```bash

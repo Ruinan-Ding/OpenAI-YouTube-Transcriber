@@ -14,7 +14,7 @@ A passing test is not a working feature. Nothing moves to **SEEN** except by the
 so. When an item lands on `main` and the owner has seen it, it leaves this list for
 `CHANGELOG.md`.
 
-Last updated 15 Oct 2026.
+Last updated 17 Oct 2026.
 
 ---
 
@@ -120,15 +120,17 @@ prototype is repaired and checked separately from integration.
 ## 7. Claude Scrum workflow (15 Oct 2026)
 
 The owner asked to adapt ChessPlusPlus's full cross-functional workflow, with every
-capability held to a senior standard, TDD/BDD now and possible SDD later. Process and
+capability held to a senior standard. On 17 Oct the owner added active SDD, automatic
+informal-requirement translation and token efficiency alongside TDD/BDD. Process and
 current goals live in [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) and
 [SCRUM_BACKLOG.md](SCRUM_BACKLOG.md); existing app/subtitle decisions remain in force.
 
 | # | Item | Evidence | Status |
 |---|---|---|---|
-| 7.1 | Ten specialist profiles, `/scrum`, native in-process team settings, shared backlog/events, BDD/TDD evidence, ownership/review and Definition of Done. SDD remains optional; model/permission policy and Ponytail configuration are preserved. | Windows YAML/JSON/local-link/structural checks pass. Claude Code 2.1.300's local agent-loader diagnostic lists all ten profiles, and its skill loader reports both project skills loaded. Existing application/prototype/tests/profiles/dependencies/CI match the dirty baseline byte-for-byte. | WRITTEN |
+| 7.1 | Original ten-profile Scrum setup, `/scrum`, native in-process teams, backlog/events, BDD/TDD, ownership/review and Done criteria; 7.4 extends it with SDD. Model/permission policy and Ponytail configuration are preserved. | Windows YAML/JSON/local-link/structural checks pass. Claude Code 2.1.300's local agent-loader diagnostic lists all ten profiles, and its skill loader reports both project skills loaded. Existing application/prototype/tests/profiles/dependencies/CI match the dirty baseline byte-for-byte. | WRITTEN |
 | 7.2 | Exercise an owner-selected bounded behavior story through actual BDD/TDD, peer collaboration/review and integrated acceptance. Evaluate the senior standard from results, not profile labels. | No live-team/model trial or independent review ran. Claude Code subscription access is disabled by the current organization policy; the ponytail invocation was refused. | OPEN |
 | 7.3 | Agree the first Product/Sprint Goals, dates and duration, then inspect actual stakeholder feedback and one measurable retrospective improvement. | No Sprint or event is invented; workflow setup can proceed as an unscheduled story. | OPEN |
+| 7.4 | Token-efficient SDD intake translates informal intent to one spec, BDD examples and TDD tasks; keeps ten capabilities, selective context, focused delegation and owner-decision gates. | Windows YAML/JSON/links and native discovery pass; WF-002 records unchanged source hashes, smaller instructions and intake self-review. Live Claude execution/usage trial remains blocked by organization policy; no owner-SEEN or independent review claimed. | WRITTEN |
 
 Verification is scoped to workflow configuration, not the 3 Oct safety implementation.
 Instruction walkthroughs are self-review, not model-behavior tests. Workflow setup did not
