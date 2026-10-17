@@ -934,7 +934,7 @@ If space is tight, skip the video download - audio is all that's needed for tran
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Claude development uses [the Scrum workflow](SCRUM_WORKFLOW.md): you are Product Owner,
+Claude development uses [SAFe/Scrum delivery](SCRUM_WORKFLOW.md): you are Product Owner,
 and ten specialist profiles share delivery using SDD, BDD, TDD and peer review. Start a fresh
 Claude Code session here and run `/scrum <task>`. Native experimental teams are enabled
 in-process; the lead selects relevant capabilities within runtime capacity and file
@@ -945,6 +945,10 @@ owns repo constraints/decisions. Describe a change in your own words: the workfl
 into a compact spec, observable examples and implementation tasks, asking about unresolved
 product choices. Relevant roles and context load on demand to reduce token use. Sprint
 dates/goals await actual planning; see [DEV.md](DEV.md) for setup/checks and runtime limits.
+SAFe feature/PI coordination reuses these capabilities and loads only when relevant;
+ordinary stories retain the compact SDD/BDD/TDD path.
+See [Claude plugins](docs/CLAUDE_PLUGINS.md) for Ralph, Python navigation, targeted review and
+authorized commit/PR helpers, including installation and token costs.
 
 Development setup:
 

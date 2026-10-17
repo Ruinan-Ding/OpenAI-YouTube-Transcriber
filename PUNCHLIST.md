@@ -117,20 +117,23 @@ prototype is repaired and checked separately from integration.
 | 6.5 | Mixed-width unspaced text accepted by `fits()` can exceed 42 columns after `split_lines()`. | Reproduced with 84 columns of ASCII and a Chinese character; the two lines were 43 and 41 columns. | OPEN |
 | 6.6 | The prototype's `main()` returns 0 when requested soft muxing or burning fails, so callers see success for missing deliverables. | Inspection of the return handling; not exercised through the CLI. | OPEN |
 
-## 7. Claude Scrum workflow (15 Oct 2026)
+## 7. Claude SAFe / Scrum workflow (15–17 Oct 2026)
 
 The owner asked to adapt ChessPlusPlus's full cross-functional workflow, with every
 capability held to a senior standard. On 17 Oct the owner added active SDD, automatic
-informal-requirement translation and token efficiency alongside TDD/BDD. Process and
-current goals live in [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) and
+informal-requirement translation and token efficiency alongside TDD/BDD, then SAFe
+coordination using the same capabilities. Process and current goals live in
+[SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) and
 [SCRUM_BACKLOG.md](SCRUM_BACKLOG.md); existing app/subtitle decisions remain in force.
 
 | # | Item | Evidence | Status |
 |---|---|---|---|
 | 7.1 | Original ten-profile Scrum setup, `/scrum`, native in-process teams, backlog/events, BDD/TDD, ownership/review and Done criteria; 7.4 extends it with SDD. Model/permission policy and Ponytail configuration are preserved. | Windows YAML/JSON/local-link/structural checks pass. Claude Code 2.1.300's local agent-loader diagnostic lists all ten profiles, and its skill loader reports both project skills loaded. Existing application/prototype/tests/profiles/dependencies/CI match the dirty baseline byte-for-byte. | WRITTEN |
 | 7.2 | Exercise an owner-selected bounded behavior story through actual BDD/TDD, peer collaboration/review and integrated acceptance. Evaluate the senior standard from results, not profile labels. | No live-team/model trial or independent review ran. Claude Code subscription access is disabled by the current organization policy; the ponytail invocation was refused. | OPEN |
-| 7.3 | Agree the first Product/Sprint Goals, dates and duration, then inspect actual stakeholder feedback and one measurable retrospective improvement. | No Sprint or event is invented; workflow setup can proceed as an unscheduled story. | OPEN |
+| 7.3 | Agree actual Product/Sprint/PI goals, dates and capacity when planning is activated, then inspect stakeholder feedback and one measurable improvement. | No Sprint, PI or event is invented; workflow setup can proceed as an unscheduled story. | OPEN |
 | 7.4 | Token-efficient SDD intake translates informal intent to one spec, BDD examples and TDD tasks; keeps ten capabilities, selective context, focused delegation and owner-decision gates. | Windows YAML/JSON/links and native discovery pass; WF-002 records unchanged source hashes, smaller instructions and intake self-review. Live Claude execution/usage trial remains blocked by organization policy; no owner-SEEN or independent review claimed. | WRITTEN |
+| 7.5 | SAFe coordination adds feature/PI outcomes, dependencies, ROAM risks, integrated demos and improvement through existing profiles and an on-demand reference; preserves compact story delivery. | Windows structure/links/source checks and native discovery pass. WF-003 records smaller common guidance and scenario self-review. Live workflow remains blocked by organization policy; no actual ART, PI commitments, independent review or owner-SEEN claimed. | WRITTEN |
+| 7.6 | Add focused Claude plugins, per-runtime dependencies and bounded/plugin-review routing while preserving the dirty SAFe work. | Five project installs verified on Windows/WSL; six real hook/LSP checks per OS and Windows link/settings/source checks pass. PR toolkit is on demand. WF-004 records actual limits; no live model review, independent review or owner-SEEN claimed. | WRITTEN |
 
 Verification is scoped to workflow configuration, not the 3 Oct safety implementation.
 Instruction walkthroughs are self-review, not model-behavior tests. Workflow setup did not

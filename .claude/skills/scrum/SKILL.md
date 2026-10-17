@@ -1,26 +1,24 @@
 ---
 name: scrum
-description: Deliver this repo's development work with token-efficient SDD, BDD and TDD. Translate informal feature/fix requests into a compact spec automatically; also use for Scrum planning, review or retrospectives. Not for ordinary app usage.
+description: Deliver repo work through token-efficient SAFe coordination and Scrum with SDD, BDD and TDD. Translate informal feature/fix requests automatically; use for SAFe/PI planning, dependencies, review or retrospectives. Not ordinary app usage.
 argument-hint: "<task>"
 ---
 
-# Scrum delivery
+# SAFe / Scrum delivery
 
-Use `$ARGUMENTS` or the active request. Read [AGENTS.md](../../../AGENTS.md) once, then the
-active story in [SCRUM_BACKLOG.md](../../../SCRUM_BACKLOG.md). Preserve dirty work and invoke
-Ponytail as required. Normal development requests use this skill without requiring `/scrum`.
+Use `$ARGUMENTS` or the active request. Read [AGENTS.md](../../../AGENTS.md) once and the
+active [backlog](../../../SCRUM_BACKLOG.md) spec; preserve dirty work and invoke Ponytail.
+Apply to normal requests too.
 
-The lead reads [SCRUM_WORKFLOW.md](../../../SCRUM_WORKFLOW.md)'s **Delivery loop**, **SDD
-intake** and **Definition of Done**: translate even vague intent into one small versioned
-spec, stable Given/When/Then examples and writer-owned TDD tasks before implementation.
-Ask only about unresolved product choices; don't guess behavior or add approval ceremonies.
+Lead: read [workflow](../../../SCRUM_WORKFLOW.md) **Delivery loop**, **SDD intake** and
+**Definition of Done**. Translate intent into one compact spec, stable Given/When/Then
+examples and writer-owned TDD tasks. Ask about missing product choices; don't guess approval.
+For multi-story features, shared dependencies/risks or explicit SAFe/PI planning, load relevant
+[SAFe coordination](../../../docs/SAFE_WORKFLOW.md) sections. Bounded stories need no PI packet.
 
-Load **Capabilities and runtime** when staffing, **Scrum accountabilities and events** for
-planning, and **Token discipline** on resume/context growth. Keep the full senior roster
-available; activate only useful capabilities within runtime policy. No automatic full-team
-fan-out or separate translator call. Lead responsibilities can be covered sequentially.
-
-Assigned workers read **Team contract**, their profile and assigned spec/source only; return
-AC evidence/findings to the lead without launching a team. One writer per file. Apply real
-Red/Green/refactor for behavior, structural checks for docs/config, review and applicable
-Windows/media checks. Keep current-source evidence and missing observations explicit.
+Load base **Capabilities and runtime** for staffing, **Scrum accountabilities and events**
+for team planning, **Token discipline** for resume. Use relevant senior capabilities within
+runtime policy. No automatic roster or translator calls.
+Workers read **Team contract**, assigned profile/spec/source and dependency deltas only;
+return AC evidence/findings without launching teams. Preserve real TDD, applicable Windows/
+media checks and source-bound review. Docs/config use structural checks; disclose limits.

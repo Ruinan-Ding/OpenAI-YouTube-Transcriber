@@ -68,6 +68,38 @@ restoring the caller's original collection mode. The cache-retry test points at 
 unavailable URL instead of deleting an input that the response may still hold open.
 This publication follow-up changes test lifetime management, not application behavior.
 
+## Claude plugins (17 Oct 2026)
+
+The owner requested relevant Claude plugins including Ralph. [Plugin guidance](CLAUDE_PLUGINS.md)
+owns setup/routing and token costs; WF-004 owns current checks. The existing uncommitted
+SAFe work remains on `chore/token-efficient-safe-workflow`. Four new tools join Ponytail;
+PR Review Toolkit is installed with its shared enabled state false for on-demand use.
+Native Windows and WSL installs/dependencies are separate; all five project installs and
+six isolated hook/LSP checks per OS pass. Windows settings/links/source checks pass, retaining
+the prior SAFe work and app bytes. WF-004 records versions, local configuration and limits.
+Live model execution fails independently: WSL subscription access is disabled by organization
+policy; Windows OAuth has expired. No credentials/policies were changed. No real checkout
+loop, model review, publication or independent review is claimed.
+The owner subsequently requested commit/push/merge of the combined SAFe/plugin changes;
+follow the PR/CI policy and inspect GitHub for the actual publication result.
+
+## SAFe coordination update (17 Oct 2026)
+
+The owner requested SAFe-level delivery with token efficiency. [SAFe coordination](SAFE_WORKFLOW.md)
+adds feature/PI alignment through the existing profiles; [the team workflow](../SCRUM_WORKFLOW.md)
+retains compact SDD/vibe intake, BDD/TDD, ownership and verification. Read only the relevant
+coordination sections. One current team is not represented as an operating ART; calendars,
+capacity, business values and commitments remain unagreed until actual planning.
+
+WF-003 in the backlog owns this configuration change and evidence. Start: clean `main` at
+`0dfebc7`, after [PR #58](https://github.com/Ruinan-Ding/OpenAI-YouTube-Transcriber/pull/58)
+merged with Linux/Windows CI passing. Work is on `chore/token-efficient-safe-workflow`;
+application/prototype/test/settings/CI files are unchanged. Windows structure/link/source
+checks and native discovery pass; WF-003 records the common-instruction budget and scenario
+self-review. No new app-suite run, independent review or live performance evidence is claimed.
+The Ponytail invocation was refused again by the organization policy; installed instructions
+were read/applied manually. No providers, credentials or permissions were changed.
+
 ## Token-efficient SDD update (17 Oct 2026)
 
 The owner adopted SDD now and requested automatic translation of informal requirements.

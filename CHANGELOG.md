@@ -147,6 +147,14 @@ regression test.
 
 ### Development
 
+- **Claude plugins support bounded workflow tasks.** Ralph, Pyright and commit/PR helpers
+  join Ponytail; the PR Review Toolkit is installed for on-demand activation to avoid its
+  routine context cost. Setup covers Windows/WSL dependencies, explicit iteration caps,
+  targeted reviews and ignored local loop state while retaining existing release authority.
+- **SAFe coordination reuses the existing senior team.** Feature/enabler planning, PI
+  objectives, dependencies, ROAM risks, integrated demos and improvement records load on
+  demand. Existing profiles cover RTE, Product Management, System Architect and System Team
+  responsibilities; small stories retain compact SDD/BDD/TDD without extra agent fan-out.
 - **Informal development requests now enter SDD automatically.** `/scrum` turns the owner's
   intent into one compact spec, BDD examples and TDD tasks, preserving unanswered product
   decisions. Shorter role instructions, selective context and focused delegation reduce

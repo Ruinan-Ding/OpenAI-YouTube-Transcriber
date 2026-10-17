@@ -58,7 +58,7 @@ wheel; `docs/SUBTITLES_PLAN.md` says what it is for and when it goes.
 
 ## Workflow
 
-Claude development follows [SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md), with the human as Product
+Claude development follows [SAFe/Scrum delivery](SCRUM_WORKFLOW.md), with the human as Product
 Owner, ten specialist profiles, compact SDD specs, BDD examples, TDD and shared review/Done
 criteria. Start a fresh Claude Code session and run `/scrum <task>`; the
 [backlog](SCRUM_BACKLOG.md) holds goals/current work. AGENTS.md remains the repo authority.
@@ -67,6 +67,10 @@ when appropriate. Use one writer per shared script/test file. The workflow cover
 limits and actual verification. Informal development requests automatically enter SDD;
 load only relevant sections/roles and reuse the story spec instead of repeating context.
 Configuration checks do not prove a live team ran or enable organization account access.
+Feature/PI/dependency work loads [SAFe coordination](docs/SAFE_WORKFLOW.md) on demand;
+bounded stories keep the same compact spec and checks without a PI packet.
+The [Claude plugin guide](docs/CLAUDE_PLUGINS.md) covers per-runtime installation, development
+tool dependencies, capped Ralph usage and on-demand review activation.
 
 **Run the app to test changes:**
 ```bash
