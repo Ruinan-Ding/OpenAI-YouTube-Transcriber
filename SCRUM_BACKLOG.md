@@ -1,89 +1,87 @@
 # Scrum backlog
 
-Updated 15 Oct 2026. The human Product Owner orders product work and owns product decisions.
-[SCRUM_WORKFLOW.md](SCRUM_WORKFLOW.md) defines the process; [AGENTS.md](AGENTS.md) owns
-repo constraints/decisions, [PUNCHLIST.md](PUNCHLIST.md) owns implementation checkpoints,
-and [the handoff](docs/CODEX_HANDOFF.md) owns source/environment evidence. Link those records
-rather than copying their history or creating a second subtitle/setting specification.
+Updated 17 Oct 2026. Human PO orders work. [Workflow](SCRUM_WORKFLOW.md) owns delivery;
+[AGENTS.md](AGENTS.md) owns constraints/decisions, [PUNCHLIST.md](PUNCHLIST.md) implementation/
+observation status, and [handoff](docs/CODEX_HANDOFF.md) source/environment evidence.
+Load the active story rather than replaying history.
 
-## Product Goal
+## Goals and scheduling
 
-Proposed for confirmation at first planning: make downloading, transcribing and processing
-media reliable and understandable across interactive/profile sessions, preserving user data
-and verifying Windows behavior. This restates the existing app's purpose; it approves no
-new features, defaults or subtitle integration.
+Proposed Product Goal, awaiting planning: reliable, understandable media downloading,
+transcription/processing across interactive/profile sessions, preserving data and verifying
+Windows behavior. No new app policy or subtitle integration implied.
 
-## Current Sprint
+No Sprint dates/duration/goal are agreed. Authorized work is unscheduled; no event is
+invented. Agree goal/timebox, achievable selection and verification capacity at planning.
 
-No Sprint dates, duration or Sprint Goal have been agreed. Work is unscheduled; no Sprint
-or Scrum event is claimed to have occurred. At first planning, agree the goal/timebox and
-select achievable stories with verification capacity. A two-week cadence is an option,
-not an already scheduled commitment.
+## Active spec: WF-002 — Token-efficient SDD intake
 
-## Current authorized story
+**r2 / Review.** Source: owner's 17 Oct request to save tokens, adopt SDD now and
+translate informal “vibe coding” requirements automatically within the BDD/TDD Scrum team.
+Revision 2 adds the owner's subsequent commit, push and merge instruction; intake examples
+and app scope are unchanged.
 
-### WF-001 — Adapt the ChessPlusPlus Claude Scrum workflow
+**Outcome/scope:** one compact spec drives examples, tasks and evidence; retain ten senior
+capabilities with selective context and focused delegation. Excludes app/prototype/settings
+behavior, dependencies, model/permission changes and subtitle decisions. Publication is
+authorized through a PR after its required CI passes.
 
-- **Request/outcome:** owner's 15 Oct request for a complete cross-functional team working
-  to senior standards, using TDD/BDD with possible specification-driven development later.
-- **Scope:** project agent profiles, `/scrum`, native team settings, shared accountabilities,
-  goals/events/backlog, BDD/TDD evidence, integration/review, Definition of Done and repo docs.
-  Adapt the specialties to this Python/media/AI CLI. No app behavior or subtitle integration.
-- **Owner:** current implementing conversation; one writer for workflow/shared metadata.
-- **Status:** Review; configuration written, verification evidence recorded below. No live
-  team trial or independent agent review is claimed.
-- **Source/ownership:** setup began on the existing `fix/pre-subtitle-media-safety` dirty
-  tree at `8d0b2d1`; retain its safety fixes and subtitle-plan correction. Workflow changes
-  do not modify the application, prototype, tests, shipped profiles, package/dependency files
-  or CI jobs.
-- **Dependencies:** an available Claude Code account for actual plugin/model/team execution;
-  installed Ponytail for code work. Project settings do not enable account access or grant
-  new permissions. Other runtimes retain their own delegation rules.
+**Accepted intent:** request above and existing [decisions](AGENTS.md#decisions); former
+optional-later SDD is superseded this turn. No new product policy proposed. Actual Claude
+execution depends on account access, which project instructions cannot supply.
 
-| Example | Given / When / Then | Verification |
+| ID | Given / When / Then | Check |
 |---|---|---|
-| WF-001-A | Given a fresh project session, when `/scrum` is used, then relevant senior role profiles follow the shared process and inherit the lead's model without permission overrides. | YAML/JSON/link checks and native discovery where available; state runtime limits. |
-| WF-001-B | Given a behavior change, when the team refines and implements it, then product/development/quality agree observable examples and record meaningful Red/Green/Refactor evidence. | Workflow/role/skill instruction walkthrough; actual behavior-story trial remains separate. |
-| WF-001-C | Given dirty source and overlapping one-script work, when tasks are delegated, then the intended source is preserved and each file has one writer. | Source hashes and ownership/handoff scenario review. |
-| WF-001-D | Given missing product decisions, unavailable teammates or documentation-only work, when delivery proceeds, then dependent changes stay gated, verification is truthful and checks fit the change. | Subtitle-gate, structural-check and missing-runtime scenario review. |
-| WF-001-E | Given later SDD consideration or changed scope, when the team adapts its plan, then accepted examples/decisions remain authoritative and no framework, Sprint, acceptance or new product policy is invented. | SDD, scope-change, defect and retrospective instruction review. |
+| WF-002-A | Given informal intent, when intake runs, then one spec links scope/rules, stable BDD examples and writer-owned tasks without requiring a user-written spec. | Intake/routing walkthrough. |
+| WF-002-B | Given ambiguity or open subtitle choices, when translated, then questions remain explicit and only dependent work stops; no behavior/approval is guessed. | Ambiguity/subtitle walkthroughs. |
+| WF-002-C | Given behavior or docs work, when delivered, then shared example IDs link genuine TDD or appropriate structural checks to observed results. | Behavior/docs walkthroughs. |
+| WF-002-D | Given small/delegated work, when loading context, then only relevant sections/roles load; no automatic translator/full roster or repeated history. | Context/packet review; byte-size comparison. |
+| WF-002-E | Given the team configuration, when discovered, then ten profiles retain inherited models/tool boundaries, file ownership and permitted peer review. | YAML/JSON/links/native discovery. |
+| WF-002-F | Given steering or resumed dirty source, when continuing, then reconcile spec revision/examples and source-bound evidence without losing work. | Steering/resume walkthrough; source hashes. |
 
-Verification: Windows YAML/JSON, local-link, profile/tool/model and structural checks pass.
-Claude Code 2.1.300's local agent-loader diagnostic lists all ten profiles; its skill loader
-reports both project skills loaded (`settings-sync` and `scrum` are the two installed files).
-Instruction walkthroughs cover WF-001-A–E, including dirty source, same-file work, a missing
-subtitle decision, docs-only checks, unavailable review and later SDD. These are self-review,
-not model behavior tests. All 33 tracked files outside workflow metadata match the dirty
-baseline byte-for-byte. Evidence: Windows Temp `oyt-scrum-20261015-iv4_3px4/STRUCTURAL.txt`.
+**Plan/owner:** root is sole writer/integrator for workflow, skill/profiles and linked
+guidance/status records. Update intake/roles, reconcile references/decisions, then validate
+combined source. No app interfaces change. Start: clean `main` at `979e1c9`; branch
+`chore/token-efficient-sdd-workflow`. App/prototype/tests/settings/profile/dependency/CI
+files must match baseline hashes.
+Delivery: commit/push this branch, open the PR, inspect its actual Linux/Windows CI results,
+then merge and synchronize local `main`. GitHub records the publication outcome.
 
-The ponytail and `/scrum` execution attempts were refused because the organization disabled
-subscription access for Claude Code. Installed plugin instructions were read/applied manually;
-account policies, credentials and models were not changed. No successful plugin execution,
-live-team/model trial or independent review is claimed. `/skills` is unavailable in headless
-mode; native interactive discovery/performance is not inferred from the loader diagnostics.
-Application suites were not rerun for workflow setup. The later combined safety/workflow
-delivery was rechecked on 15 Oct: Windows **159 passed, 3 symlink skips**, plain-script tests
-passed and flake8/isort/mypy were clean. See the handoff's delivery checks and GitHub
-PR/commit history for actual publication/CI state. These checks do not prove live teamwork.
+**Evidence (17 Oct):** Windows Python 3.12.4 YAML/JSON and all 65 local links/anchors pass;
+34 tracked files outside workflow/docs match baseline hashes. Native Claude Code discovery
+lists all ten agents and reports both project skills loaded. Self-review traces A–F through
+clear/ambiguous intent, subtitle gating, behavior/docs checks, focused delegation and
+steering/resume. These are instruction walkthroughs, not live-model behavior tests.
 
-## Previously recorded follow-ups
+Entry skill: 3,042 -> 1,671 UTF-8 bytes (45% less); all profiles: 15,686 -> 8,298 (47% less).
+The lead now reads selected sections and the active spec instead of the whole workflow/
+backlog. These are text-size proxies; actual Claude tokens/costs remain unmeasured.
+Detailed source hashes/results: Windows Temp `oyt-sdd-20261017-0ai1fqgn/STRUCTURAL.json`;
+`INTAKE_REVIEW.md` records the self-review. `git diff --check` passes.
 
-These are references to existing work, not a newly ordered Sprint or authorization to
-implement everything. The owner selects the next bounded outcome.
+The Codex skill validator rejects Claude's existing `argument-hint` extension; its standard
+fields pass in an isolated copy with that extension omitted, and native Claude discovery
+passes with it retained. Ponytail and `/scrum` execution remain blocked by organization
+policy. No independent review/live team trial ran; unchanged app suites were not rerun.
+Configuration is WRITTEN; workflow behavior/usage trial and owner observation remain pending.
 
-| Existing work | Canonical record / constraint |
+## Earlier delivery and follow-ups
+
+WF-001 (15 Oct) introduced project Scrum profiles/settings and BDD/TDD; its later-SDD scope
+is superseded. Configuration merged in PR #57; original evidence is in punchlist 7/handoff.
+Live trial remains OPEN (7.2), distinct from configuration loading and owner-SEEN.
+
+| Existing work | Canonical record; not a newly ordered Sprint |
 |---|---|
-| Safety branch delivery | Punchlist 5.1–5.4 and 6.1 are WRITTEN; commit/PR/CI and owner observation are distinct from local implementation. |
-| Session/input/duplicate-output fixes | Punchlist 5.5–5.8 remain OPEN; 5.9 records separate cleanup. |
-| Subtitle prototype repairs | Punchlist 6.2–6.6 remain OPEN; validate them separately before porting helpers. |
-| Subtitle integration | [Subtitle plan](docs/SUBTITLES_PLAN.md) owner decisions remain open; live AI refinement validation is required before its release phase. |
+| Safety/publication | Punchlist 5.1–5.4, 6.1, 8.1; PR #57. |
+| Session/input/duplicate outputs | 5.5–5.8 OPEN; 5.9 separate cleanup. |
+| Subtitle prototype repairs | 6.2–6.6 OPEN; validate before porting. |
+| Main-script subtitles | [Plan](docs/SUBTITLES_PLAN.md): ten unanswered owner decisions; separate live-refinement gate. |
+| Planning/live workflow trial | 7.2–7.3 OPEN; no agreed Sprint or stakeholder feedback. |
 
-## Impediments and improvement
+**Impediment:** Claude subscription execution refused again on 17 Oct by organization policy.
+Ponytail instructions read/applied manually; no account/model changes or successful live run.
 
-- First Sprint planning/Product Goal confirmation and stakeholder feedback have not occurred.
-- Actual Claude model/plugin/team execution is unavailable under the current account policy;
-  configuration checks cannot demonstrate team collaboration or performance.
-- Proposed improvement experiment: use the next owner-selected bounded behavior story to
-  trace an example through genuine Red/Green, actual permitted peer review and integrated
-  acceptance. The facilitator records missing capabilities and avoidable handoff delays.
-  Set its owner/measure/review date at planning and inspect it at the first actual retrospective.
+**Improvement experiment:** next owner-selected behavior story traces an example through
+actual Red/Green, permitted peer review and integrated acceptance. Lead records actual usage,
+repeated context and quality/flow; agree review date at planning, not an invented retrospective.

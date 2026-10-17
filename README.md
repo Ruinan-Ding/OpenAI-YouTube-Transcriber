@@ -935,15 +935,16 @@ If space is tight, skip the video download - audio is all that's needed for tran
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Claude development uses [the Scrum workflow](SCRUM_WORKFLOW.md): you are Product Owner,
-and ten specialist profiles share delivery using BDD, TDD and peer review. Start a fresh
+and ten specialist profiles share delivery using SDD, BDD, TDD and peer review. Start a fresh
 Claude Code session here and run `/scrum <task>`. Native experimental teams are enabled
 in-process; the lead selects relevant capabilities within runtime capacity and file
 ownership, using focused subagents or sequential work when appropriate.
 
 [SCRUM_BACKLOG.md](SCRUM_BACKLOG.md) holds goals and current stories; [AGENTS.md](AGENTS.md)
-owns repo constraints/decisions. Sprint dates/goals await actual planning. SDD is a possible
-later adoption, with no framework installed now. See [DEV.md](DEV.md) for setup/checks and
-the workflow for review, verification and account/runtime limits.
+owns repo constraints/decisions. Describe a change in your own words: the workflow turns it
+into a compact spec, observable examples and implementation tasks, asking about unresolved
+product choices. Relevant roles and context load on demand to reduce token use. Sprint
+dates/goals await actual planning; see [DEV.md](DEV.md) for setup/checks and runtime limits.
 
 Development setup:
 

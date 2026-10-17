@@ -1,6 +1,6 @@
 # Claude and Codex handoff
 
-> **Status: refreshed 15 Oct 2026; application review baseline remains `8d0b2d1`.** This
+> **Status: workflow refreshed 17 Oct 2026; application review baseline remains `8d0b2d1`.** This
 > extends the 3 Oct review/safety snapshot (which replaced 2 Oct's `c79e56a` snapshot).
 > The combined safety/workflow delivery was rechecked on 15 Oct below. Git history and the
 > GitHub pull request record publication/CI state; the punchlist records owner acceptance.
@@ -11,7 +11,8 @@
    owner decisions. Its Claude workflow uses the actual ponytail plugin; this handoff does
    not substitute a checklist for it.
 2. [SCRUM_WORKFLOW.md](../SCRUM_WORKFLOW.md) and [backlog](../SCRUM_BACKLOG.md): Claude's
-   team, BDD/TDD delivery process and current goals/story; start with `/scrum <task>`.
+   SDD/BDD/TDD team and current story; start with `/scrum <task>` or an informal development
+   request. Read the active spec and relevant workflow sections, not every historical entry.
 3. [PUNCHLIST.md](../PUNCHLIST.md): current work and evidence, with OPEN, WRITTEN and SEEN
    defined there.
 4. [Subtitle plan](SUBTITLES_PLAN.md): the proposed integration and its ten unanswered
@@ -67,12 +68,33 @@ restoring the caller's original collection mode. The cache-retry test points at 
 unavailable URL instead of deleting an input that the response may still hold open.
 This publication follow-up changes test lifetime management, not application behavior.
 
-## Claude Scrum setup (15 Oct 2026)
+## Token-efficient SDD update (17 Oct 2026)
+
+The owner adopted SDD now and requested automatic translation of informal requirements.
+[The workflow](../SCRUM_WORKFLOW.md#sdd-intake) owns
+the intake: one compact spec, stable BDD examples and writer-owned TDD tasks, with unanswered
+product choices kept explicit. WF-002 in the backlog is this change's spec and evidence.
+Ten senior capabilities remain available; relevant sections/roles load on demand, the lead
+can cover several responsibilities, and no translator/full-team call is automatic.
+
+Started from clean merged `main` at `979e1c9` on `chore/token-efficient-sdd-workflow`.
+Application/prototype/test/settings/CI files match the starting source. Windows structural
+checks and native agent/skill discovery pass; WF-002 records prompt-size reductions and
+intake self-review. These do not prove live Claude execution, independent review or actual
+billed token savings; unchanged app suites were not rerun.
+The 17 Oct Ponytail invocation was refused by the same organization subscription policy;
+installed instructions were read/applied manually without changing credentials or providers.
+The subtitle owner-decision gate and pending prototype repairs still apply.
+The owner subsequently requested commit, push and merge; publication follows the PR/CI
+policy, with its actual outcome recorded in GitHub rather than inferred from local checks.
+
+## Original Claude Scrum setup (15 Oct 2026)
 
 Adapted the sibling ChessPlusPlus workflow to this CLI: ten reusable specialist profiles,
 the `/scrum` skill, experimental native in-process teams and a persistent backlog. The
 human remains Product Owner; BDD/TDD, senior engineering expectations and shared delivery
-are defined in the workflow. SDD is an optional later adoption. Preserve one writer per
+are defined in the workflow. Its original optional-later SDD scope was superseded on 17 Oct.
+Preserve one writer per
 file, especially the application script and shared tests; capabilities are not ten workers
 that must all run on every task. No Sprint dates/goals or product priorities were invented.
 

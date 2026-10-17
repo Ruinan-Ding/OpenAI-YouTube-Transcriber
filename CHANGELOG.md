@@ -147,13 +147,17 @@ regression test.
 
 ### Development
 
+- **Informal development requests now enter SDD automatically.** `/scrum` turns the owner's
+  intent into one compact spec, BDD examples and TDD tasks, preserving unanswered product
+  decisions. Shorter role instructions, selective context and focused delegation reduce
+  repeated prompts; the same ten senior capabilities share Scrum delivery and verification.
 - **File-backed download tests release yt-dlp response cycles before cleanup.** Windows
   could keep a fixture's input open after a successful download until garbage collection
   happened to run. The tests now exercise delayed collection explicitly and release those
   cycles before strict temporary-directory cleanup, without ignoring failed deletions.
 - **Claude development has a shared Scrum workflow**, adapted from ChessPlusPlus: ten
   specialist profiles, `/scrum`, BDD examples, evidenced TDD, review, goals/backlog and a
-  shared Definition of Done. The owner remains Product Owner; SDD is an option for later.
+  shared Definition of Done. The owner remains Product Owner; SDD is now part of delivery.
   Native experimental teams are configured in-process without changing models/permissions.
 - **CI runs the tests on Windows too**, beside Linux; the linters and mypy
   run once, on Linux. The two path fixes above were found by running the
