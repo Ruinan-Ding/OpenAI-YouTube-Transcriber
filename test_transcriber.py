@@ -5458,6 +5458,239 @@ def test_a_windows_file_lock_keeps_all_outputs_when_deferred_replacement_fails()
         assert 'Keeping the download for retry' in output.getvalue(), output.getvalue()
 
 
+def test_a_failed_local_export_reports_incomplete_and_the_next_source_still_runs():
+    """Local conversion failures never reached the pass's completion flag, so
+    a missing export was followed by 'Tasks complete.' just like a success."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    with tempfile.TemporaryDirectory() as tmp:
+        seeds = Path(tmp, 'sources')
+        seeds.mkdir()
+        first = _make_clip(str(seeds / 'first.mp4'), 'video')
+        second = _make_clip(str(seeds / 'second.mp4'), 'video')
+        originals = {path: Path(path).read_bytes() for path in (first, second)}
+        exports = Path(tmp, 'exports')
+        # A directory at the destination makes real ffmpeg fail on either OS.
+        (exports / 'first.mp4').mkdir(parents=True)
+        cfg = module.SessionConfig(sources=[(p, True, None) for p in originals],
+                                   download_video=True, video_format='mp4',
+                                   video_path=str(exports), transcribe_audio=False)
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            module._run_pipeline(YouTubeTranscriber(), cfg)
+        assert f'Source incomplete: {first}' in errors.getvalue(), errors.getvalue()
+        assert output.getvalue().count('Tasks complete.') == 1, output.getvalue()
+        assert (exports / 'second.mp4').is_file()
+        assert (exports / 'first.mp4').is_dir()
+        assert all(Path(path).read_bytes() == data for path, data in originals.items())
+
+
+def test_quoted_paths_work_in_source_prompt_and_transcript_selections():
+    """Explorer's quoted paths failed in the source and file pickers; splitting
+    them first also broke valid spaces, commas and Windows backslashes."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp, 'Course #2, 日本語')
+        folder.mkdir()
+        media = _make_clip(str(folder / 'new clip.mp3'), 'audio')
+        transcript = folder / 'meeting, notes.txt'
+        transcript.write_text('The words to refine.', encoding='utf-8')
+        prompt = folder / 'prompt, wording.txt'
+        prompt.write_text('Correct grammar.', encoding='utf-8')
+        t.TRANSCRIPT_DIR = str(folder)
+        t.RAW_TRANSCRIPT_DIR = str(folder / 'Raw')
+
+        def quoted(path):
+            return '"' + str(path) + '"'
+
+        expected = [(media, True, None), (None, False, [str(transcript)])]
+        with redirect_stdout(io.StringIO()):
+            assert t.source_entries(f'{quoted(media)}, {quoted(transcript)}') == expected
+            assert t.resolve_source(quoted(media)) == (media, True)
+            replies = iter([f'{quoted(media)} {quoted(transcript)}', quoted(prompt),
+                            quoted(transcript)])
+            builtins.input = lambda _prompt='': next(replies)
+            try:
+                assert t.prompt_for_sources() == expected
+                assert module._select_prompts_interactively(t) == [
+                    ('Correct grammar.', str(prompt))]
+                assert t.select_transcripts() == [str(transcript)]
+            finally:
+                builtins.input = REAL_INPUT
+        assert t.split_entries(f'{quoted(prompt)}, {quoted(transcript)}') == [
+            str(prompt), str(transcript)]
+        assert t.split_entries('en, fr ja') == ['en', 'fr', 'ja']
+        assert t.split_entries(str(transcript), os.path.isfile) == [str(transcript)]
+
+
+def test_a_repeat_keeps_the_whole_round_when_the_last_source_is_not_remote():
+    """carry consulted the pipeline's last source instead of the round, losing
+    media answers after a transcript and caption choices after a local file."""
+    t = YouTubeTranscriber()
+    fields = {'DOWNLOAD_VIDEO': 'y', 'VIDEO_ONLY': 'n', 'DOWNLOAD_AUDIO': 'y',
+              'TRANSCRIBE_AUDIO': 'y', 'SOURCE_LANGUAGE': 'auto',
+              'AI_REFINEMENT': 'y', 'KEEP_TRANSCRIPT': 'n'}
+    remote = ('https://youtu.be/jNQXAC9IVRw', False, None)
+    for last in [(None, False, ['talk.txt']), ('clip.mp4', True, None)]:
+        cfg = module.SessionConfig(url=last[0], is_local_file=last[1],
+                                   refine_sources=last[2], sources=[remote, last],
+                                   used_fields=fields.copy(), yt_transcript_raw='en,fr',
+                                   model_name=ModelSize.BASE.value, target_languages=['en'],
+                                   video_rename='one video', audio_path='chosen folder')
+        session = module.Session()
+        module._Remembered(session).carry(cfg)
+        assert all(session.remembered.get(k) == v for k, v in fields.items()), session
+        assert session.remembered['DOWNLOAD_YT_TRANSCRIPT'] == 'en,fr'
+        assert session.remembered['MODEL_CHOICE'] == cfg.model_name
+        assert session.remembered['AUDIO_PATH'] == cfg.audio_path
+        assert 'VIDEO_RENAME' not in session.remembered
+        assert set(session.remembered) <= set(module.SETTINGS)
+        # None of the profile schema's absent/blank policies needs changing.
+        assert module.SETTINGS['KEEP_TRANSCRIPT'].absent is module.ASK
+        assert t.DEFAULT_FIELDS['KEEP_TRANSCRIPT'] == ''
+
+
+def test_a_repeat_reuses_the_selected_backend_and_file_or_inline_prompt():
+    """Interactive repeats forgot prompts and the chosen local model, asking
+    again even though those were choices made in the preceding round."""
+    t = YouTubeTranscriber()
+    model = module.LocalModel.PHI_1_5
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp, 'prompt-refinement.txt')
+        path.write_text('Correct grammar.', encoding='utf-8')
+        extra = Path(tmp, 'prompt, extra.txt')
+        extra.write_text('Keep the voice.', encoding='utf-8')
+        for choice, expected in [([f'"{path}", "{extra}"'],
+                                  [('Correct grammar.', str(path)),
+                                   ('Keep the voice.', str(extra))]),
+                                 (['E', 'Keep the voice.', ''],
+                                  [('Keep the voice.', module.INLINE_PROMPT)])]:
+            session = module.Session()
+            cfg = module.SessionConfig(url='clip.mp4', is_local_file=True,
+                                       used_fields=t.DEFAULT_FIELDS.copy())
+            replies = iter(['y', model.display_name, *choice, 'n', 'n'])
+            with patch.dict(os.environ, {}, clear=True):
+                environment = dict(os.environ)
+                builtins.input = lambda _prompt='', replies=replies: next(replies)
+                try:
+                    with redirect_stdout(io.StringIO()):
+                        module._settle_refinement(t, cfg, module._Remembered(session))
+                        module._Remembered(session).carry(cfg)
+                    assert cfg.prompts == expected
+                    assert cfg.local_model == model.hf_model_id
+                    session.repeat = True
+                    repeated = module.SessionConfig(url='next.mp4', is_local_file=True,
+                                                    used_fields=t.DEFAULT_FIELDS.copy())
+                    # Any repeated question exhausts replies and fails this regression.
+                    with redirect_stdout(io.StringIO()):
+                        module._settle_refinement(t, repeated, module._Remembered(session))
+                    assert repeated.prompts == expected
+                    assert repeated.ai_mode == module.AIEnhancementMode.LOCAL
+                    assert repeated.local_model == model.hf_model_id
+                    assert dict(os.environ) == environment
+                finally:
+                    builtins.input = REAL_INPUT
+
+
+def test_a_repeat_keeps_the_entered_cloud_key_with_its_selected_provider():
+    """A backend entered at the console belongs to this session, not to the
+    next config lookup; neither its choice nor its key should be asked again."""
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        prompt = Path(tmp, 'prompt-refinement.txt')
+        prompt.write_text('Correct grammar.', encoding='utf-8')
+        cfg = module.SessionConfig(
+            url='clip.mp4', is_local_file=True, ai_mode=module.AIEnhancementMode.API,
+            provider=module.Provider.ANTHROPIC, api_key='test-entered-key',
+            prompts=[('Correct grammar.', str(prompt))], ask_placement=False,
+            used_fields={'AI_REFINEMENT': 'y', 'PROMPT': str(prompt), 'KEEP_TRANSCRIPT': 'y'})
+        session = module.Session()
+        module._Remembered(session).carry(cfg)
+        repeated = module.SessionConfig(url='next.mp4', is_local_file=True,
+                                        used_fields=t.DEFAULT_FIELDS.copy())
+        with patch.dict(os.environ, {}, clear=True):
+            builtins.input = lambda prompt='': (_ for _ in ()).throw(AssertionError(prompt))
+            try:
+                with redirect_stdout(io.StringIO()):
+                    module._settle_refinement(t, repeated, module._Remembered(session))
+            finally:
+                builtins.input = REAL_INPUT
+            assert dict(os.environ) == {}
+        assert repeated.provider == cfg.provider
+        assert repeated.api_key == cfg.api_key
+        assert repeated.prompts == cfg.prompts
+        assert cfg.api_key not in repr(session)
+
+
+def test_audio_aliases_merge_once_but_distinct_streams_and_containers_still_merge():
+    """medium and highest already downloaded one stream, but merge treated
+    their words as separate outputs and wrote the same combination twice."""
+    if not _ffmpeg_available():
+        _skip('no ffmpeg')
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        video = _make_clip(os.path.join(tmp, 'video.mp4'), 'video')
+        audio = _make_clip(os.path.join(tmp, 'audio.mp3'), 'audio')
+        exports = Path(tmp, 'exports')
+        exports.mkdir()
+        info = {'id': 'test-video', 'title': 'clip', 'formats': [
+            {'format_id': 'v', 'url': Path(video).as_uri(), 'height': 120,
+             'vcodec': 'h264', 'acodec': 'none', 'ext': 'mp4'},
+            {'format_id': 'a1', 'url': Path(audio).as_uri(), 'abr': 128.0,
+             'vcodec': 'none', 'acodec': 'mp3', 'format_note': 'medium', 'ext': 'mp3'},
+            {'format_id': 'a2', 'url': Path(audio).as_uri(), 'abr': 128.4,
+             'vcodec': 'none', 'acodec': 'mp3', 'format_note': 'medium', 'ext': 'mp3'}]}
+        cfg = module.SessionConfig(url='https://youtu.be/jNQXAC9IVRw', info=info,
+                                   video_title='clip', download_video=True,
+                                   video_resolution='highest',
+                                   video_audio_resolution='medium,highest,128',
+                                   video_format='mp4,mkv', video_path=str(exports),
+                                   transcribe_audio=False)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            run = module._Pass(t, cfg)
+            run.video_files = {'highest': video}
+            run.merge_files = {tier: audio for tier in run.merge_audio}
+            assert run.audio_stream_for('medium') == run.audio_stream_for('highest')
+            assert run.audio_stream_for('128') != run.audio_stream_for('highest')
+            run.merge()
+        assert not run.incomplete
+        assert len(list(exports.iterdir())) == 4, sorted(p.name for p in exports.iterdir())
+        for path in exports.iterdir():
+            assert t.stream_codec(str(path), 'video') is not None, path
+            assert t.stream_codec(str(path), 'audio') is not None, path
+
+
+def test_quoted_paths_keep_their_meaning_when_a_profile_records_a_batch():
+    """Accepting quoted comma-carrying paths is insufficient if saving the
+    resolved list drops its quotes and the next profile splits filenames."""
+    t = YouTubeTranscriber()
+    with tempfile.TemporaryDirectory() as tmp:
+        t.TRANSCRIPT_DIR = tmp
+        t.PROFILE_DIR = str(Path(tmp, 'profiles'))
+        Path(t.PROFILE_DIR).mkdir()
+        paths = [Path(tmp, name) for name in ('first, transcript.txt', 'second notes.txt')]
+        for path in paths:
+            path.write_text('The original words.', encoding='utf-8')
+        text = ','.join(f'"{path}"' for path in paths)
+        sources = t.source_entries(text)
+        cfg = module.SessionConfig(sources=sources, keep_transcript=True)
+        module._settle_sources(cfg)
+        with redirect_stdout(io.StringIO()):
+            t.create_profile(cfg.used_fields)
+        profile = next(Path(t.PROFILE_DIR).glob('profile*.txt'))
+        saved = module._read_profile(str(profile))
+        assert t.source_entries(saved['URL']) == sources
+        raw = Path(tmp, 'Raw', paths[0].name)
+        raw.parent.mkdir()
+        raw.write_text(paths[0].read_text(encoding='utf-8'), encoding='utf-8')
+        with redirect_stdout(io.StringIO()):
+            module._retire_source(t, cfg, str(paths[0]), str(raw))
+        assert t.source_entries(cfg.used_fields['URL']) == [
+            (None, False, [str(raw)]), (None, False, [str(paths[1])])]
+
+
 if __name__ == '__main__':
     # Without pytest: every test runs, and each failure is reported with its
     # traceback, where the first one used to stop the run and hide the rest.

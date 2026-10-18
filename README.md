@@ -48,6 +48,8 @@ Then follow the prompts.
 - **99+ languages** with automatic language detection, and several at once: `en,fr,ja` is three transcripts from one download.
 - **Selectable Whisper model**: tiny, base, small, medium, large-v1, large-v2, or large-v3, trading speed for accuracy.
 - **Profiles**: save a session's settings to a file and reuse them.
+- **Windows path input**: paste Explorer's quoted paths into source, prompt and transcript
+  pickers. Quote each path in a list to keep spaces and filename commas together.
 - **Three deliverables, independently**: the merged video, a video-only file with no audio track, and the audio on its own. Each has its own resolution and format, so they never fight over one setting.
 - **Lists everywhere**: `144p, 720p` with `mp4, mkv` is four videos, each stream fetched once. The prompts take the same lists the profile fields do.
 - **YouTube's own transcripts** saved as files beside Whisper's - the spoken language, every published track, or named ones.
@@ -149,6 +151,11 @@ files answers fifteen.
 
 A local source asks the same questions worded as re-encodes ("Re-encode the
 video?"), because the same three files come out of it.
+“Run again?” keeps the choices made across the whole round, including prompts and the AI
+backend, and asks for new sources or settings the earlier round had no reason to ask.
+Per-video names are asked again. File prompts reload; inline prompts and entered API keys
+stay in memory for this process. Failed local exports are reported as incomplete while
+later sources continue.
 
 Example session:
 

@@ -20,7 +20,55 @@ When feature/PI coordination is needed, keep its one record here using the
 [compact format](docs/SAFE_WORKFLOW.md#minimal-coordination-record). Link child specs and
 reuse their evidence. No empty parallel feature/risk boards or ceremony transcripts now.
 
-## Active spec: WF-004 — Focused Claude plugin toolchain
+## Active spec: APP-001 — Repair completion, input and repeat consistency
+
+**r2 / Review.** Source: owner's instruction to fix part 1 of the 17 Oct status
+review. Root is the sole writer for the script, regression tests and related records.
+Existing behavior supplies the contract: report incomplete requested conversions, accept
+Explorer-quoted paths, repeat the round's answers and make one merge per distinct stream
+combination. No subtitle work, new profile fields or defaults are included. Revision 2
+records the owner's commit/push instruction; the implementation examples remain unchanged.
+
+| ID | Given / When / Then | Check |
+|---|---|---|
+| APP-001-A | Given a local export whose destination cannot be written, when its batch runs, then the source survives, that source is incomplete and later sources still run. | Real ffmpeg failure regression; native Windows locked-destination smoke. |
+| APP-001-B | Given quoted paths with spaces, commas and Windows separators, when sources, prompts or transcripts are selected, then the same files resolve as unquoted paths. | Real temporary files and console answers; existing list/parser checks. |
+| APP-001-C | Given a mixed round ending in local media or a transcript, when repeated, then settings asked for across the round survive; unasked fields remain unasked and per-video names are cleared. | Carry regression and configuration/profile parity. |
+| APP-001-D | Given selected file/inline prompts and a local/cloud backend, when repeated, then those choices survive without another selection or environment leakage. | Console-driven refinement setup/repeat, no model calls; saved-profile checks. |
+| APP-001-E | Given audio aliases selecting one stream, when merged, then each distinct video/audio/container combination is written once; genuinely different streams remain separate. | Real ffmpeg merge regression and existing media combinations. |
+
+Plan: add failing regressions against `8a3c263`; make bounded changes in input splitting,
+remembered answers/refinement setup and local/merge completion; review callers; run focused
+then full Windows tests, plain runner, lint/types and actual profile/repeat/lock smoke.
+The settings-sync skill applies to repeat behavior; profile fields and their absent/blank
+semantics remain unchanged. Independent agent review is unavailable under runtime policy.
+Baseline: clean `main` at `8a3c263`; Windows 159 passed/3 symlink skips and lint/types passed
+in the immediately preceding status review.
+
+**Evidence (17 Oct):** six new regressions failed against the unchanged application. A
+further profile/list regression and an expanded prompt-repeat case failed before correcting
+comma-carrying path serialization. All seven new tests now pass. Self-review traced source
+and picker callers, profile serialization/relocation, refinement/backend/key retention,
+source reservations, local failure propagation and distinct-stream merge combinations.
+
+Windows Python 3.12.4: **166 passed, 3 symlink skips** across both suites; the main file's
+plain runner passes. Flake8, isort and strict mypy pass. A real Windows CLI/profile batch
+with a destination held open reports its first source as incomplete, preserves the locked
+file and both originals, and produces the later source's video/audio. A separate real CLI
+repeat uses two quoted paths with spaces/commas/Japanese text, asks the video question once
+and produces both rounds' media. The initial interactive smoke driver supplied answers in
+the wrong order; its failed log was preserved, the driver corrected and the real run passed.
+
+Prepared on `fix/session-input-and-completion`; source/evidence hashes and
+logs are in Windows Temp `oyt-app001-20261017-sqww6c8x`. Punchlist 5.5–5.8 and 5.12 are
+WRITTEN. No new profile fields/dependencies/defaults, subtitle implementation or source
+retention policy were introduced. Ponytail's live invocation remains refused by organization
+subscription policy; installed instructions were applied manually. No live AI calls,
+independent agent review or owner-SEEN is claimed. The owner authorized commit/push of this
+feature branch; Git records its published head. Current-source Linux/Windows PR CI remains
+required before landing on main; prior main CI is not reused as new-source proof.
+
+## Prior spec: WF-004 — Focused Claude plugin toolchain
 
 **r2 / Review.** Source: owner's request to add relevant Claude plugins, explicitly
 including Ralph, to the SAFe/SDD/BDD/TDD workflow while preserving token efficiency.
@@ -140,7 +188,7 @@ process without duplicating the prior spec. WF-001 setup merged in PR #57.
 | Existing work | Canonical record; not newly ordered implementation |
 |---|---|
 | Safety/publication | Punchlist 5.1–5.4, 6.1, 8.1; PR #57. |
-| Session/input/duplicate outputs | 5.5–5.8 OPEN; 5.9 separate cleanup. |
+| Session/input/completion/duplicate outputs | 5.5–5.8 and 5.12 WRITTEN locally under APP-001; 5.9 separate cleanup. |
 | Subtitle prototype repairs | 6.2–6.6 OPEN; validate before porting. |
 | Main-script subtitles | [Plan](docs/SUBTITLES_PLAN.md): ten unanswered owner decisions; separate live-refinement gate. |
 | Actual planning/live workflow trial | 7.2–7.3 OPEN; no agreed Sprint/PI or stakeholder feedback. |

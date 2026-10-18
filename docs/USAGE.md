@@ -23,6 +23,11 @@ fifteen. Every prompt with a default takes Enter for it.
 - **A transcript to refine**: a `.txt` path, or `S` to pick from what is on disk
 - **Several of any of those**, separated by commas or spaces, run in turn
 
+Explorer's **Copy as path** works here and in the prompt/transcript pickers. For example,
+`"C:\Course #2\clip, first.mp4", "C:\Course #2\notes.txt"` names two sources. Double quotes
+group each path without changing its Windows backslashes. Saved lists preserve filename
+commas too.
+
 The video ID is extracted from any YouTube URL format - full URLs, short links
 (`youtu.be/...`), or the bare ID. Query parameters such as timestamps (`&t=30s`)
 or playlist info (`&list=...`) are stripped automatically. Playlist and channel
@@ -47,6 +52,8 @@ deliverable.
 
 A local source is asked the same three questions worded as re-encodes
 ("Re-encode the video?"), because the same three files come out of it.
+If a requested local conversion fails, its source is reported as incomplete and retained;
+the remaining sources still run.
 
 **3. YouTube's own transcript**
 
@@ -80,6 +87,9 @@ session gave and asks only for the new source - and for anything this session
 had no reason to ask, such as the download questions after a round that only
 refined a transcript. A new name for a file is asked again rather than reused:
 it was that video's name, and the next video's file would replace it.
+The round's answers survive whichever source happened to run last. Selected prompt files
+reload from their paths; inline prompts, the chosen backend and an entered API key remain
+in memory for this process. They are not exported to the shell environment by repeating.
 
 ## Exit Codes
 

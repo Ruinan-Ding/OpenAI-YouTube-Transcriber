@@ -183,6 +183,12 @@ when the owner decided.
   `docs/SAFE_WORKFLOW.md` owns scaling detail. Existing product decisions/subtitle gates hold;
   no train, calendar or commitment is fabricated.
 - **Changes land through pull requests** (1 Oct 2026), so CI runs before `main` moves.
+- **Application repairs before further subtitle work** (17 Oct 2026): fix the status review's
+  five main-app issues: local-export completion reporting, quoted path input, whole-round
+  repeat settings, prompt/backend retention and duplicate merges for audio aliases. Repeat
+  keeps the choices actually made across the round, including inline prompts and the chosen
+  backend; the existing rule clearing per-video names still holds. The remaining subtitle
+  work needs further detail from the owner and is outside this repair.
 - **Captions read as prose drop a cue's restatement of the cue before it** (1 Oct 2026):
   YouTube's rolling captions repeat the end of the previous cue, and that text is kept once. A
   single shared word counts as a repeat only when it was the whole previous cue, so "He had" /

@@ -23,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Final, TypeVar, cast
@@ -579,6 +579,9 @@ MODEL=
         wording: a profile reports what it loaded, a typed answer does not
         need reading back.
         """
+        text = text.strip()
+        if len(text) > 1 and text[0] == text[-1] == '"':
+            text = text[1:-1]
         loaded = f" (from {origin})" if origin else ""
         # ~/clip.mp3 is a file like any other: expanded once, here, and carried
         # expanded, where it was expanded to be recognised as a path and then
@@ -720,15 +723,26 @@ MODEL=
         if is_whole and is_whole(text):
             return [text]
         entries: list[str] = []
-        for part in text.split(','):
-            part = part.strip()
-            if not part:
+        # Explorer quotes paths; shell parsing would eat Windows backslashes.
+        for group in re.split(r'("[^"]*")', text):
+            if group.startswith('"') and group.endswith('"'):
+                if group[1:-1]:
+                    entries.append(group[1:-1])
                 continue
-            if is_whole and is_whole(part):
-                entries.append(part)
-            else:
-                entries.extend(part.split())
+            for part in group.split(','):
+                part = part.strip()
+                if not part:
+                    continue
+                if is_whole and is_whole(part):
+                    entries.append(part)
+                else:
+                    entries.extend(part.split())
         return entries
+
+    @staticmethod
+    def join_entries(entries: Iterable[str]) -> str:
+        """A stored path list whose filenames keep their own commas on reload."""
+        return ','.join(f'"{entry}"' if ',' in entry else entry for entry in entries)
 
     def normalize_languages(self, text: str | None) -> tuple[list[str], list[str]]:
         """Split a comma- or space-separated answer into Whisper codes.
@@ -3055,6 +3069,9 @@ class Session:
     profile: str | None = None
     remembered: dict[str, str] = field(default_factory=dict)
     asked: int = 0
+    backend: tuple[AIEnhancementMode, Provider | None, str | None] | None = None
+    api_key: str | None = field(default=None, repr=False)
+    inline_prompt: str | None = None
 
 
 class _Gap(Enum):
@@ -3267,13 +3284,18 @@ class _Remembered(_Answers):
         nothing about YouTube's transcripts; an "n" remembered for a question
         never put answered it in the next round, and a YouTube URL given then
         was neither downloaded nor transcribed."""
-        fields, media = cfg.used_fields, bool(cfg.url)
+        fields = cfg.used_fields
+        # The pipeline leaves cfg pointing at its last pass, not at the round
+        # whose questions were answered before any source ran.
+        sources = cfg.sources or [(cfg.url, cfg.is_local_file, cfg.refine_sources)]
+        media = any(url and not refine for url, _local, refine in sources)
+        remote = any(url and not local and not refine for url, local, refine in sources)
         remembered: dict[str, str | bool | None] = {
             "DOWNLOAD_VIDEO": media and fields.get("DOWNLOAD_VIDEO"),
             "VIDEO_ONLY": media and fields.get("VIDEO_ONLY"),
             "DOWNLOAD_AUDIO": media and fields.get("DOWNLOAD_AUDIO"),
             "TRANSCRIBE_AUDIO": media and fields.get("TRANSCRIBE_AUDIO"),
-            "DOWNLOAD_YT_TRANSCRIPT": media and not cfg.is_local_file and cfg.yt_transcript_raw,
+            "DOWNLOAD_YT_TRANSCRIPT": remote and cfg.yt_transcript_raw,
             # The model, not the answer: Enter for base is "", and a blank
             # answer asked again every round
             "MODEL_CHOICE": media and cfg.transcribe_audio and cfg.model_name,
@@ -3282,6 +3304,7 @@ class _Remembered(_Answers):
             "USE_EN_MODEL": fields.get("USE_EN_MODEL"),
             "KEEP_TRANSCRIPT": fields.get("KEEP_TRANSCRIPT"),
             "AI_REFINEMENT": media and fields.get("AI_REFINEMENT"),
+            "PROMPT": cfg.ai_mode is not None and fields.get("PROMPT"),
             "PLACEMENT": None if cfg.ask_placement is None else _yn(cfg.ask_placement),
             "VIDEO_RESOLUTION": cfg.video_resolution,
             "VIDEO_AUDIO_RESOLUTION": cfg.video_audio_resolution,
@@ -3301,6 +3324,11 @@ class _Remembered(_Answers):
         # False above is a question this round was not asked.
         self.session.remembered = {key: value for key, value in remembered.items()
                                    if isinstance(value, str) and value}
+        self.session.backend = ((cfg.ai_mode, cfg.provider, cfg.local_model)
+                                if cfg.ai_mode is not None else None)
+        self.session.api_key = cfg.api_key if cfg.ai_mode is not None else None
+        self.session.inline_prompt = next(
+            (text for text, label in cfg.prompts or [] if label == INLINE_PROMPT), None)
         self.session.profile = None
 
 
@@ -4308,8 +4336,8 @@ def _settle_sources(cfg: SessionConfig) -> None:
     if len(sources) > 1 or not media:
         # One video is a template to point at the next one, but a list is the
         # point of the session: record it so the profile replays the same list
-        cfg.used_fields["URL"] = ",".join(
-            ",".join(entry[2]) if entry[2] else entry[0] or "" for entry in sources)
+        cfg.used_fields["URL"] = YouTubeTranscriber.join_entries(
+            path for url, _local, refine in sources for path in (refine or [url or ""]))
 
 
 def _settle_quality(transcriber: YouTubeTranscriber, cfg: SessionConfig, answers: _Answers,
@@ -4478,6 +4506,7 @@ def _settle_refinement(transcriber: YouTubeTranscriber, cfg: SessionConfig, answ
         # Nothing is transcribed or downloaded for it to refine
         return cfg
     used_fields = cfg.used_fields
+    remembered = answers.session if isinstance(answers, _Remembered) else None
 
     # AI_REFINEMENT also named the backend before 1.2 - a provider key, 'local',
     # or a model name - so anything that is not yes or no is both the yes and
@@ -4489,7 +4518,9 @@ def _settle_refinement(transcriber: YouTubeTranscriber, cfg: SessionConfig, answ
         answers.report(name, backend)
     if assumed or backend or _yes_no(transcriber, answers, "AI_REFINEMENT",
                                      "Refine the transcript with AI? (y/N): "):
-        if backend and backend.lower() != "local" and Provider.from_string(backend) is None:
+        if remembered and remembered.backend and not backend:
+            cfg.ai_mode, cfg.provider, cfg.local_model = remembered.backend
+        elif backend and backend.lower() != "local" and Provider.from_string(backend) is None:
             # Neither 'local' nor a provider was a local model's name or id,
             # and not an AI_PROVIDER typo to fall back from onto the key's vendor
             known = backend.lower() in LocalModel.all_model_values()
@@ -4500,18 +4531,24 @@ def _settle_refinement(transcriber: YouTubeTranscriber, cfg: SessionConfig, answ
 
     if cfg.ai_mode is not None:
         named = _answer(answers, "PROMPT", lambda: "")
-        cfg.prompts = _load_prompts(transcriber, named) if named else []
+        if named == INLINE_PROMPT and remembered and remembered.inline_prompt is not None:
+            cfg.prompts = [(remembered.inline_prompt, INLINE_PROMPT)]
+        else:
+            cfg.prompts = _load_prompts(transcriber, named) if named else []
         if not cfg.prompts:
             cfg.prompts = _select_prompts_interactively(transcriber)
         if not cfg.prompts:
             cfg.ai_mode = None
         else:
-            used_fields["PROMPT"] = ",".join(label for _text, label in cfg.prompts)
+            used_fields["PROMPT"] = transcriber.join_entries(label for _text, label in cfg.prompts)
 
     if cfg.ai_mode == AIEnhancementMode.API:
         # An API backend is always a provider's: see _ai_backend
         assert cfg.provider is not None
-        cfg.api_key = _resolve_api_key(cfg.provider)
+        if remembered and remembered.backend and remembered.backend[1] == cfg.provider:
+            cfg.api_key = remembered.api_key
+        if not cfg.api_key:
+            cfg.api_key = _resolve_api_key(cfg.provider)
         if cfg.api_key is None:
             cfg.ai_mode = None
 
@@ -4750,8 +4787,11 @@ def _retire_source(transcriber: YouTubeTranscriber, cfg: SessionConfig, source: 
     if cfg.keep_transcript and cfg.used_fields.get("URL"):
         # A profile made from this session replays the same transcripts, and
         # named this one where it no longer is
-        cfg.used_fields["URL"] = ",".join(
-            raw if part == given else part for part in cfg.used_fields["URL"].split(","))
+        cfg.used_fields["URL"] = transcriber.join_entries(
+            raw if part == given else part
+            for part in transcriber.split_entries(
+                cfg.used_fields["URL"],
+                lambda part: part == given or os.path.isfile(os.path.expanduser(part))))
     # Where the copy really is: TRANSCRIPT_PATH sends it to a Raw/ of its own
     print(f"Moved {os.path.basename(source)} to {os.path.dirname(os.path.abspath(raw))}"
           if cfg.keep_transcript else f"Removed the unrefined {os.path.basename(source)}")
@@ -4894,20 +4934,21 @@ def _shared_container(transcriber: YouTubeTranscriber, chosen: Sequence[str],
 
 
 def _local_deliverables(transcriber: YouTubeTranscriber, cfg: SessionConfig,
-                        filename_base: str) -> None:
+                        filename_base: str) -> bool:
     """Make the download deliverables from a local file, by re-encoding it.
 
     The same three files a video download produces - the merged video, a copy
     with the audio stripped, and the audio on its own - cut from what is already
     on disk, and one of each per combination the list fields ask for. The source
     is only ever read: a deliverable that would land on it is skipped rather
-    than written over.
+    than written over. Return whether every attempted conversion landed.
     """
     stem_for = functools.partial(_stem_for, cfg, filename_base)
     dir_for = functools.partial(_dir_for, cfg)
     source = cfg.url
     # A local file is its own path
     assert source is not None
+    complete = True
 
     def each(raw: str | None, fallback: _Value) -> Sequence[str | _Value]:
         """The values a field asks for, or the fallback for none. One
@@ -4923,6 +4964,7 @@ def _local_deliverables(transcriber: YouTubeTranscriber, cfg: SessionConfig,
 
     def make(output_dir: str, stem: str, target_format: str, kind: str,
              height: int | None = None, bitrate: int | None = None) -> str | None:
+        nonlocal complete
         extension = _container_of(transcriber, target_format, kind)
         # AUDIO_PATH and VIDEO_PATH one folder and one container for both: the
         # audio, made after the video, takes the suffix
@@ -4935,6 +4977,8 @@ def _local_deliverables(transcriber: YouTubeTranscriber, cfg: SessionConfig,
                                          replace_source=False)
         if made:
             print(f"Saved {os.path.abspath(made)}")
+        else:
+            complete = False
         return made
 
     def height_for(quality: str | None) -> int | None:
@@ -5015,6 +5059,7 @@ def _local_deliverables(transcriber: YouTubeTranscriber, cfg: SessionConfig,
                      stem_for("audio") + tag(bitrate=bitrate, codec=chosen if share else None),
                      container_for(chosen, transcriber.DEFAULT_AUDIO_FORMAT),
                      'audio', bitrate=bitrate)
+    return complete
 
 
 def _run_pipeline(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
@@ -5418,7 +5463,12 @@ class _Pass:
         merge_formats = self.formats(cfg.video_format, transcriber.DEFAULT_VIDEO_FORMAT)
         merge_shares = _shared_container(transcriber, merge_formats, "container")
         for res in self.video_res:
+            merged_audio: set[str] = set()
             for tier in self.merge_audio:
+                stream = self.audio_stream_for(tier)
+                if stream in merged_audio:
+                    continue
+                merged_audio.add(stream)
                 for chosen in merge_formats:
                     container = (os.path.splitext(self.video_files[res])[1].lstrip('.')
                                  if chosen == transcriber.FORMAT_ORIGINAL
@@ -5629,7 +5679,7 @@ def _run_one(transcriber: YouTubeTranscriber, cfg: SessionConfig) -> None:
     run = _Pass(transcriber, cfg)
     try:
         if cfg.is_local_file:
-            _local_deliverables(transcriber, cfg, run.filename_base)
+            run.incomplete = not _local_deliverables(transcriber, cfg, run.filename_base)
         run.fetch_video()
         run.fetch_audio()
         run.merge()
@@ -5689,7 +5739,7 @@ def _save_inline_prompts(transcriber: YouTubeTranscriber, cfg: SessionConfig) ->
                 continue
             print(f"Saved the typed prompt to {os.path.abspath(path)}")
         labels.append(label)
-    cfg.used_fields["PROMPT"] = ",".join(labels)
+    cfg.used_fields["PROMPT"] = transcriber.join_entries(labels)
 
 
 def _ask_repeat(transcriber: YouTubeTranscriber, session: Session) -> bool:

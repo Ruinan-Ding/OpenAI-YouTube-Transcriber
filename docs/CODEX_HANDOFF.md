@@ -1,6 +1,6 @@
 # Claude and Codex handoff
 
-> **Status: workflow refreshed 17 Oct 2026; application review baseline remains `8d0b2d1`.** This
+> **Status: workflow/application repair refreshed 17 Oct 2026; historical review baseline `8d0b2d1`.** This
 > extends the 3 Oct review/safety snapshot (which replaced 2 Oct's `c79e56a` snapshot).
 > The combined safety/workflow delivery was rechecked on 15 Oct below. Git history and the
 > GitHub pull request record publication/CI state; the punchlist records owner acceptance.
@@ -67,6 +67,33 @@ exercise delayed collection and collect those cycles before strict temporary cle
 restoring the caller's original collection mode. The cache-retry test points at an
 unavailable URL instead of deleting an input that the response may still hold open.
 This publication follow-up changes test lifetime management, not application behavior.
+
+## Main-app consistency repair (17 Oct 2026)
+
+After reviewing the original handoff against merged `main` at `8a3c263`, the owner authorized
+part 1 of the remaining work: main-app defects only. APP-001 in the backlog owns the compact
+spec and evidence; work was prepared on `fix/session-input-and-completion`.
+
+Punchlist 5.5–5.8 and the newly reproduced 5.12 are WRITTEN: quoted path input and stored
+lists, mixed-round repeat settings, file/inline prompt and backend retention, distinct-stream
+merge deduplication, and incomplete reporting for failed local exports. Repeat credentials
+stay in session memory; profile fields/absent/blank meanings, per-video-name clearing and
+environment separation retain their existing policies. No subtitle code/settings changed.
+
+Six regressions failed on unchanged app code; two further failing cases caught path-list
+serialization on save/repeat. Seven new tests pass after repair. Native Windows Python
+3.12.4: **166 passed, 3 symlink skips**, main plain runner and flake8/isort/mypy pass. Real
+Windows CLI checks cover a locked destination with a later successful source and an
+interactive repeat over quoted paths with commas/spaces/Japanese text. Both originals
+survive; produced outputs contain video and audio. These are agent checks, not owner-SEEN.
+Source-bound logs/hashes: Windows Temp `oyt-app001-20261017-sqww6c8x`.
+
+The current runtime does not permit independent agent review. Ponytail invocation is still
+blocked by organization subscription policy; installed instructions were applied manually.
+No live AI/team run or current-source PR CI is claimed. The owner subsequently requested
+commit/push of this feature branch; Git records publication. Landing on main still follows
+the PR/CI policy. The remaining subtitle work awaits further detail from the owner; its
+prototype repairs and product decisions remain separate and unresolved.
 
 ## Claude plugins (17 Oct 2026)
 
@@ -158,9 +185,10 @@ The owner approved the pre-subtitle safety work on 3 Oct 2026:
 - Keep unfinished retry audio and report the source as incomplete; continue the batch.
 
 The configuration and absent `KEEP_TRANSCRIPT` questions (formerly 5.10 and 5.11) are
-settled in `AGENTS.md`. Session consistency bugs 5.5–5.8 and tidy-ups 5.9 remain on the
-punchlist for later work. Track progress there and record the actual Windows checks and real
-runs; the baseline above must not be reused as validation of a new change.
+settled in `AGENTS.md`. The owner subsequently authorized session bugs 5.5–5.8 and the new
+local completion defect, 5.12; the 17 Oct repair above records their local implementation.
+Tidy-ups 5.9 remain separate. Track progress in the punchlist and record actual Windows
+checks/runs; historical baselines must not be reused as validation of a new change.
 
 The safety implementation was prepared on `fix/pre-subtitle-media-safety`; 5.1–5.4 and
 6.1 are WRITTEN. See the punchlist's original safety validation for the 3 Oct checks: Windows

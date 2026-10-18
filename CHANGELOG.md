@@ -21,6 +21,17 @@ regression test.
 
 ### Fixed
 
+- **A failed local export no longer reports “Tasks complete.”** It reports the source as
+  incomplete, preserves the original and continues with later sources in the batch.
+- **Quoted paths work at the source, prompt and transcript pickers.** Explorer's “Copy as
+  path” keeps Windows backslashes, spaces and commas; saved source and prompt lists keep
+  filename commas when reloaded.
+- **“Run again?” keeps the whole round's answers.** Ending a mixed batch on a transcript
+  no longer loses its media settings, and ending on a local file keeps its caption choices.
+- **Interactive repeats keep the selected prompts and AI backend.** File prompts reload
+  from their selected paths; inline prompts and entered API keys stay in session memory.
+- **Audio aliases no longer make duplicate merged videos.** Choices such as `medium,highest`
+  selecting one stream produce one merge per video/container, while distinct streams remain.
 - **A refinement renamed onto its own source is no longer deleted** (F01). The
   source is never retired when an output landed on its path, the Raw/ copy is
   written before the refinement, and transcripts are written atomically.

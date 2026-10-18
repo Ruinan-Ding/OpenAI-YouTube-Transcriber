@@ -77,11 +77,12 @@ from reading it. Each fix needs a test that fails on the code as it is.
 | 5.2 | `_convert_all` keeps the original until every requested format lands. A same-container result is published over the download only after the other formats succeed; partial successes keep their files and the untouched download for a retry. | WRITTEN |
 | 5.3 | In-place replacement catches a Windows file lock, reports the failure and removes only its scratch file. The original survives and the next batch source runs. A locked deferred replacement keeps the completed conversions too. | WRITTEN |
 | 5.4 | A later download failure finalizes complete standalone downloads once, reports the source as incomplete and keeps retry audio. The next source still runs; merge-only video scratch is cleaned up. | WRITTEN |
-| 5.5 | ✓ A double-quoted path is refused at the source prompt and the transcript and prompt pickers (Explorer's "Copy as path", drag and drop); the profile and folder prompts strip the quotes. | OPEN |
-| 5.6 | ✓ "Run again?" after a batch that ends on a transcript or local file keeps only `TARGET_LANGUAGE` and `KEEP_TRANSCRIPT`: `_Remembered.carry` reads the last pass's `cfg.url`. | OPEN |
-| 5.7 | "Run again?" never carries `PROMPT`, or a backend chosen at the console, so both are asked every round (`docs/USAGE.md` says a repeat asks only for the new source). | OPEN |
-| 5.8 | ✓ Two audio wordings for one stream (`medium,highest`, where medium is the top) make two identical merged files. | OPEN |
+| 5.5 | Source, prompt and transcript pickers accept Explorer-quoted paths, preserving spaces, commas and Windows separators. Saved source/prompt lists retain filename commas on reload and transcript relocation. | WRITTEN |
+| 5.6 | "Run again?" retains settings answered across a mixed round when its final pass is a transcript or local file. Questions a round never asked stay unset; per-video names are still cleared. | WRITTEN |
+| 5.7 | Interactive repeats retain file/inline prompts and the selected local/cloud backend. File prompts reload; inline text and entered keys stay in session memory without leaking into the environment. | WRITTEN |
+| 5.8 | Audio aliases selecting one stream merge once per video/container. Different stream IDs remain distinct even when their displayed bitrates round to the same number. | WRITTEN |
 | 5.9 | Tidy-ups: dependency errors go to stdout, not `error()`; `load_opening` runs ffmpeg without `FFMPEG_RUN` and no comment says why; `_same_file` repeats `_path_identity`; `audio_stream_for` rebuilds its selector on every call. | OPEN |
+| 5.12 | Failed local conversions report the source as incomplete instead of “Tasks complete.” Originals survive and later sources still produce their exports. | WRITTEN |
 
 Decisions 5.10 and 5.11 were settled on 3 Oct 2026: configuration stays tracked and an absent
 `KEEP_TRANSCRIPT` still asks. The record is in `AGENTS.md`, *Decisions*.
@@ -101,6 +102,16 @@ The combined safety/workflow delivery was rechecked on 15 Oct before publication
 plain script. A fresh Windows application/profile smoke again produced ten valid outputs
 and preserved its two local sources. GitHub's PR/commit history records the actual CI and
 merge result. These checks do not change owner-SEEN or validate deferred subtitle work.
+
+Application consistency repair on 17 Oct 2026: the owner authorized 5.5–5.8 and the newly
+reproduced local completion defect, 5.12. Six new regressions failed on unchanged `8a3c263`;
+two further failures exposed comma-carrying lists losing their meaning on save/repeat.
+The repaired source passes Windows **166 tests, 3 symlink skips**, the main plain runner,
+and flake8/isort/mypy. Real Windows CLI/profile/repeat checks preserve both original media
+files, report the locked destination's source as incomplete and produce later outputs.
+APP-001 in the backlog owns current checks and remaining review evidence.
+Prepared on `fix/session-input-and-completion`; the owner subsequently requested commit/push.
+Git records delivery; owner-SEEN remains pending. Subtitle repairs and decisions remain open.
 
 ## 6. Additional review (3 Oct 2026)
 
